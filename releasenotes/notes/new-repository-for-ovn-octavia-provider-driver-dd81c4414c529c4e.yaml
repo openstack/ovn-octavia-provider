@@ -1,0 +1,8 @@
+---
+prelude: >
+    OVN Octavia provider driver has been created from the
+    networking-ovn repository.
+upgrade:
+  - |
+    OVN Octavia Provider driver registers under the same entry point.
+    There is no action to be done from operator side.
