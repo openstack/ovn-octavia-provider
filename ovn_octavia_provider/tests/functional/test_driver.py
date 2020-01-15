@@ -180,10 +180,10 @@ class TestOctaviaOvnProviderDriver(
         lbs = []
         for lb in self.nb_api.tables['Load_Balancer'].rows.values():
             external_ids = dict(lb.external_ids)
-            ls_refs = external_ids.get(ovn_driver.LB_EXT_IDS_LS_REFS_KEY)
+            ls_refs = external_ids.get(ovn_const.LB_EXT_IDS_LS_REFS_KEY)
             if ls_refs:
                 external_ids[
-                    ovn_driver.LB_EXT_IDS_LS_REFS_KEY] = jsonutils.loads(
+                    ovn_const.LB_EXT_IDS_LS_REFS_KEY] = jsonutils.loads(
                         ls_refs)
             lbs.append({'name': lb.name, 'protocol': lb.protocol,
                         'vips': lb.vips, 'external_ids': external_ids})
@@ -265,12 +265,12 @@ class TestOctaviaOvnProviderDriver(
             net_id = LR_REF_KEY_HEADER + '%s' % net_id
 
         if add_ref:
-            if net_id not in lb_data[ovn_driver.LB_EXT_IDS_LS_REFS_KEY]:
-                lb_data[ovn_driver.LB_EXT_IDS_LS_REFS_KEY][net_id] = 1
+            if net_id not in lb_data[ovn_const.LB_EXT_IDS_LS_REFS_KEY]:
+                lb_data[ovn_const.LB_EXT_IDS_LS_REFS_KEY][net_id] = 1
         else:
-            ref_ct = lb_data[ovn_driver.LB_EXT_IDS_LS_REFS_KEY][net_id]
+            ref_ct = lb_data[ovn_const.LB_EXT_IDS_LS_REFS_KEY][net_id]
             if ref_ct <= 0:
-                del lb_data[ovn_driver.LB_EXT_IDS_LS_REFS_KEY][net_id]
+                del lb_data[ovn_const.LB_EXT_IDS_LS_REFS_KEY][net_id]
 
     def _wait_for_status(self, expected_statuses, check_call=True):
         call_count = len(expected_statuses)
@@ -331,7 +331,7 @@ class TestOctaviaOvnProviderDriver(
         r_id = self._create_router("r1") if create_router else None
         if r_id:
             lb_data[
-                ovn_driver.LB_EXT_IDS_LR_REF_KEY] = LR_REF_KEY_HEADER + r_id
+                ovn_const.LB_EXT_IDS_LR_REF_KEY] = LR_REF_KEY_HEADER + r_id
         net_info = self._create_net(lb_info['vip_network'], lb_info['cidr'],
                                     router_id=r_id)
         lb_data['vip_net_info'] = net_info
@@ -339,7 +339,7 @@ class TestOctaviaOvnProviderDriver(
                                                  vip_network_id=net_info[0],
                                                  vip_port_id=net_info[3],
                                                  admin_state_up=admin_state_up)
-        lb_data[ovn_driver.LB_EXT_IDS_LS_REFS_KEY] = {}
+        lb_data[ovn_const.LB_EXT_IDS_LS_REFS_KEY] = {}
         lb_data['listeners'] = []
         lb_data['pools'] = []
         self._update_ls_refs(lb_data, net_info[0])
@@ -447,7 +447,7 @@ class TestOctaviaOvnProviderDriver(
             return []
 
         vip_net_info = lb_data['vip_net_info']
-        external_ids = {ovn_driver.LB_EXT_IDS_LS_REFS_KEY: {},
+        external_ids = {ovn_const.LB_EXT_IDS_LS_REFS_KEY: {},
                         'neutron:vip': lb_data['model'].vip_address,
                         'neutron:vip_port_id': vip_net_info[3],
                         'enabled': str(lb_data['model'].admin_state_up)}
@@ -480,20 +480,20 @@ class TestOctaviaOvnProviderDriver(
         # For every connected subnet to the LB set the ref
         # counter.
         for net_id, ref_ct in lb_data[
-                ovn_driver.LB_EXT_IDS_LS_REFS_KEY].items():
+                ovn_const.LB_EXT_IDS_LS_REFS_KEY].items():
             for lb in expected_lbs:
                 # If given LB hasn't VIP configured from
                 # this network we shouldn't touch it here.
                 if net_id == 'neutron-%s' % lb_data['model'].vip_network_id:
                     lb.get('external_ids')[
-                        ovn_driver.LB_EXT_IDS_LS_REFS_KEY][net_id] = 1
+                        ovn_const.LB_EXT_IDS_LS_REFS_KEY][net_id] = 1
 
         # For every connected router set it here.
-        if lb_data.get(ovn_driver.LB_EXT_IDS_LR_REF_KEY):
+        if lb_data.get(ovn_const.LB_EXT_IDS_LR_REF_KEY):
             for lb in expected_lbs:
                 lb.get('external_ids')[
-                    ovn_driver.LB_EXT_IDS_LR_REF_KEY] = lb_data[
-                        ovn_driver.LB_EXT_IDS_LR_REF_KEY]
+                    ovn_const.LB_EXT_IDS_LR_REF_KEY] = lb_data[
+                        ovn_const.LB_EXT_IDS_LR_REF_KEY]
 
         pool_info = {}
         for p in lb_data.get('pools', []):
@@ -506,6 +506,7 @@ class TestOctaviaOvnProviderDriver(
                     continue
                 m_info = 'member_' + m.member_id + '_' + m.address
                 m_info += ":" + str(m.protocol_port)
+                m_info += "_" + str(m.subnet_id)
                 if p_members:
                     p_members += "," + m_info
                 else:
@@ -517,7 +518,7 @@ class TestOctaviaOvnProviderDriver(
                         for fixed_ip in port['fixed_ips']:
                             if fixed_ip['subnet_id'] == m.subnet_id:
                                 ex = external_ids[
-                                    ovn_driver.LB_EXT_IDS_LS_REFS_KEY]
+                                    ovn_const.LB_EXT_IDS_LS_REFS_KEY]
                                 act = ex.get(
                                     'neutron-%s' % port['network_id'], 0)
                                 ex['neutron-%s' % port['network_id']] = act + 1
@@ -771,6 +772,8 @@ class TestOctaviaOvnProviderDriver(
                      'loadbalancers': [{'id': pool.loadbalancer_id,
                                         'provisioning_status': 'ACTIVE'}],
                      'listeners': []})
+                # Delete member from lb_data
+                pool.members.remove(m)
         self._wait_for_status_and_validate(lb_data, expected_status,
                                            check_call=False)
 
@@ -1133,7 +1136,7 @@ class TestOctaviaOvnProviderDriver(
         lba_data = self._create_load_balancer_and_validate(
             {'vip_network': 'N1',
              'cidr': '10.0.0.0/24'})
-        router_id = lba_data[ovn_driver.LB_EXT_IDS_LR_REF_KEY][
+        router_id = lba_data[ovn_const.LB_EXT_IDS_LR_REF_KEY][
             len(LR_REF_KEY_HEADER):]
         # Create Network N2, connect it to R1
         nw_info = self._create_net("N2", "10.0.1.0/24", router_id)
@@ -1152,14 +1155,14 @@ class TestOctaviaOvnProviderDriver(
         # Add N3 to R1
         self.l3_plugin.add_router_interface(
             self.context, lba_data[
-                ovn_driver.LB_EXT_IDS_LR_REF_KEY][len(LR_REF_KEY_HEADER):],
+                ovn_const.LB_EXT_IDS_LR_REF_KEY][len(LR_REF_KEY_HEADER):],
             {'subnet_id': lbb_data['vip_net_info'][1]})
 
         # Check LBB exists on R1
         n_utils.wait_until_true(
             lambda: self._is_lb_associated_to_lr(
                 lbb_data['model'].loadbalancer_id,
-                lba_data[ovn_driver.LB_EXT_IDS_LR_REF_KEY]),
+                lba_data[ovn_const.LB_EXT_IDS_LR_REF_KEY]),
             timeout=10)
         # Check LBA connected to N3
         n_utils.wait_until_true(
@@ -1185,7 +1188,7 @@ class TestOctaviaOvnProviderDriver(
             # N3 removed from R1
             self.l3_plugin.remove_router_interface(
                 self.context, lba_data[
-                    ovn_driver.LB_EXT_IDS_LR_REF_KEY][len(LR_REF_KEY_HEADER):],
+                    ovn_const.LB_EXT_IDS_LR_REF_KEY][len(LR_REF_KEY_HEADER):],
                 {'subnet_id': lbb_data['vip_net_info'][1]})
         else:
             # Delete LBB Cascade
@@ -1195,7 +1198,7 @@ class TestOctaviaOvnProviderDriver(
         # Check LBB doesn't exists on R1
         n_utils.wait_until_true(
             lambda: not self._is_lb_associated_to_lr(
-                lbb_id, lba_data[ovn_driver.LB_EXT_IDS_LR_REF_KEY]),
+                lbb_id, lba_data[ovn_const.LB_EXT_IDS_LR_REF_KEY]),
             timeout=10)
         # Check LBB not connected to N1
         n_utils.wait_until_true(
@@ -1219,7 +1222,7 @@ class TestOctaviaOvnProviderDriver(
         lba_data = self._create_load_balancer_and_validate(
             {'vip_network': 'N1',
              'cidr': '10.0.0.0/24'})
-        router_id = lba_data[ovn_driver.LB_EXT_IDS_LR_REF_KEY][
+        router_id = lba_data[ovn_const.LB_EXT_IDS_LR_REF_KEY][
             len(LR_REF_KEY_HEADER):]
 
         # Create provider network N2, connect it to R1

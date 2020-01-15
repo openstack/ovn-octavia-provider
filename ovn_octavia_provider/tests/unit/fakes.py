@@ -17,6 +17,9 @@ import copy
 import mock
 from oslo_utils import uuidutils
 
+from ovn_octavia_provider.common import constants
+from ovn_octavia_provider.common import utils
+
 
 class FakeResource(dict):
 
@@ -201,6 +204,25 @@ class FakeOVNPort(object):
         port_attrs.update(attrs)
         return type('Logical_Switch_Port', (object, ), port_attrs)
 
+    @staticmethod
+    def from_neutron_port(port):
+        """Create a fake ovn port based on a neutron port."""
+        external_ids = {
+            constants.OVN_NETWORK_NAME_EXT_ID_KEY:
+                utils.ovn_name(port['network_id']),
+            constants.OVN_SG_IDS_EXT_ID_KEY:
+                ' '.join(port['security_groups']),
+            constants.OVN_DEVICE_OWNER_EXT_ID_KEY:
+                port.get('device_owner', '')}
+        addresses = [port['mac_address'], ]
+        addresses += [x['ip_address'] for x in port.get('fixed_ips', [])]
+        port_security = (
+            addresses + [x['ip_address'] for x in
+                         port.get('allowed_address_pairs', [])])
+        return FakeOVNPort.create_one_port(
+            {'external_ids': external_ids, 'addresses': addresses,
+             'port_security': port_security})
+
 
 class FakeOVNRouter(object):
 
@@ -220,3 +242,51 @@ class FakeOVNRouter(object):
         # Overwrite default attributes.
         router_attrs.update(attrs)
         return type('Logical_Router', (object, ), router_attrs)
+
+
+class FakePort(object):
+    """Fake one or more ports."""
+
+    @staticmethod
+    def create_one_port(attrs=None):
+        """Create a fake port.
+
+        :param Dictionary attrs:
+            A dictionary with all attributes
+        :return:
+            A FakeResource object faking the port
+        """
+        attrs = attrs or {}
+
+        # Set default attributes.
+        fake_uuid = uuidutils.generate_uuid()
+        port_attrs = {
+            'admin_state_up': True,
+            'allowed_address_pairs': [{}],
+            'binding:host_id': 'binding-host-id-' + fake_uuid,
+            'binding:profile': {},
+            'binding:vif_details': {},
+            'binding:vif_type': 'ovs',
+            'binding:vnic_type': 'normal',
+            'device_id': 'device-id-' + fake_uuid,
+            'device_owner': 'compute:nova',
+            'dns_assignment': [{}],
+            'dns_name': 'dns-name-' + fake_uuid,
+            'extra_dhcp_opts': [{}],
+            'fixed_ips': [{'subnet_id': 'subnet-id-' + fake_uuid,
+                           'ip_address': '10.10.10.20'}],
+            'id': 'port-id-' + fake_uuid,
+            'mac_address': 'fa:16:3e:a9:4e:72',
+            'name': 'port-name-' + fake_uuid,
+            'network_id': 'network-id-' + fake_uuid,
+            'port_security_enabled': True,
+            'security_groups': [],
+            'status': 'ACTIVE',
+            'tenant_id': 'project-id-' + fake_uuid,
+        }
+
+        # Overwrite default attributes.
+        port_attrs.update(attrs)
+
+        return FakeResource(info=copy.deepcopy(port_attrs),
+                            loaded=True)
