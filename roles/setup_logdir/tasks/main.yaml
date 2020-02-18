@@ -1,0 +1,8 @@
+- name: Ensure logdir exists
+  become: yes
+  file:
+    path: "{{ logdir }}"
+    state: directory
+    owner: stack
+    group: "{{ ansible_user }}"
+    mode: 0775

@@ -1,0 +1,32 @@
+- job:
+    name: ovn-octavia-provider-functional
+    parent: devstack-minimal
+    description: Run OVN Octavia provider functional tests
+    timeout: 7800
+    required-projects:
+      - opendev.org/openstack/devstack
+      - openstack/neutron
+      - openstack/requirements
+    roles:
+      - zuul: openstack/devstack
+    pre-run: playbooks/configure_functional_job.yaml
+    run: playbooks/run_functional_job.yaml
+    post-run: playbooks/post_functional_job.yaml
+    irrelevant-files:
+      - ^.*\.rst$
+      - ^doc/.*$
+      - ^releasenotes/.*$
+    vars:
+      devstack_services:
+        # Ignore any default set by devstack. Emit a "disable_all_services".
+        base: false
+      devstack_localrc:
+        INSTALL_TESTONLY_PACKAGES: true
+        DATABASE_PASSWORD: stackdb
+      tox_envlist: dsvm-functional
+      tox_constraints_file: '{{ ansible_user_dir }}/src/opendev.org/openstack/requirements/upper-constraints.txt'
+      zuul_copy_output:
+        # We need to copy directory with logs to have it in job artifacts also,
+        # /opt/stack/logs is default logs directory defined in neutron's
+        # tox.ini file
+        '{{ devstack_base_dir }}/logs/dsvm-functional-logs': logs

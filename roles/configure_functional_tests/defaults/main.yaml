@@ -1,0 +1,7 @@
+tests_venv: "{{ tox_envlist }}"
+project_name: "ovn-octavia-provider"
+base_dir: "{{ ansible_user_dir }}/src/opendev.org"
+gate_dest_dir: "{{ base_dir }}/openstack"
+devstack_dir: "{{ base_dir }}/openstack/devstack"
+neutron_dir: "{{ gate_dest_dir }}/neutron"
+ovn_octavia_provider_dir: "{{ gate_dest_dir }}/ovn-octavia-provider"
