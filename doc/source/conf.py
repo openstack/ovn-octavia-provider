@@ -76,9 +76,9 @@ htmlhelp_basename = 'ovn-octavia-providerdoc'
 # (source start file, target name, title, author, documentclass
 # [howto/manual]).
 latex_documents = [
-    ('index',
+    ('pdf-index',
      'doc-ovn-octavia-provider.tex',
-     u'ovn-octavia-provider Documentation',
+     u'OVN Octavia Provider Documentation',
      u'OpenStack Foundation', 'manual'),
 ]
 

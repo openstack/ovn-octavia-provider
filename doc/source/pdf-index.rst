@@ -19,3 +19,5 @@
 .. toctree::
    :maxdepth: 2
 
+   admin/index
+   contributor/index

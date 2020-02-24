@@ -1,0 +1,78 @@
+#
+# Sample DevStack local.conf.
+#
+# This sample file is intended to be used for your typical DevStack environment
+# that's running all of OpenStack on a single host.
+#
+# It will enable the use of OVN as Octavia's Provider driver.
+#
+
+[[local|localrc]]
+
+DATABASE_PASSWORD=password
+RABBIT_PASSWORD=password
+SERVICE_PASSWORD=password
+SERVICE_TOKEN=password
+ADMIN_PASSWORD=password
+
+LOGFILE=$DEST/logs/stack.sh.log
+
+Q_AGENT=ovn
+Q_ML2_PLUGIN_MECHANISM_DRIVERS=ovn,logger
+Q_ML2_PLUGIN_TYPE_DRIVERS=local,flat,vlan,geneve
+Q_ML2_TENANT_NETWORK_TYPE="geneve"
+
+enable_service ovn-northd
+enable_service ovn-controller
+enable_service neutron-ovn-metadata-agent
+
+# Disable Neutron agents not used with OVN.
+disable_service q-agt
+disable_service q-l3
+disable_service q-dhcp
+disable_service q-meta
+
+# Enable services, these services depend on neutron plugin.
+enable_plugin neutron https://opendev.org/openstack/neutron
+enable_service q-trunk
+enable_service q-dns
+#enable_service q-qos
+
+# Enable neutron tempest plugin tests
+enable_plugin neutron-tempest-plugin https://opendev.org/openstack/neutron-tempest-plugin
+disable_service horizon
+
+# Cinder (OpenStack Block Storage) is disabled by default to speed up
+# DevStack a bit. You may enable it here if you would like to use it.
+disable_service cinder c-sch c-api c-vol
+
+ENABLE_CHASSIS_AS_GW=True
+
+# If you wish to use the provider network for public access to the cloud,
+# set the following
+Q_USE_PROVIDERNET_FOR_PUBLIC=True
+# Create public bridge
+# This needs to be equalized with Neutron devstack
+OVN_L3_CREATE_PUBLIC_NETWORK=True
+PUBLIC_NETWORK_GATEWAY="172.24.5.1"
+
+# Octavia configuration
+OCTAVIA_NODE="api"
+DISABLE_AMP_IMAGE_BUILD=True
+enable_plugin barbican https://opendev.org/openstack/barbican
+enable_plugin octavia https://opendev.org/openstack/octavia
+enable_plugin octavia-dashboard https://opendev.org/openstack/octavia-dashboard
+LIBS_FROM_GIT+=python-octaviaclient
+enable_service octavia
+enable_service o-api
+enable_service o-hk
+enable_service o-da
+disable_service o-cw
+disable_service o-hm
+
+# OVN octavia provider plugin
+enable_plugin ovn-octavia-provider https://opendev.org/openstack/ovn-octavia-provider
+
+[[post-config|$NOVA_CONF]]
+[scheduler]
+discover_hosts_in_cells_interval = 2
