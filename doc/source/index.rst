@@ -14,11 +14,20 @@
       License for the specific language governing permissions and limitations
       under the License.
 
-Welcome to OVN Octavia provider driver's documentation!
-=======================================================
+Welcome to the OVN Octavia provider driver's documentation!
+===========================================================
 
 .. We use different index pages for HTML and PDF documents for better TOC.
    Please ensure to update pdf-index.rst when you update the index below.
+
+Contents
+--------
+
+.. toctree::
+   :maxdepth: 2
+
+   admin/index
+   contributor/index
 
 Search
 ------
