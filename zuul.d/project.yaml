@@ -10,7 +10,6 @@
         - openstack-tox-cover:
             required-projects:
               - openstack/neutron
-            voting: false
         - ovn-octavia-provider-functional
     gate:
       jobs:
