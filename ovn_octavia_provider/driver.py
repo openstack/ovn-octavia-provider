@@ -14,6 +14,7 @@
 
 import atexit
 import copy
+import queue
 import re
 import threading
 
@@ -31,7 +32,6 @@ from ovs.stream import Stream
 from ovsdbapp.backend.ovs_idl import connection
 from ovsdbapp.backend.ovs_idl import event as row_event
 from ovsdbapp.backend.ovs_idl import idlutils
-from six.moves import queue as Queue
 from stevedore import driver
 import tenacity
 
@@ -201,7 +201,7 @@ class OvnProviderHelper(object):
     ovn_nbdb_api = None
 
     def __init__(self):
-        self.requests = Queue.Queue()
+        self.requests = queue.Queue()
         self.helper_thread = threading.Thread(target=self.request_handler)
         self.helper_thread.daemon = True
         atexit.register(self.shutdown)
