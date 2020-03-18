@@ -28,6 +28,7 @@ Contents
 
    admin/index
    contributor/index
+   configuration/index
 
 Search
 ------
