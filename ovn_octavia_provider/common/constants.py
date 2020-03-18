@@ -33,3 +33,6 @@ LB_EXT_IDS_MEMBER_PREFIX = 'member_'
 LB_EXT_IDS_VIP_KEY = 'neutron:vip'
 LB_EXT_IDS_VIP_FIP_KEY = 'neutron:vip_fip'
 LB_EXT_IDS_VIP_PORT_ID_KEY = 'neutron:vip_port_id'
+
+# Auth sections
+SERVICE_AUTH = 'service_auth'
