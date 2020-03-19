@@ -11,9 +11,9 @@
             required-projects:
               - openstack/neutron
         - ovn-octavia-provider-functional
-        - ovn-octavia-provider-v2-dsvm-scenario:
-            voting: false
+        - ovn-octavia-provider-v2-dsvm-scenario
     gate:
       fail-fast: true
       jobs:
         - ovn-octavia-provider-functional
+        - ovn-octavia-provider-v2-dsvm-scenario
