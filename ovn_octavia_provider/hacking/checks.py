@@ -47,6 +47,7 @@ tests_imports_dot = re.compile(r"\bimport[\s]+ovn_octavia_provider.tests\b")
 tests_imports_from1 = re.compile(r"\bfrom[\s]+ovn_octavia_provider.tests\b")
 tests_imports_from2 = re.compile(
     r"\bfrom[\s]+ovn_octavia_provider[\s]+import[\s]+tests\b")
+no_line_continuation_backslash_re = re.compile(r'.*(\\)\n')
 
 
 @flake8ext
@@ -170,6 +171,27 @@ def check_python3_no_filter(logical_line):
         yield(0, msg)
 
 
+def check_line_continuation_no_backslash(logical_line, tokens):
+    """N346 - Don't use backslashes for line continuation.
+
+    :param logical_line: The logical line to check. Not actually used.
+    :param tokens: List of tokens to check.
+    :returns: None if the tokens don't contain any issues, otherwise a tuple
+              is yielded that contains the offending index in the logical
+              line and a message describe the check validation failure.
+    """
+    backslash = None
+    for token_type, text, start, end, orig_line in tokens:
+        m = no_line_continuation_backslash_re.match(orig_line)
+        if m:
+            backslash = (start[0], m.start(1))
+            break
+
+    if backslash is not None:
+        msg = 'N346: Backslash line continuations not allowed'
+        yield backslash, msg
+
+
 def factory(register):
     register(check_assert_called_once_with)
     register(check_asserttruefalse)
@@ -178,3 +200,4 @@ def factory(register):
     register(check_assertequal_for_httpcode)
     register(check_no_imports_from_tests)
     register(check_python3_no_filter)
+    register(check_line_continuation_no_backslash)
