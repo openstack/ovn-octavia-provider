@@ -1278,7 +1278,7 @@ class OvnProviderHelper(object):
                 protocol=listener['protocol'])
         except idlutils.RowNotFound:
             LOG.exception(EXCEPTION_MSG, "update of listener")
-            # LB row not found during updating a listner. That is a problem.
+            # LB row not found during update of a listener. That is a problem.
             status['listeners'][0]['provisioning_status'] = constants.ERROR
             status['loadbalancers'][0]['provisioning_status'] = constants.ERROR
             return status
@@ -1483,8 +1483,8 @@ class OvnProviderHelper(object):
                 pool['loadbalancer_id'], protocol=pool['protocol'])
         except idlutils.RowNotFound:
             LOG.exception(EXCEPTION_MSG, "update of pool")
-            # LB row not found during updating a listner. That is a problem.
-            status['pool'][0]['provisioning_status'] = constants.ERROR
+            # LB row not found during update of a listener. That is a problem.
+            status['pools'][0]['provisioning_status'] = constants.ERROR
             status['loadbalancers'][0]['provisioning_status'] = constants.ERROR
             return status
 
