@@ -12,31 +12,24 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
+"""
+Guidelines for writing new hacking checks
+
+ - Use only for OVN Octavia provider specific tests. OpenStack
+   general tests should be submitted to the common 'hacking' module.
+ - Pick numbers in the range N3xx. Find the current test with
+   the highest allocated number and then pick the next value.
+ - Keep the test method code in the source file ordered based
+   on the N3xx value.
+ - List the new rule in the top level HACKING.rst file
+ - Add test cases for each new rule to
+   ovn_octavia_provider/tests/unit/hacking/test_checks.py
+
+"""
+
 import re
 
-
-def flake8ext(f):
-    """Decorator to indicate flake8 extension.
-
-    This is borrowed from hacking.core.flake8ext(), but at now it is used
-    only for unit tests to know which are ovn_octavia_provider flake8
-    extensions.
-    """
-    f.name = __name__
-    return f
-
-
-# Guidelines for writing new hacking checks
-#
-#  - Use only for OVN Octavia provider specific tests. OpenStack
-#    general tests should be submitted to the common 'hacking' module.
-#  - Pick numbers in the range N3xx. Find the current test with
-#    the highest allocated number and then pick the next value.
-#  - Keep the test method code in the source file ordered based
-#    on the N3xx value.
-#  - List the new rule in the top level HACKING.rst file
-#  - Add test cases for each new rule to
-#    ovn_octavia_provider/tests/unit/hacking/test_checks.py
+from hacking import core
 
 
 unittest_imports_dot = re.compile(r"\bimport[\s]+unittest\b")
@@ -50,7 +43,7 @@ tests_imports_from2 = re.compile(
 no_line_continuation_backslash_re = re.compile(r'.*(\\)\n')
 
 
-@flake8ext
+@core.flake8ext
 def check_assert_called_once_with(logical_line, filename):
     """Try to detect unintended calls of nonexistent mock methods like:
 
@@ -79,7 +72,7 @@ def check_assert_called_once_with(logical_line, filename):
             yield (0, msg)
 
 
-@flake8ext
+@core.flake8ext
 def check_asserttruefalse(logical_line, filename):
     """N328 - Don't use assertEqual(True/False, observed)."""
 
@@ -102,7 +95,7 @@ def check_asserttruefalse(logical_line, filename):
             yield (0, msg)
 
 
-@flake8ext
+@core.flake8ext
 def check_assertempty(logical_line, filename):
     """Enforce using assertEqual parameter ordering in case of empty objects.
 
@@ -119,7 +112,7 @@ def check_assertempty(logical_line, filename):
             yield (0, msg)
 
 
-@flake8ext
+@core.flake8ext
 def check_assertisinstance(logical_line, filename):
     """N331 - Enforce using assertIsInstance."""
 
@@ -131,7 +124,7 @@ def check_assertisinstance(logical_line, filename):
             yield (0, msg)
 
 
-@flake8ext
+@core.flake8ext
 def check_assertequal_for_httpcode(logical_line, filename):
     """N332 - Enforce correct oredering for httpcode in assertEqual."""
 
@@ -143,7 +136,7 @@ def check_assertequal_for_httpcode(logical_line, filename):
             yield (0, msg)
 
 
-@flake8ext
+@core.flake8ext
 def check_no_imports_from_tests(logical_line, filename):
     """N343 - Production code must not import from ovn_octavia_provider.tests.*
 
@@ -160,7 +153,7 @@ def check_no_imports_from_tests(logical_line, filename):
             yield(0, msg)
 
 
-@flake8ext
+@core.flake8ext
 def check_python3_no_filter(logical_line):
     """N344 - Use list comprehension instead of filter(lambda)."""
 
@@ -169,35 +162,3 @@ def check_python3_no_filter(logical_line):
 
     if filter_match.match(logical_line):
         yield(0, msg)
-
-
-def check_line_continuation_no_backslash(logical_line, tokens):
-    """N346 - Don't use backslashes for line continuation.
-
-    :param logical_line: The logical line to check. Not actually used.
-    :param tokens: List of tokens to check.
-    :returns: None if the tokens don't contain any issues, otherwise a tuple
-              is yielded that contains the offending index in the logical
-              line and a message describe the check validation failure.
-    """
-    backslash = None
-    for token_type, text, start, end, orig_line in tokens:
-        m = no_line_continuation_backslash_re.match(orig_line)
-        if m:
-            backslash = (start[0], m.start(1))
-            break
-
-    if backslash is not None:
-        msg = 'N346: Backslash line continuations not allowed'
-        yield backslash, msg
-
-
-def factory(register):
-    register(check_assert_called_once_with)
-    register(check_asserttruefalse)
-    register(check_assertempty)
-    register(check_assertisinstance)
-    register(check_assertequal_for_httpcode)
-    register(check_no_imports_from_tests)
-    register(check_python3_no_filter)
-    register(check_line_continuation_no_backslash)

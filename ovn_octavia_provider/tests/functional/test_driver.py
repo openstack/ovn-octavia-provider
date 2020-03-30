@@ -731,11 +731,9 @@ class TestOctaviaOvnProviderDriver(
             'listeners': []
         }
         if getattr(member, 'admin_state_up', None):
-            expected_status['members'][0]['operating_status'] = \
-                "ONLINE"
+            expected_status['members'][0]['operating_status'] = "ONLINE"
         else:
-            expected_status['members'][0]['operating_status'] = \
-                "OFFLINE"
+            expected_status['members'][0]['operating_status'] = "OFFLINE"
         self._wait_for_status_and_validate(lb_data, [expected_status])
 
     def _update_members_in_batch_and_validate(self, lb_data, pool_id,

@@ -221,24 +221,3 @@ class HackingTestCase(base.BaseTestCase):
         self.assertLinePasses(f, "[obj for obj in data if test(obj)]")
         self.assertLinePasses(f, "filter(function, range(0,10))")
         self.assertLinePasses(f, "lambda x, y: x+y")
-
-    def test_line_continuation_no_backslash(self):
-        results = list(checks.check_line_continuation_no_backslash(
-            '', [(1, 'import', (2, 0), (2, 6), 'import \\\n'),
-                 (1, 'os', (3, 4), (3, 6), '    os\n')]))
-        self.assertEqual(1, len(results))
-        self.assertEqual((2, 7), results[0][0])
-
-    def _get_factory_checks(self, factory):
-        check_fns = []
-
-        def _reg(check_fn):
-            self.assertTrue(hasattr(check_fn, '__call__'))
-            self.assertFalse(check_fn in check_fns)
-            check_fns.append(check_fn)
-
-        factory(_reg)
-        return check_fns
-
-    def test_factory(self):
-        self.assertGreater(len(self._get_factory_checks(checks.factory)), 0)

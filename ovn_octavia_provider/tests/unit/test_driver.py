@@ -826,7 +826,7 @@ class TestOvnProviderHelper(TestOvnOctaviaBase):
         self.assertEqual(f(status), expected)
         self.assertEqual(f(expected), expected)
         status = {}
-        self.assertEqual(f(status), {})
+        self.assertFalse(f(status))
 
     def test__find_ovn_lbs(self):
         self.mock_find_ovn_lbs.stop()
