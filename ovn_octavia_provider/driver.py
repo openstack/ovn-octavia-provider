@@ -32,9 +32,9 @@ from ovs.stream import Stream
 from ovsdbapp.backend.ovs_idl import connection
 from ovsdbapp.backend.ovs_idl import event as row_event
 from ovsdbapp.backend.ovs_idl import idlutils
-from stevedore import driver
 import tenacity
 
+from ovn_octavia_provider.common import clients
 from ovn_octavia_provider.common import config as ovn_conf
 # TODO(mjozefcz): Start consuming const and utils
 # from neutron-lib once released.
@@ -89,19 +89,22 @@ class IPVersionsMixingNotSupportedError(
     operator_fault_string = user_fault_string
 
 
-def get_network_driver():
+def get_neutron_client():
     try:
-        CONF.import_group('controller_worker', 'octavia.common.config')
-        name = CONF.controller_worker.network_driver
-    except ImportError:
-        # TODO(mjozefcz): Remove this when the config option will
-        # land in octavia-lib.
-        name = 'network_noop_driver'
-    return driver.DriverManager(
-        namespace='octavia.network.drivers',
-        name=name,
-        invoke_on_load=True
-    ).driver
+        return clients.NeutronAuth(
+            endpoint=CONF.neutron.endpoint,
+            region=CONF.neutron.region_name,
+            endpoint_type=CONF.neutron.endpoint_type,
+            service_name=CONF.neutron.service_name,
+            insecure=CONF.neutron.insecure,
+            ca_cert=CONF.neutron.ca_certificates_file,
+        ).neutron_client
+    except n_exc.NeutronClientException as e:
+        msg = _('Cannot inialize Neutron Client. Exception: %s. '
+                'Please verify Neutron service configuration '
+                'in Octavia API configuration.') % e
+        raise driver_exceptions.DriverError(
+            operator_fault_string=msg)
 
 
 class LogicalRouterPortEvent(row_event.RowEvent):
@@ -613,10 +616,10 @@ class OvnProviderHelper(object):
         if network_id:
             ls_name = utils.ovn_name(network_id)
         else:
-            network_driver = get_network_driver()
+            neutron_client = get_neutron_client()
             try:
-                subnet = network_driver.get_subnet(subnet_id)
-                ls_name = utils.ovn_name(subnet.network_id)
+                subnet = neutron_client.show_subnet(subnet_id)
+                ls_name = utils.ovn_name(subnet['subnet']['network_id'])
             except n_exc.NotFound:
                 LOG.warning('Subnet %s not found while trying to '
                             'fetch its data.', subnet_id)
@@ -741,7 +744,7 @@ class OvnProviderHelper(object):
             return self._add_lb_to_lr_association(ovn_lb, ovn_lr, lr_ref)
 
     def _find_ls_for_lr(self, router):
-        netdriver = get_network_driver()
+        neutron_client = get_neutron_client()
         ls = []
         for port in router.ports:
             if port.gateway_chassis:
@@ -750,8 +753,8 @@ class OvnProviderHelper(object):
                 ovn_const.OVN_SUBNET_EXT_IDS_KEY, '').split(' ')
             for sid in sids:
                 try:
-                    ls.append(utils.ovn_name(
-                        netdriver.get_subnet(sid).network_id))
+                    subnet = neutron_client.show_subnet(sid)
+                    ls.append(utils.ovn_name(subnet['subnet']['network_id']))
                 except n_exc.NotFound:
                     LOG.exception('Subnet %s not found while trying to '
                                   'fetch its data.', sid)
@@ -911,14 +914,14 @@ class OvnProviderHelper(object):
 
     def lb_create(self, loadbalancer, protocol=None):
         port = None
-        network_driver = get_network_driver()
+        neutron_client = get_neutron_client()
         if loadbalancer.get('vip_port_id'):
             # In case we don't have vip_network_id
-            port = network_driver.neutron_client.show_port(
+            port = neutron_client.show_port(
                 loadbalancer['vip_port_id'])['port']
         elif (loadbalancer.get('vip_network_id') and
               loadbalancer.get('vip_address')):
-            ports = network_driver.neutron_client.list_ports(
+            ports = neutron_client.list_ports(
                 network_id=loadbalancer['vip_network_id'])
             for p in ports['ports']:
                 for ip in p['fixed_ips']:
@@ -1780,13 +1783,13 @@ class OvnProviderHelper(object):
             port['port']['fixed_ips'][0]['ip_address'] = vip_d['vip_address']
         except KeyError:
             pass
-        network_driver = get_network_driver()
+        neutron_client = get_neutron_client()
         try:
-            return network_driver.neutron_client.create_port(port)
+            return neutron_client.create_port(port)
         except n_exc.IpAddressAlreadyAllocatedClient:
             # Sometimes the VIP is already created (race-conditions)
             # Lets get the it from Neutron API.
-            ports = network_driver.neutron_client.list_ports(
+            ports = neutron_client.list_ports(
                 network_id=vip_d['vip_network_id'],
                 name='%s%s' % (ovn_const.LB_VIP_PORT_PREFIX, lb_id))
             if not ports['ports']:
@@ -1804,9 +1807,9 @@ class OvnProviderHelper(object):
             return {'port': port}
 
     def delete_vip_port(self, port_id):
-        network_driver = get_network_driver()
+        neutron_client = get_neutron_client()
         try:
-            network_driver.neutron_client.delete_port(port_id)
+            neutron_client.delete_port(port_id)
         except n_exc.PortNotFoundClient:
             LOG.warning("Port %s could not be found. Please "
                         "check Neutron logs. Perhaps port "
@@ -1849,10 +1852,10 @@ class OvnProviderHelper(object):
             return
 
         # Find out if member has FIP assigned.
-        network_driver = get_network_driver()
+        neutron_client = get_neutron_client()
         try:
-            subnet = network_driver.get_subnet(info['subnet_id'])
-            ls_name = utils.ovn_name(subnet.network_id)
+            subnet = neutron_client.show_subnet(info['subnet_id'])
+            ls_name = utils.ovn_name(subnet['subnet']['network_id'])
         except n_exc.NotFound:
             LOG.exception('Subnet %s not found while trying to '
                           'fetch its data.', info['subnet_id'])
@@ -1908,12 +1911,12 @@ class OvnProviderHelper(object):
             # We should call neutron API to do 'empty' update of the FIP.
             # It will bump revision number and do recomputation of the FIP.
             try:
-                fip_info = network_driver.neutron_client.show_floatingip(
+                fip_info = neutron_client.show_floatingip(
                     fip.external_ids[ovn_const.OVN_FIP_EXT_ID_KEY])
                 empty_update = {
                     "floatingip": {
                         'description': fip_info['floatingip']['description']}}
-                network_driver.neutron_client.update_floatingip(
+                neutron_client.update_floatingip(
                     fip.external_ids[ovn_const.OVN_FIP_EXT_ID_KEY],
                     empty_update)
             except n_exc.NotFound:

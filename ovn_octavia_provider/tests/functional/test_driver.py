@@ -61,25 +61,22 @@ class TestOctaviaOvnProviderDriver(
         self.ovn_driver._ovn_helper._octavia_driver_lib = mock.MagicMock()
         self._o_driver_lib = self.ovn_driver._ovn_helper._octavia_driver_lib
         self._o_driver_lib.update_loadbalancer_status = mock.Mock()
-        self.fake_network_driver = mock.MagicMock()
-        ovn_driver.get_network_driver = mock.MagicMock()
-        ovn_driver.get_network_driver.return_value = self.fake_network_driver
-        self.fake_network_driver.get_subnet = self._mock_get_subnet
-        self.fake_network_driver.neutron_client.list_ports = (
-            self._mock_list_ports)
-        self.fake_network_driver.neutron_client.show_port = (
-            self._mock_show_port)
-        self.fake_network_driver.neutron_client.\
-            delete_port.return_value = True
+        self.fake_neutron_client = mock.MagicMock()
+        ovn_driver.get_neutron_client = mock.MagicMock()
+        ovn_driver.get_neutron_client.return_value = self.fake_neutron_client
+        self.fake_neutron_client.show_subnet = self._mock_show_subnet
+        self.fake_neutron_client.list_ports = self._mock_list_ports
+        self.fake_neutron_client.show_port = self._mock_show_port
+        self.fake_neutron_client.delete_port.return_value = True
         self._local_net_cache = {}
         self._local_port_cache = {'ports': []}
         self.addCleanup(self.ovn_driver._ovn_helper.shutdown)
         self.core_plugin = directory.get_plugin()
 
-    def _mock_get_subnet(self, subnet_id):
-        m_subnet = mock.MagicMock()
-        m_subnet.network_id = self._local_net_cache[subnet_id]
-        return m_subnet
+    def _mock_show_subnet(self, subnet_id):
+        subnet = {}
+        subnet['network_id'] = self._local_net_cache[subnet_id]
+        return {'subnet': subnet}
 
     def _mock_list_ports(self, **kwargs):
         return self._local_port_cache
