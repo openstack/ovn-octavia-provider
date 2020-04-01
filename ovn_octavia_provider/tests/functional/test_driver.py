@@ -14,8 +14,8 @@
 #    under the License.
 
 import copy
+from unittest import mock
 
-import mock
 from neutron.common import utils as n_utils
 from neutron_lib.plugins import directory
 from octavia_lib.api.drivers import data_models as octavia_data_model
@@ -288,7 +288,7 @@ class TestOctaviaOvnProviderDriver(
             #             'provisioning_status': 'ACTIVE'}]},
             updated_statuses = []
             for call in update_loadbalancer_status.mock_calls:
-                updated_statuses.append(call.args[0])
+                updated_statuses.append(call[1][0])
             calls_found = []
             for expected_status in expected_statuses:
                 for updated_status in updated_statuses:
