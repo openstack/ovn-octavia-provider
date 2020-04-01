@@ -13,8 +13,8 @@
 #
 import copy
 import os
+from unittest import mock
 
-import mock
 from neutron.tests import base
 from neutronclient.common import exceptions as n_exc
 from octavia_lib.api.drivers import data_models

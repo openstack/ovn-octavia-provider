@@ -13,8 +13,8 @@
 #
 
 import copy
+from unittest import mock
 
-import mock
 from oslo_utils import uuidutils
 
 from ovn_octavia_provider.common import constants
