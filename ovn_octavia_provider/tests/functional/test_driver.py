@@ -13,7 +13,9 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+import atexit
 import copy
+import multiprocessing as mp
 
 import mock
 from neutron.common import utils as n_utils
@@ -29,25 +31,20 @@ from ovsdbapp.schema.ovn_northbound import impl_idl as idl_ovn
 # NOTE(mjozefcz): We need base neutron functionals because we need
 # mechanism driver and l3 plugin.
 from neutron.tests.functional import base
+from ovn_octavia_provider import agent as ovn_agent
 from ovn_octavia_provider.common import constants as ovn_const
 from ovn_octavia_provider import driver as ovn_driver
 
 LR_REF_KEY_HEADER = 'neutron-'
 
 
-class TestOctaviaOvnProviderDriver(
+class TestOvnOctaviaBase(
         base.TestOVNFunctionalBase,
         base.BaseLoggingTestCase):
 
     def setUp(self):
-        super(TestOctaviaOvnProviderDriver, self).setUp()
-        # ovn_driver.OvnProviderHelper.ovn_nbdb_api is a class variable.
-        # Set it to None, so that when a worker starts the 2nd test we don't
-        # use the old object.
+        super(TestOvnOctaviaBase, self).setUp()
         idl_ovn.OvnNbApiIdlImpl.ovsdb_connection = None
-        ovn_driver.OvnProviderHelper.ovn_nbdb_api = None
-        ovn_driver.OvnProviderHelper.ovn_nbdb_api_for_events = None
-        ovn_driver.OvnProviderDriver._ovn_helper = None
         # TODO(mjozefcz): Use octavia listeners to provide needed
         # sockets and modify tests in order to verify if fake
         # listener (status) has received valid value.
@@ -70,7 +67,6 @@ class TestOctaviaOvnProviderDriver(
         self.fake_neutron_client.delete_port.return_value = True
         self._local_net_cache = {}
         self._local_port_cache = {'ports': []}
-        self.addCleanup(self.ovn_driver._ovn_helper.shutdown)
         self.core_plugin = directory.get_plugin()
 
     def _mock_show_subnet(self, subnet_id):
@@ -873,6 +869,10 @@ class TestOctaviaOvnProviderDriver(
 
         self._wait_for_status_and_validate(lb_data, [expected_status])
 
+
+class TestOvnOctaviaProviderDriver(
+        TestOvnOctaviaBase):
+
     def test_loadbalancer(self):
         lb_data = self._create_load_balancer_and_validate(
             {'vip_network': 'vip_network',
@@ -1128,6 +1128,66 @@ class TestOctaviaOvnProviderDriver(
         self._create_listener_and_validate(lb_data)
         self._delete_load_balancer_and_validate(lb_data)
 
+    def test_lb_listener_pool_workflow(self):
+        lb_data = self._create_load_balancer_and_validate(
+            {'vip_network': 'vip_network',
+             'cidr': '10.0.0.0/24'})
+        self._create_listener_and_validate(lb_data)
+        self._create_pool_and_validate(
+            lb_data, "p1", listener_id=lb_data['listeners'][0].listener_id)
+        self._delete_pool_and_validate(
+            lb_data, "p1", listener_id=lb_data['listeners'][0].listener_id)
+        self._delete_listener_and_validate(lb_data)
+        self._delete_load_balancer_and_validate(lb_data)
+
+    def test_lb_member_batch_update(self):
+        # Create a LoadBalancer
+        lb_data = self._create_load_balancer_and_validate(
+            {'vip_network': 'vip_network',
+             'cidr': '10.0.0.0/24'})
+        # Create a pool
+        self._create_pool_and_validate(lb_data, "p1")
+        pool_id = lb_data['pools'][0].pool_id
+        # Create Member-1 and associate it with lb_data
+        self._create_member_and_validate(
+            lb_data, pool_id, lb_data['vip_net_info'][1],
+            lb_data['vip_net_info'][0], '10.0.0.10')
+        # Create Member-2
+        m_member = self._create_member_model(pool_id,
+                                             lb_data['vip_net_info'][1],
+                                             '10.0.0.12')
+        # Update ovn's Logical switch reference
+        self._update_ls_refs(lb_data, lb_data['vip_net_info'][0])
+        lb_data['pools'][0].members.append(m_member)
+        # Add a new member to the LB
+        members = [m_member] + [lb_data['pools'][0].members[0]]
+        self._update_members_in_batch_and_validate(lb_data, pool_id, members)
+        # Deleting one member, while keeping the other member available
+        self._update_members_in_batch_and_validate(lb_data, pool_id,
+                                                   [m_member])
+        self._delete_load_balancer_and_validate(lb_data)
+
+
+class TestOvnOctaviaProviderAgent(TestOvnOctaviaBase):
+
+    def setUp(self):
+        super(TestOvnOctaviaProviderAgent, self).setUp()
+        self._initialize_ovn_da()
+
+    def _initialize_ovn_da(self):
+        # NOTE(mjozefcz): In theory this is separate process
+        # with IDL running, but to make it easier for now
+        # we can initialize this IDL here instead spawning
+        # another process.
+        da_helper = ovn_driver.OvnProviderHelper()
+        events = [ovn_driver.LogicalRouterPortEvent(da_helper),
+                  ovn_driver.LogicalSwitchPortUpdateEvent(da_helper)]
+        ovn_nb_idl_for_events = ovn_driver.OvnNbIdlForLb(
+            event_lock_name='func_test')
+        ovn_nb_idl_for_events.notify_handler.watch_events(events)
+        ovn_nb_idl_for_events.start()
+        atexit.register(da_helper.shutdown)
+
     def _test_lrp_event_handler(self, cascade=False):
         # Create Network N1 on router R1 and LBA on N1
         lba_data = self._create_load_balancer_and_validate(
@@ -1243,45 +1303,6 @@ class TestOctaviaOvnProviderDriver(
                 LR_REF_KEY_HEADER + provider_net['network']['id']),
             timeout=10)
 
-    def test_lb_listener_pool_workflow(self):
-        lb_data = self._create_load_balancer_and_validate(
-            {'vip_network': 'vip_network',
-             'cidr': '10.0.0.0/24'})
-        self._create_listener_and_validate(lb_data)
-        self._create_pool_and_validate(
-            lb_data, "p1", listener_id=lb_data['listeners'][0].listener_id)
-        self._delete_pool_and_validate(
-            lb_data, "p1", listener_id=lb_data['listeners'][0].listener_id)
-        self._delete_listener_and_validate(lb_data)
-        self._delete_load_balancer_and_validate(lb_data)
-
-    def test_lb_member_batch_update(self):
-        # Create a LoadBalancer
-        lb_data = self._create_load_balancer_and_validate(
-            {'vip_network': 'vip_network',
-             'cidr': '10.0.0.0/24'})
-        # Create a pool
-        self._create_pool_and_validate(lb_data, "p1")
-        pool_id = lb_data['pools'][0].pool_id
-        # Create Member-1 and associate it with lb_data
-        self._create_member_and_validate(
-            lb_data, pool_id, lb_data['vip_net_info'][1],
-            lb_data['vip_net_info'][0], '10.0.0.10')
-        # Create Member-2
-        m_member = self._create_member_model(pool_id,
-                                             lb_data['vip_net_info'][1],
-                                             '10.0.0.12')
-        # Update ovn's Logical switch reference
-        self._update_ls_refs(lb_data, lb_data['vip_net_info'][0])
-        lb_data['pools'][0].members.append(m_member)
-        # Add a new member to the LB
-        members = [m_member] + [lb_data['pools'][0].members[0]]
-        self._update_members_in_batch_and_validate(lb_data, pool_id, members)
-        # Deleting one member, while keeping the other member available
-        self._update_members_in_batch_and_validate(lb_data, pool_id,
-                                                   [m_member])
-        self._delete_load_balancer_and_validate(lb_data)
-
     def test_fip_on_lb_vip(self):
         """This test checks if FIP on LB VIP is configured.
 
@@ -1351,3 +1372,13 @@ class TestOctaviaOvnProviderDriver(
             elif ls.name == provider_net:
                 # Make sure that LB1 is not added to provider net - e1 LS
                 self.assertListEqual([], ls.load_balancer)
+
+    def test_agent_exit(self):
+        exit_event = mp.Event()
+        agent = mp.Process(target=ovn_agent.OvnProviderAgent,
+                           args=[exit_event])
+        agent.start()
+        self.assertTrue(agent.is_alive())
+        exit_event.set()
+        agent.join()
+        self.assertFalse(agent.is_alive())
