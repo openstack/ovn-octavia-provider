@@ -79,7 +79,6 @@ OVN_NATIVE_LB_PROTOCOLS = [constants.PROTOCOL_TCP,
                            constants.PROTOCOL_UDP, ]
 OVN_NATIVE_LB_ALGORITHMS = [constants.LB_ALGORITHM_SOURCE_IP_PORT, ]
 EXCEPTION_MSG = "Exception occurred during %s"
-OVN_EVENT_LOCK_NAME = "neutron_ovn_octavia_event_lock"
 
 
 class IPVersionsMixingNotSupportedError(
@@ -109,8 +108,6 @@ def get_neutron_client():
 
 class LogicalRouterPortEvent(row_event.RowEvent):
 
-    driver = None
-
     def __init__(self, driver):
         table = 'Logical_Router_Port'
         events = (self.ROW_CREATE, self.ROW_DELETE)
@@ -124,7 +121,7 @@ class LogicalRouterPortEvent(row_event.RowEvent):
                   '%(event)s, %(row)s',
                   {'event': event,
                    'row': row})
-        if not self.driver or row.gateway_chassis:
+        if row.gateway_chassis:
             return
         if event == self.ROW_CREATE:
             self.driver.lb_create_lrp_assoc_handler(row)
@@ -133,8 +130,6 @@ class LogicalRouterPortEvent(row_event.RowEvent):
 
 
 class LogicalSwitchPortUpdateEvent(row_event.RowEvent):
-
-    driver = None
 
     def __init__(self, driver):
         table = 'Logical_Switch_Port'
@@ -145,11 +140,15 @@ class LogicalSwitchPortUpdateEvent(row_event.RowEvent):
         self.driver = driver
 
     def run(self, event, row, old):
+        LOG.debug('LogicalSwitchPortUpdateEvent logged, '
+                  '%(event)s, %(row)s',
+                  {'event': event,
+                   'row': row})
         # Get the neutron:port_name from external_ids and check if
         # it's a vip port or not.
         port_name = row.external_ids.get(
             ovn_const.OVN_PORT_NAME_EXT_ID_KEY, '')
-        if self.driver and port_name.startswith(ovn_const.LB_VIP_PORT_PREFIX):
+        if port_name.startswith(ovn_const.LB_VIP_PORT_PREFIX):
             # Handle port update only for vip ports created by
             # this driver.
             self.driver.vip_port_update_handler(row)
@@ -199,21 +198,19 @@ class OvnNbIdlForLb(ovsdb_monitor.OvnIdl):
 
 class OvnProviderHelper(object):
 
-    ovn_nbdb_api_for_events = None
-    ovn_nb_idl_for_events = None
-    ovn_nbdb_api = None
-
     def __init__(self):
         self.requests = queue.Queue()
         self.helper_thread = threading.Thread(target=self.request_handler)
         self.helper_thread.daemon = True
-        atexit.register(self.shutdown)
         self._octavia_driver_lib = o_driver_lib.DriverLibrary()
         self._check_and_set_ssl_files()
         self._init_lb_actions()
-        self.events = [LogicalRouterPortEvent(self),
-                       LogicalSwitchPortUpdateEvent(self)]
-        self.start()
+
+        # NOTE(mjozefcz): This API is only for handling octavia API requests.
+        self.ovn_nbdb = OvnNbIdlForLb()
+        self.ovn_nbdb_api = self.ovn_nbdb.start()
+
+        self.helper_thread.start()
 
     def _init_lb_actions(self):
         self._lb_request_func_maps = {
@@ -253,8 +250,6 @@ class OvnProviderHelper(object):
     def _check_and_set_ssl_files(self):
         # TODO(reedip): Make ovsdb_monitor's _check_and_set_ssl_files() public
         # This is a copy of ovsdb_monitor._check_and_set_ssl_files
-        if OvnProviderHelper.ovn_nbdb_api:
-            return
         priv_key_file = ovn_conf.get_ovn_nb_private_key()
         cert_file = ovn_conf.get_ovn_nb_certificate()
         ca_cert_file = ovn_conf.get_ovn_nb_ca_cert()
@@ -267,25 +262,10 @@ class OvnProviderHelper(object):
         if ca_cert_file:
             Stream.ssl_set_ca_cert_file(ca_cert_file)
 
-    def start(self):
-        # NOTE(mjozefcz): This API is only for handling octavia API requests.
-        if not OvnProviderHelper.ovn_nbdb_api:
-            OvnProviderHelper.ovn_nbdb_api = OvnNbIdlForLb().start()
-
-        # NOTE(mjozefcz): This API is only for handling OVSDB events!
-        if not OvnProviderHelper.ovn_nbdb_api_for_events:
-            OvnProviderHelper.ovn_nb_idl_for_events = OvnNbIdlForLb(
-                event_lock_name=OVN_EVENT_LOCK_NAME)
-            (OvnProviderHelper.ovn_nb_idl_for_events.notify_handler.
-             watch_events(self.events))
-            OvnProviderHelper.ovn_nbdb_api_for_events = (
-                OvnProviderHelper.ovn_nb_idl_for_events.start())
-        self.helper_thread.start()
-
     def shutdown(self):
         self.requests.put({'type': REQ_TYPE_EXIT})
         self.helper_thread.join()
-        self.ovn_nb_idl_for_events.notify_handler.unwatch_events(self.events)
+        self.ovn_nbdb.stop()
 
     @staticmethod
     def _map_val(row, col, key):
@@ -416,7 +396,7 @@ class OvnProviderHelper(object):
         port_name = vip_lp.external_ids.get(ovn_const.OVN_PORT_NAME_EXT_ID_KEY)
         lb_id = port_name[len(ovn_const.LB_VIP_PORT_PREFIX):]
         try:
-            ovn_lbs = self._find_ovn_lbs(lb_id)
+            ovn_lbs = self._find_ovn_lbs_with_retry(lb_id)
         except idlutils.RowNotFound:
             LOG.debug("Loadbalancer %s not found!", lb_id)
             return
@@ -491,6 +471,14 @@ class OvnProviderHelper(object):
                    "status: %s") % e.fault_string
             LOG.error(msg)
             raise driver_exceptions.UpdateStatusError(msg)
+
+    @tenacity.retry(
+        retry=tenacity.retry_if_exception_type(idlutils.RowNotFound),
+        wait=tenacity.wait_exponential(),
+        stop=tenacity.stop_after_delay(10),
+        reraise=True)
+    def _find_ovn_lbs_with_retry(self, lb_id, protocol=None):
+        return self._find_ovn_lbs(lb_id, protocol=protocol)
 
     def _find_ovn_lbs(self, lb_id, protocol=None):
         """Find the Loadbalancers in OVN with the given lb_id as its name
@@ -1927,12 +1915,13 @@ class OvnProviderHelper(object):
 
 
 class OvnProviderDriver(driver_base.ProviderDriver):
-    _ovn_helper = None
 
     def __init__(self):
         super(OvnProviderDriver, self).__init__()
-        if not OvnProviderDriver._ovn_helper:
-            OvnProviderDriver._ovn_helper = OvnProviderHelper()
+        self._ovn_helper = OvnProviderHelper()
+
+    def __del__(self):
+        self._ovn_helper.shutdown()
 
     def _check_for_supported_protocols(self, protocol):
         if protocol not in OVN_NATIVE_LB_PROTOCOLS:

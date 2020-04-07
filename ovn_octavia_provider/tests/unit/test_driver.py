@@ -25,6 +25,7 @@ from oslo_utils import uuidutils
 from ovs.db import idl as ovs_idl
 from ovsdbapp.backend.ovs_idl import idlutils
 
+from ovn_octavia_provider import agent as ovn_agent
 from ovn_octavia_provider.common import constants as ovn_const
 from ovn_octavia_provider import driver as ovn_driver
 from ovn_octavia_provider.tests.unit import fakes
@@ -109,8 +110,8 @@ class TestOvnOctaviaBase(base.BaseTestCase):
         self.vip_network_id = uuidutils.generate_uuid()
         self.vip_port_id = uuidutils.generate_uuid()
         self.vip_subnet_id = uuidutils.generate_uuid()
-        mock.patch(
-            "ovn_octavia_provider.driver.OvnNbIdlForLb").start()
+        ovn_nb_idl = mock.patch("ovn_octavia_provider.driver.OvnNbIdlForLb")
+        self.mock_ovn_nb_idl = ovn_nb_idl.start()
         self.member_address = "192.168.2.149"
         self.vip_address = '192.148.210.109'
         self.vip_dict = {'vip_network_id': uuidutils.generate_uuid(),
@@ -2551,7 +2552,7 @@ class TestOvnProviderHelper(TestOvnOctaviaBase):
     @mock.patch('ovn_octavia_provider.driver.OvnProviderHelper.'
                 '_find_ovn_lbs')
     def test_vip_port_update_handler_lb_not_found(self, lb):
-        lb.side_effect = [idlutils.RowNotFound]
+        lb.side_effect = [idlutils.RowNotFound for _ in range(5)]
         self.switch_port_event = ovn_driver.LogicalSwitchPortUpdateEvent(
             self.helper)
         port_name = '%s%s' % (ovn_const.LB_VIP_PORT_PREFIX, 'foo')
@@ -2772,8 +2773,7 @@ class TestOvnProviderHelper(TestOvnOctaviaBase):
         self._test_handle_member_dvr_lb_fip(
             net_cli, action=ovn_driver.REQ_INFO_MEMBER_DELETED)
 
-    @mock.patch.object(ovn_driver, 'atexit')
-    def test_ovsdb_connections(self, mock_atexit):
+    def test_ovsdb_connections(self):
         ovn_driver.OvnProviderHelper.ovn_nbdb_api = None
         ovn_driver.OvnProviderHelper.ovn_nbdb_api_for_events = None
         prov_helper1 = ovn_driver.OvnProviderHelper()
@@ -2786,10 +2786,6 @@ class TestOvnProviderHelper(TestOvnOctaviaBase):
                       prov_helper2.ovn_nbdb_api_for_events)
         prov_helper2.shutdown()
         prov_helper1.shutdown()
-        # Assert at_exit calls
-        mock_atexit.assert_has_calls([
-            mock.call.register(prov_helper1.shutdown),
-            mock.call.register(prov_helper2.shutdown)])
 
     def test_create_vip_port_vip_selected(self):
         expected_dict = {
@@ -2945,3 +2941,13 @@ class TestOvnProviderHelper(TestOvnOctaviaBase):
         fol.return_value = None
         ret = self.helper.check_lb_protocol(self.listener_id, 'TCP')
         self.assertFalse(ret)
+
+
+class TestOvnProviderAgent(TestOvnOctaviaBase):
+
+    def test_exit(self):
+        mock_exit_event = mock.MagicMock()
+        mock_exit_event.is_set.side_effect = [False, False, False, False, True]
+        ovn_agent.OvnProviderAgent(mock_exit_event)
+        self.assertEqual(1, mock_exit_event.wait.call_count)
+        self.assertEqual(2, self.mock_ovn_nb_idl.call_count)
