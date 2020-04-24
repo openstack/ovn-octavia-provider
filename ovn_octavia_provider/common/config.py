@@ -10,6 +10,7 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+from keystoneauth1 import loading as ks_loading
 from oslo_config import cfg
 from oslo_log import log as logging
 
@@ -58,6 +59,8 @@ ovn_opts = [
 ]
 
 cfg.CONF.register_opts(ovn_opts, group='ovn')
+ks_loading.register_auth_conf_options(cfg.CONF, 'service_auth')
+ks_loading.register_session_conf_options(cfg.CONF, 'service_auth')
 
 
 def list_opts():
