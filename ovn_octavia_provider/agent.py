@@ -15,6 +15,7 @@
 from oslo_log import log as logging
 
 from ovn_octavia_provider import driver
+from ovn_octavia_provider.ovsdb import impl_idl_ovn
 
 LOG = logging.getLogger(__name__)
 
@@ -28,7 +29,7 @@ def OvnProviderAgent(exit_event):
               driver.LogicalSwitchPortUpdateEvent(helper)]
 
     # NOTE(mjozefcz): This API is only for handling OVSDB events!
-    ovn_nb_idl_for_events = driver.OvnNbIdlForLb(
+    ovn_nb_idl_for_events = impl_idl_ovn.OvnNbIdlForLb(
         event_lock_name=OVN_EVENT_LOCK_NAME)
     ovn_nb_idl_for_events.notify_handler.watch_events(events)
     ovn_nb_idl_for_events.start()

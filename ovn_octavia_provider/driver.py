@@ -12,7 +12,6 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-import atexit
 import copy
 import queue
 import re
@@ -29,7 +28,6 @@ from oslo_config import cfg
 from oslo_log import log as logging
 from oslo_serialization import jsonutils
 from ovs.stream import Stream
-from ovsdbapp.backend.ovs_idl import connection
 from ovsdbapp.backend.ovs_idl import event as row_event
 from ovsdbapp.backend.ovs_idl import idlutils
 import tenacity
@@ -43,7 +41,6 @@ from ovn_octavia_provider.common import exceptions as ovn_exc
 from ovn_octavia_provider.common import utils
 from ovn_octavia_provider.i18n import _
 from ovn_octavia_provider.ovsdb import impl_idl_ovn
-from ovn_octavia_provider.ovsdb import ovsdb_monitor
 
 CONF = cfg.CONF  # Gets Octavia Conf as it runs under o-api domain
 
@@ -148,48 +145,6 @@ class LogicalSwitchPortUpdateEvent(row_event.RowEvent):
             self.driver.vip_port_update_handler(row)
 
 
-class OvnNbIdlForLb(ovsdb_monitor.OvnIdl):
-    SCHEMA = "OVN_Northbound"
-    TABLES = ('Logical_Switch', 'Load_Balancer', 'Logical_Router',
-              'Logical_Switch_Port', 'Logical_Router_Port',
-              'Gateway_Chassis', 'NAT')
-
-    def __init__(self, event_lock_name=None):
-        self.conn_string = ovn_conf.get_ovn_nb_connection()
-        ovsdb_monitor._check_and_set_ssl_files(self.SCHEMA)
-        helper = self._get_ovsdb_helper(self.conn_string)
-        for table in OvnNbIdlForLb.TABLES:
-            helper.register_table(table)
-        super(OvnNbIdlForLb, self).__init__(
-            driver=None, remote=self.conn_string, schema=helper)
-        self.event_lock_name = event_lock_name
-        if self.event_lock_name:
-            self.set_lock(self.event_lock_name)
-        atexit.register(self.stop)
-
-    @tenacity.retry(
-        wait=tenacity.wait_exponential(max=180),
-        reraise=True)
-    def _get_ovsdb_helper(self, connection_string):
-        return idlutils.get_schema_helper(connection_string, self.SCHEMA)
-
-    def start(self):
-        self.conn = connection.Connection(
-            self, timeout=ovn_conf.get_ovn_ovsdb_timeout())
-        return impl_idl_ovn.OvsdbNbOvnIdl(self.conn)
-
-    def stop(self):
-        # Close the running connection if it has been initalized
-        if (hasattr(self, 'conn') and not
-                self.conn.stop(timeout=ovn_conf.get_ovn_ovsdb_timeout())):
-            LOG.debug("Connection terminated to OvnNb "
-                      "but a thread is still alive")
-        # complete the shutdown for the event handler
-        self.notify_handler.shutdown()
-        # Close the idl session
-        self.close()
-
-
 class OvnProviderHelper(object):
 
     def __init__(self):
@@ -201,7 +156,7 @@ class OvnProviderHelper(object):
         self._init_lb_actions()
 
         # NOTE(mjozefcz): This API is only for handling octavia API requests.
-        self.ovn_nbdb = OvnNbIdlForLb()
+        self.ovn_nbdb = impl_idl_ovn.OvnNbIdlForLb()
         self.ovn_nbdb_api = self.ovn_nbdb.start()
 
         self.helper_thread.start()

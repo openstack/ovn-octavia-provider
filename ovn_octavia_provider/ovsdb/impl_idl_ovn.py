@@ -10,11 +10,13 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+import atexit
 import contextlib
 
 from neutron_lib import exceptions as n_exc
 from oslo_log import log
 from ovsdbapp.backend import ovs_idl
+from ovsdbapp.backend.ovs_idl import connection
 from ovsdbapp.backend.ovs_idl import idlutils
 from ovsdbapp.backend.ovs_idl import transaction as idl_trans
 from ovsdbapp.schema.ovn_northbound import impl_idl as nb_impl_idl
@@ -23,6 +25,8 @@ import tenacity
 from ovn_octavia_provider.common import config
 from ovn_octavia_provider.common import exceptions as ovn_exc
 from ovn_octavia_provider.i18n import _
+from ovn_octavia_provider.ovsdb import impl_idl_ovn
+from ovn_octavia_provider.ovsdb import ovsdb_monitor
 
 
 LOG = log.getLogger(__name__)
@@ -136,3 +140,45 @@ class OvsdbNbOvnIdl(nb_impl_idl.OvnNbApiIdlImpl, Backend):
                 yield t
         except ovn_exc.RevisionConflict as e:
             LOG.info('Transaction aborted. Reason: %s', e)
+
+
+class OvnNbIdlForLb(ovsdb_monitor.OvnIdl):
+    SCHEMA = "OVN_Northbound"
+    TABLES = ('Logical_Switch', 'Load_Balancer', 'Logical_Router',
+              'Logical_Switch_Port', 'Logical_Router_Port',
+              'Gateway_Chassis', 'NAT')
+
+    def __init__(self, event_lock_name=None):
+        self.conn_string = config.get_ovn_nb_connection()
+        ovsdb_monitor._check_and_set_ssl_files(self.SCHEMA)
+        helper = self._get_ovsdb_helper(self.conn_string)
+        for table in OvnNbIdlForLb.TABLES:
+            helper.register_table(table)
+        super(OvnNbIdlForLb, self).__init__(
+            driver=None, remote=self.conn_string, schema=helper)
+        self.event_lock_name = event_lock_name
+        if self.event_lock_name:
+            self.set_lock(self.event_lock_name)
+        atexit.register(self.stop)
+
+    @tenacity.retry(
+        wait=tenacity.wait_exponential(max=180),
+        reraise=True)
+    def _get_ovsdb_helper(self, connection_string):
+        return idlutils.get_schema_helper(connection_string, self.SCHEMA)
+
+    def start(self):
+        self.conn = connection.Connection(
+            self, timeout=config.get_ovn_ovsdb_timeout())
+        return impl_idl_ovn.OvsdbNbOvnIdl(self.conn)
+
+    def stop(self):
+        # Close the running connection if it has been initalized
+        if ((hasattr(self, 'conn') and not
+             self.conn.stop(timeout=config.get_ovn_ovsdb_timeout()))):
+            LOG.debug("Connection terminated to OvnNb "
+                      "but a thread is still alive")
+        # complete the shutdown for the event handler
+        self.notify_handler.shutdown()
+        # Close the idl session
+        self.close()

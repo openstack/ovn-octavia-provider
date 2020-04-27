@@ -34,6 +34,7 @@ from neutron.tests.functional import base
 from ovn_octavia_provider import agent as ovn_agent
 from ovn_octavia_provider.common import constants as ovn_const
 from ovn_octavia_provider import driver as ovn_driver
+from ovn_octavia_provider.ovsdb import impl_idl_ovn
 
 LR_REF_KEY_HEADER = 'neutron-'
 
@@ -1180,7 +1181,7 @@ class TestOvnOctaviaProviderAgent(TestOvnOctaviaBase):
         da_helper = ovn_driver.OvnProviderHelper()
         events = [ovn_driver.LogicalRouterPortEvent(da_helper),
                   ovn_driver.LogicalSwitchPortUpdateEvent(da_helper)]
-        ovn_nb_idl_for_events = ovn_driver.OvnNbIdlForLb(
+        ovn_nb_idl_for_events = impl_idl_ovn.OvnNbIdlForLb(
             event_lock_name='func_test')
         ovn_nb_idl_for_events.notify_handler.watch_events(events)
         ovn_nb_idl_for_events.start()
