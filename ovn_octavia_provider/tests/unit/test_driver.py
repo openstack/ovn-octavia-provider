@@ -36,18 +36,6 @@ schema_files = {
                                    'schemas', 'ovn-nb.ovsschema')}
 
 
-# TODO(mjozefcz): Move it to unittest fakes.
-class MockedLB(data_models.LoadBalancer):
-    def __init__(self, *args, **kwargs):
-        self.external_ids = kwargs.pop('ext_ids')
-        self.uuid = kwargs.pop('uuid')
-        super(MockedLB, self).__init__(*args, **kwargs)
-
-    def __hash__(self):
-        # Required for Python3, not for Python2
-        return self.__sizeof__()
-
-
 class TestOvnNbIdlForLb(base.BaseTestCase):
     def setUp(self):
         super(TestOvnNbIdlForLb, self).setUp()
@@ -752,7 +740,7 @@ class TestOvnProviderHelper(TestOvnOctaviaBase):
         # NOTE(mjozefcz): Create foo router and network.
         net_id = uuidutils.generate_uuid()
         router_id = uuidutils.generate_uuid()
-        self.ref_lb1 = MockedLB(
+        self.ref_lb1 = fakes.FakeLB(
             uuid=uuidutils.generate_uuid(),
             admin_state_up=True,
             listeners=[],
@@ -765,7 +753,7 @@ class TestOvnProviderHelper(TestOvnOctaviaBase):
                 ovn_const.LB_EXT_IDS_LR_REF_KEY: "neutron-%s" % net_id,
                 ovn_const.LB_EXT_IDS_LS_REFS_KEY:
                     '{\"neutron-%s\": 1}' % net_id})
-        self.ref_lb2 = MockedLB(
+        self.ref_lb2 = fakes.FakeLB(
             uuid=uuidutils.generate_uuid(),
             admin_state_up=True,
             listeners=[],
