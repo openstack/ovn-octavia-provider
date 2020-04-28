@@ -15,6 +15,7 @@
 import copy
 from unittest import mock
 
+from octavia_lib.api.drivers import data_models
 from oslo_utils import uuidutils
 
 from ovn_octavia_provider.common import constants
@@ -290,3 +291,14 @@ class FakePort(object):
 
         return FakeResource(info=copy.deepcopy(port_attrs),
                             loaded=True)
+
+
+class FakeLB(data_models.LoadBalancer):
+    def __init__(self, *args, **kwargs):
+        self.external_ids = kwargs.pop('ext_ids')
+        self.uuid = kwargs.pop('uuid')
+        super(FakeLB, self).__init__(*args, **kwargs)
+
+    def __hash__(self):
+        # Required for Python3, not for Python2
+        return self.__sizeof__()
