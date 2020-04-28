@@ -39,6 +39,7 @@ from ovn_octavia_provider.common import config as ovn_conf
 # TODO(mjozefcz): Start consuming const and utils
 # from neutron-lib once released.
 from ovn_octavia_provider.common import constants as ovn_const
+from ovn_octavia_provider.common import exceptions as ovn_exc
 from ovn_octavia_provider.common import utils
 from ovn_octavia_provider.i18n import _
 from ovn_octavia_provider.ovsdb import impl_idl_ovn
@@ -79,13 +80,6 @@ OVN_NATIVE_LB_PROTOCOLS = [constants.PROTOCOL_TCP,
                            constants.PROTOCOL_UDP, ]
 OVN_NATIVE_LB_ALGORITHMS = [constants.LB_ALGORITHM_SOURCE_IP_PORT, ]
 EXCEPTION_MSG = "Exception occurred during %s"
-
-
-class IPVersionsMixingNotSupportedError(
-        driver_exceptions.UnsupportedOptionError):
-    user_fault_string = _('OVN provider does not support mixing IPv4/IPv6 '
-                          'configuration within the same Load Balancer.')
-    operator_fault_string = user_fault_string
 
 
 def get_neutron_client():
@@ -2077,7 +2071,7 @@ class OvnProviderDriver(driver_base.ProviderDriver):
                 user_fault_string=msg,
                 operator_fault_string=msg)
         if self._ip_version_differs(member):
-            raise IPVersionsMixingNotSupportedError()
+            raise ovn_exc.IPVersionsMixingNotSupportedError()
         admin_state_up = member.admin_state_up
         if (isinstance(member.subnet_id, o_datamodels.UnsetType) or
                 not member.subnet_id):
@@ -2139,7 +2133,7 @@ class OvnProviderDriver(driver_base.ProviderDriver):
                 user_fault_string=msg,
                 operator_fault_string=msg)
         if new_member.address and self._ip_version_differs(new_member):
-            raise IPVersionsMixingNotSupportedError()
+            raise ovn_exc.IPVersionsMixingNotSupportedError()
         request_info = {'id': new_member.member_id,
                         'address': old_member.address,
                         'protocol_port': old_member.protocol_port,
