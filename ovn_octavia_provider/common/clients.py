@@ -11,13 +11,16 @@
 #    under the License.
 
 from keystoneauth1 import loading as ks_loading
+from neutronclient.common import exceptions as n_exc
 from neutronclient.neutron import client as neutron_client
 
+from octavia_lib.api.drivers import exceptions as driver_exceptions
 from oslo_config import cfg
 from oslo_log import log as logging
 from oslo_utils import excutils
 
 from ovn_octavia_provider.common import constants
+from ovn_octavia_provider.i18n import _
 
 LOG = logging.getLogger(__name__)
 CONF = cfg.CONF
@@ -96,3 +99,21 @@ class NeutronAuth(metaclass=Singleton):
         except Exception:
             with excutils.save_and_reraise_exception():
                 LOG.exception("Error creating Neutron client.")
+
+
+def get_neutron_client():
+    try:
+        return NeutronAuth(
+            endpoint=CONF.neutron.endpoint,
+            region=CONF.neutron.region_name,
+            endpoint_type=CONF.neutron.endpoint_type,
+            service_name=CONF.neutron.service_name,
+            insecure=CONF.neutron.insecure,
+            ca_cert=CONF.neutron.ca_certificates_file,
+        ).neutron_client
+    except n_exc.NeutronClientException as e:
+        msg = _('Cannot inialize Neutron Client. Exception: %s. '
+                'Please verify Neutron service configuration '
+                'in Octavia API configuration.') % e
+        raise driver_exceptions.DriverError(
+            operator_fault_string=msg)

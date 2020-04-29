@@ -47,24 +47,6 @@ CONF = cfg.CONF  # Gets Octavia Conf as it runs under o-api domain
 LOG = logging.getLogger(__name__)
 
 
-def get_neutron_client():
-    try:
-        return clients.NeutronAuth(
-            endpoint=CONF.neutron.endpoint,
-            region=CONF.neutron.region_name,
-            endpoint_type=CONF.neutron.endpoint_type,
-            service_name=CONF.neutron.service_name,
-            insecure=CONF.neutron.insecure,
-            ca_cert=CONF.neutron.ca_certificates_file,
-        ).neutron_client
-    except n_exc.NeutronClientException as e:
-        msg = _('Cannot inialize Neutron Client. Exception: %s. '
-                'Please verify Neutron service configuration '
-                'in Octavia API configuration.') % e
-        raise driver_exceptions.DriverError(
-            operator_fault_string=msg)
-
-
 class LogicalRouterPortEvent(row_event.RowEvent):
 
     def __init__(self, driver):
@@ -519,7 +501,7 @@ class OvnProviderHelper(object):
         if network_id:
             ls_name = utils.ovn_name(network_id)
         else:
-            neutron_client = get_neutron_client()
+            neutron_client = clients.get_neutron_client()
             try:
                 subnet = neutron_client.show_subnet(subnet_id)
                 ls_name = utils.ovn_name(subnet['subnet']['network_id'])
@@ -643,7 +625,7 @@ class OvnProviderHelper(object):
             return self._add_lb_to_lr_association(ovn_lb, ovn_lr, lr_ref)
 
     def _find_ls_for_lr(self, router):
-        neutron_client = get_neutron_client()
+        neutron_client = clients.get_neutron_client()
         ls = []
         for port in router.ports:
             if port.gateway_chassis:
@@ -814,7 +796,7 @@ class OvnProviderHelper(object):
 
     def lb_create(self, loadbalancer, protocol=None):
         port = None
-        neutron_client = get_neutron_client()
+        neutron_client = clients.get_neutron_client()
         if loadbalancer.get(constants.VIP_PORT_ID):
             # In case we don't have vip_network_id
             port = neutron_client.show_port(
@@ -1718,7 +1700,7 @@ class OvnProviderHelper(object):
                 vip_d[constants.VIP_ADDRESS])
         except KeyError:
             pass
-        neutron_client = get_neutron_client()
+        neutron_client = clients.get_neutron_client()
         try:
             return neutron_client.create_port(port)
         except n_exc.IpAddressAlreadyAllocatedClient:
@@ -1743,7 +1725,7 @@ class OvnProviderHelper(object):
             return {'port': port}
 
     def delete_vip_port(self, port_id):
-        neutron_client = get_neutron_client()
+        neutron_client = clients.get_neutron_client()
         try:
             neutron_client.delete_port(port_id)
         except n_exc.PortNotFoundClient:
@@ -1784,7 +1766,7 @@ class OvnProviderHelper(object):
             return
 
         # Find out if member has FIP assigned.
-        neutron_client = get_neutron_client()
+        neutron_client = clients.get_neutron_client()
         try:
             subnet = neutron_client.show_subnet(info['subnet_id'])
             ls_name = utils.ovn_name(subnet['subnet']['network_id'])

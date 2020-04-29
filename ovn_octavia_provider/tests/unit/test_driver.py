@@ -24,6 +24,7 @@ from oslo_utils import uuidutils
 from ovsdbapp.backend.ovs_idl import idlutils
 
 from ovn_octavia_provider import agent as ovn_agent
+from ovn_octavia_provider.common import clients
 from ovn_octavia_provider.common import constants as ovn_const
 from ovn_octavia_provider import driver as ovn_driver
 from ovn_octavia_provider.tests.unit import fakes
@@ -582,7 +583,7 @@ class TestOvnProviderDriver(TestOvnOctaviaBase):
         self.mock_add_request.assert_called_once_with(expected_dict)
 
     def test_create_vip_port(self):
-        with mock.patch.object(ovn_driver, 'get_neutron_client'):
+        with mock.patch.object(clients, 'get_neutron_client'):
             port_dict = self.driver.create_vip_port(self.loadbalancer_id,
                                                     self.project_id,
                                                     self.vip_dict)
@@ -597,7 +598,7 @@ class TestOvnProviderDriver(TestOvnOctaviaBase):
                 self.assertEqual(value, self.vip_output[key])
 
     def test_create_vip_port_exception(self):
-        with mock.patch.object(ovn_driver, 'get_neutron_client',
+        with mock.patch.object(clients, 'get_neutron_client',
                                side_effect=[RuntimeError]):
             self.assertRaises(
                 exceptions.DriverError,
@@ -863,7 +864,7 @@ class TestOvnProviderHelper(TestOvnOctaviaBase):
         self.helper.ovn_nbdb_api.db_set.assert_called_once_with(
             'Load_Balancer', self.ovn_lb.uuid, ('protocol', 'tcp'))
 
-    @mock.patch('ovn_octavia_provider.driver.get_neutron_client')
+    @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
     def test_lb_create_disabled(self, net_cli):
         self.lb['admin_state_up'] = False
         net_cli.return_value.list_ports.return_value = self.ports
@@ -880,7 +881,7 @@ class TestOvnProviderHelper(TestOvnOctaviaBase):
             name=mock.ANY,
             protocol=None)
 
-    @mock.patch('ovn_octavia_provider.driver.get_neutron_client')
+    @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
     def test_lb_create_enabled(self, net_cli):
         self.lb['admin_state_up'] = True
         net_cli.return_value.list_ports.return_value = self.ports
@@ -897,7 +898,7 @@ class TestOvnProviderHelper(TestOvnOctaviaBase):
             name=mock.ANY,
             protocol=None)
 
-    @mock.patch('ovn_octavia_provider.driver.get_neutron_client')
+    @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
     def test_lb_create_on_multi_protocol(self, net_cli):
         """This test situation when new protocol is added
 
@@ -927,7 +928,7 @@ class TestOvnProviderHelper(TestOvnOctaviaBase):
                       network_id=self.lb['vip_network_id']),
             mock.call(self.ovn_lb, associate=True, network_id='foo')])
 
-    @mock.patch('ovn_octavia_provider.driver.get_neutron_client')
+    @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
     @mock.patch.object(ovn_driver.OvnProviderHelper, 'delete_vip_port')
     def test_lb_create_exception(self, del_port, net_cli):
         self.helper._find_ovn_lbs.side_effect = [RuntimeError]
@@ -939,7 +940,7 @@ class TestOvnProviderHelper(TestOvnOctaviaBase):
                          constants.ERROR)
         del_port.assert_called_once_with(self.ports.get('ports')[0]['id'])
 
-    @mock.patch('ovn_octavia_provider.driver.get_neutron_client')
+    @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
     @mock.patch.object(ovn_driver.OvnProviderHelper, 'delete_vip_port')
     def test_lb_delete(self, del_port, net_cli):
         net_cli.return_value.delete_port.return_value = None
@@ -975,7 +976,7 @@ class TestOvnProviderHelper(TestOvnOctaviaBase):
             self.ovn_lb.uuid)
         del_port.assert_called_once_with('foo_port')
 
-    @mock.patch('ovn_octavia_provider.driver.get_neutron_client')
+    @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
     @mock.patch.object(ovn_driver.OvnProviderHelper, 'delete_vip_port')
     def test_lb_delete_port_not_found(self, del_port, net_cli):
         net_cli.return_value.delete_port.side_effect = (
@@ -989,7 +990,7 @@ class TestOvnProviderHelper(TestOvnOctaviaBase):
             self.ovn_lb.uuid)
         del_port.assert_called_once_with('foo_port')
 
-    @mock.patch('ovn_octavia_provider.driver.get_neutron_client')
+    @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
     def test_lb_delete_cascade(self, net_cli):
         net_cli.return_value.delete_port.return_value = None
         self.lb['cascade'] = True
@@ -1007,7 +1008,7 @@ class TestOvnProviderHelper(TestOvnOctaviaBase):
         self.helper.ovn_nbdb_api.lb_del.assert_called_once_with(
             self.ovn_lb.uuid)
 
-    @mock.patch('ovn_octavia_provider.driver.get_neutron_client')
+    @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
     def test_lb_delete_ls_lr(self, net_cli):
         self.ovn_lb.external_ids.update({
             ovn_const.LB_EXT_IDS_LR_REF_KEY: self.router.name,
@@ -1024,7 +1025,7 @@ class TestOvnProviderHelper(TestOvnOctaviaBase):
         self.helper.ovn_nbdb_api.lr_lb_del.assert_called_once_with(
             self.router.uuid, self.ovn_lb.uuid)
 
-    @mock.patch('ovn_octavia_provider.driver.get_neutron_client')
+    @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
     def test_lb_delete_multiple_protocols(self, net_cli):
         net_cli.return_value.delete_port.return_value = None
         self.mock_find_ovn_lbs.stop()
@@ -1876,7 +1877,7 @@ class TestOvnProviderHelper(TestOvnOctaviaBase):
         self.assertEqual(status['listeners'][0]['id'],
                          'listener1')
 
-    @mock.patch('ovn_octavia_provider.driver.get_neutron_client')
+    @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
     def test_logical_router_port_event_create(self, net_cli):
         self.router_port_event = ovn_driver.LogicalRouterPortEvent(
             self.helper)
@@ -1890,7 +1891,7 @@ class TestOvnProviderHelper(TestOvnOctaviaBase):
             'type': 'lb_create_lrp_assoc'}
         self.mock_add_request.assert_called_once_with(expected)
 
-    @mock.patch('ovn_octavia_provider.driver.get_neutron_client')
+    @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
     def test_logical_router_port_event_delete(self, net_cli):
         self.router_port_event = ovn_driver.LogicalRouterPortEvent(
             self.helper)
@@ -1904,7 +1905,7 @@ class TestOvnProviderHelper(TestOvnOctaviaBase):
             'type': 'lb_delete_lrp_assoc'}
         self.mock_add_request.assert_called_once_with(expected)
 
-    @mock.patch('ovn_octavia_provider.driver.get_neutron_client')
+    @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
     def test_logical_router_port_event_gw_port(self, net_cli):
         self.router_port_event = ovn_driver.LogicalRouterPortEvent(
             self.helper)
@@ -2091,7 +2092,7 @@ class TestOvnProviderHelper(TestOvnOctaviaBase):
         for lb in self.network.load_balancer:
             self.assertNotIn(lb, net_lb)
 
-    @mock.patch('ovn_octavia_provider.driver.get_neutron_client')
+    @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
     def test__find_ls_for_lr(self, net_cli):
         fake_subnet1 = fakes.FakeSubnet.create_one_subnet()
         fake_subnet1['network_id'] = 'foo1'
@@ -2111,7 +2112,7 @@ class TestOvnProviderHelper(TestOvnOctaviaBase):
         self.assertListEqual(['neutron-foo1', 'neutron-foo2'],
                              res)
 
-    @mock.patch('ovn_octavia_provider.driver.get_neutron_client')
+    @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
     def test__find_ls_for_lr_subnet_not_found(self, net_cli):
         fake_subnet1 = fakes.FakeSubnet.create_one_subnet()
         fake_subnet1['network_id'] = 'foo1'
@@ -2130,7 +2131,7 @@ class TestOvnProviderHelper(TestOvnOctaviaBase):
         res = self.helper._find_ls_for_lr(self.router)
         self.assertListEqual(['neutron-foo1'], res)
 
-    @mock.patch('ovn_octavia_provider.driver.get_neutron_client')
+    @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
     def test__find_ls_for_lr_gw_port(self, net_cli):
         p1 = fakes.FakeOVNPort.create_one_port(attrs={
             'gateway_chassis': ['foo-gw-chassis'],
@@ -2165,7 +2166,7 @@ class TestOvnProviderHelper(TestOvnOctaviaBase):
         add.assert_not_called()
         delete.assert_called_once_with(self.ref_lb1, self.router, lr_ref)
 
-    @mock.patch('ovn_octavia_provider.driver.get_neutron_client')
+    @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
     def test__del_lb_to_lr_association(self, net_cli):
         lr_ref = self.ref_lb1.external_ids.get(
             ovn_const.LB_EXT_IDS_LR_REF_KEY)
@@ -2184,7 +2185,7 @@ class TestOvnProviderHelper(TestOvnOctaviaBase):
             expected_calls)
         self.helper.ovn_nbdb_api.db_remove.assert_not_called()
 
-    @mock.patch('ovn_octavia_provider.driver.get_neutron_client')
+    @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
     def test__del_lb_to_lr_association_no_lr_ref(self, net_cli):
         lr_ref = ''
         self.helper._del_lb_to_lr_association(
@@ -2193,7 +2194,7 @@ class TestOvnProviderHelper(TestOvnOctaviaBase):
         self.helper.ovn_nbdb_api.db_remove.assert_not_called()
         self.helper.ovn_nbdb_api.lr_lb_del.assert_not_called()
 
-    @mock.patch('ovn_octavia_provider.driver.get_neutron_client')
+    @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
     def test__del_lb_to_lr_association_lr_ref_empty_after(self, net_cli):
         lr_ref = self.router.name
         self.helper._del_lb_to_lr_association(
@@ -2318,7 +2319,7 @@ class TestOvnProviderHelper(TestOvnOctaviaBase):
         self.helper.ovn_nbdb_api.db_set.assert_called_once_with(
             'Load_Balancer', self.ref_lb1.uuid, ('external_ids', ls_refs))
 
-    @mock.patch('ovn_octavia_provider.driver.get_neutron_client')
+    @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
     def test__update_lb_to_ls_association_subnet(self, net_cli):
         self._update_lb_to_ls_association.stop()
         subnet = fakes.FakeSubnet.create_one_subnet(
@@ -2390,7 +2391,7 @@ class TestOvnProviderHelper(TestOvnOctaviaBase):
             ('external_ids', {'ls_refs': '{}'}))
         self.helper.ovn_nbdb_api.ls_lb_del.assert_not_called()
 
-    @mock.patch('ovn_octavia_provider.driver.get_neutron_client')
+    @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
     def test__update_lb_to_ls_association_network_dis_net_not_found(
             self, net_cli):
         net_cli.return_value.show_subnet.side_effect = n_exc.NotFound
@@ -2575,7 +2576,7 @@ class TestOvnProviderHelper(TestOvnOctaviaBase):
                           '172.26.21.20:80': '192.168.2.149:1010'}))]
         self.helper.ovn_nbdb_api.assert_has_calls(calls)
 
-    @mock.patch('ovn_octavia_provider.driver.get_neutron_client')
+    @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
     def test_handle_member_dvr_lb_has_no_fip(self, net_cli):
         lb = mock.MagicMock()
         info = {
@@ -2590,7 +2591,7 @@ class TestOvnProviderHelper(TestOvnOctaviaBase):
         net_cli.show_subnet.assert_not_called()
         self.helper.ovn_nbdb_api.db_clear.assert_not_called()
 
-    @mock.patch('ovn_octavia_provider.driver.get_neutron_client')
+    @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
     def test_handle_member_dvr_lb_fip_no_ls_ports(self, net_cli):
         lb = mock.MagicMock()
         info = {
@@ -2610,7 +2611,7 @@ class TestOvnProviderHelper(TestOvnOctaviaBase):
         self.helper.handle_member_dvr(info)
         self.helper.ovn_nbdb_api.db_clear.assert_not_called()
 
-    @mock.patch('ovn_octavia_provider.driver.get_neutron_client')
+    @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
     def test_handle_member_dvr_lb_fip_no_subnet(self, net_cli):
         lb = mock.MagicMock()
         info = {
@@ -2626,7 +2627,7 @@ class TestOvnProviderHelper(TestOvnOctaviaBase):
         self.helper.handle_member_dvr(info)
         self.helper.ovn_nbdb_api.db_clear.assert_not_called()
 
-    @mock.patch('ovn_octavia_provider.driver.get_neutron_client')
+    @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
     def test_handle_member_dvr_lb_fip_no_ls(self, net_cli):
         lb = mock.MagicMock()
         info = {
@@ -2702,11 +2703,11 @@ class TestOvnProviderHelper(TestOvnOctaviaBase):
                  'floatingip': {'description': 'bar'}}))
             self.helper.ovn_nbdb_api.db_clear.assert_not_called()
 
-    @mock.patch('ovn_octavia_provider.driver.get_neutron_client')
+    @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
     def test_handle_member_dvr_lb_fip_member_added(self, net_cli):
         self._test_handle_member_dvr_lb_fip(net_cli)
 
-    @mock.patch('ovn_octavia_provider.driver.get_neutron_client')
+    @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
     def test_handle_member_dvr_lb_fip_member_deleted(self, net_cli):
         self._test_handle_member_dvr_lb_fip(
             net_cli, action=ovn_const.REQ_INFO_MEMBER_DELETED)
@@ -2735,7 +2736,7 @@ class TestOvnProviderHelper(TestOvnOctaviaBase):
                      'network_id': self.vip_dict['vip_network_id'],
                      'admin_state_up': True,
                      'project_id': self.project_id}}
-        with mock.patch.object(ovn_driver, 'get_neutron_client') as net_cli:
+        with mock.patch.object(clients, 'get_neutron_client') as net_cli:
             self.vip_dict['vip_address'] = '10.1.10.1'
             self.helper.create_vip_port(self.project_id,
                                         self.loadbalancer_id,
@@ -2753,7 +2754,7 @@ class TestOvnProviderHelper(TestOvnOctaviaBase):
                      'network_id': self.vip_dict['vip_network_id'],
                      'admin_state_up': True,
                      'project_id': self.project_id}}
-        with mock.patch.object(ovn_driver, 'get_neutron_client') as net_cli:
+        with mock.patch.object(clients, 'get_neutron_client') as net_cli:
             self.helper.create_vip_port(self.project_id,
                                         self.loadbalancer_id,
                                         self.vip_dict)
@@ -2761,7 +2762,7 @@ class TestOvnProviderHelper(TestOvnOctaviaBase):
                 mock.call().create_port(expected_dict)]
             net_cli.assert_has_calls(expected_call)
 
-    @mock.patch('ovn_octavia_provider.driver.get_neutron_client')
+    @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
     def test_create_vip_port_vip_selected_already_exist(self, net_cli):
         net_cli.return_value.create_port.side_effect = [
             n_exc.IpAddressAlreadyAllocatedClient]
@@ -2787,7 +2788,7 @@ class TestOvnProviderHelper(TestOvnOctaviaBase):
                                self.loadbalancer_id))]
         net_cli.assert_has_calls(expected_call)
 
-    @mock.patch('ovn_octavia_provider.driver.get_neutron_client')
+    @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
     def test_create_vip_port_vip_selected_other_allocation_exist(
             self, net_cli):
         net_cli.return_value.create_port.side_effect = [

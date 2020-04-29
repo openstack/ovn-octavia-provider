@@ -32,6 +32,7 @@ from ovsdbapp.schema.ovn_northbound import impl_idl as idl_ovn
 # mechanism driver and l3 plugin.
 from neutron.tests.functional import base
 from ovn_octavia_provider import agent as ovn_agent
+from ovn_octavia_provider.common import clients
 from ovn_octavia_provider.common import constants as ovn_const
 from ovn_octavia_provider import driver as ovn_driver
 from ovn_octavia_provider.ovsdb import impl_idl_ovn
@@ -60,8 +61,8 @@ class TestOvnOctaviaBase(
         self._o_driver_lib = self.ovn_driver._ovn_helper._octavia_driver_lib
         self._o_driver_lib.update_loadbalancer_status = mock.Mock()
         self.fake_neutron_client = mock.MagicMock()
-        ovn_driver.get_neutron_client = mock.MagicMock()
-        ovn_driver.get_neutron_client.return_value = self.fake_neutron_client
+        clients.get_neutron_client = mock.MagicMock()
+        clients.get_neutron_client.return_value = self.fake_neutron_client
         self.fake_neutron_client.show_subnet = self._mock_show_subnet
         self.fake_neutron_client.list_ports = self._mock_list_ports
         self.fake_neutron_client.show_port = self._mock_show_port
