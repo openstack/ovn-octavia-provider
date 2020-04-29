@@ -46,38 +46,6 @@ CONF = cfg.CONF  # Gets Octavia Conf as it runs under o-api domain
 
 LOG = logging.getLogger(__name__)
 
-REQ_TYPE_LB_CREATE = 'lb_create'
-REQ_TYPE_LB_DELETE = 'lb_delete'
-REQ_TYPE_LB_FAILOVER = 'lb_failover'
-REQ_TYPE_LB_UPDATE = 'lb_update'
-REQ_TYPE_LISTENER_CREATE = 'listener_create'
-REQ_TYPE_LISTENER_DELETE = 'listener_delete'
-REQ_TYPE_LISTENER_UPDATE = 'listener_update'
-REQ_TYPE_POOL_CREATE = 'pool_create'
-REQ_TYPE_POOL_DELETE = 'pool_delete'
-REQ_TYPE_POOL_UPDATE = 'pool_update'
-REQ_TYPE_MEMBER_CREATE = 'member_create'
-REQ_TYPE_MEMBER_DELETE = 'member_delete'
-REQ_TYPE_MEMBER_UPDATE = 'member_update'
-REQ_TYPE_LB_CREATE_LRP_ASSOC = 'lb_create_lrp_assoc'
-REQ_TYPE_LB_DELETE_LRP_ASSOC = 'lb_delete_lrp_assoc'
-REQ_TYPE_HANDLE_VIP_FIP = 'handle_vip_fip'
-REQ_TYPE_HANDLE_MEMBER_DVR = 'handle_member_dvr'
-
-REQ_TYPE_EXIT = 'exit'
-
-REQ_INFO_ACTION_ASSOCIATE = 'associate'
-REQ_INFO_ACTION_DISASSOCIATE = 'disassociate'
-REQ_INFO_MEMBER_ADDED = 'member_added'
-REQ_INFO_MEMBER_DELETED = 'member_deleted'
-
-DISABLED_RESOURCE_SUFFIX = 'D'
-
-OVN_NATIVE_LB_PROTOCOLS = [constants.PROTOCOL_TCP,
-                           constants.PROTOCOL_UDP, ]
-OVN_NATIVE_LB_ALGORITHMS = [constants.LB_ALGORITHM_SOURCE_IP_PORT, ]
-EXCEPTION_MSG = "Exception occurred during %s"
-
 
 def get_neutron_client():
     try:
@@ -163,23 +131,23 @@ class OvnProviderHelper(object):
 
     def _init_lb_actions(self):
         self._lb_request_func_maps = {
-            REQ_TYPE_LB_CREATE: self.lb_create,
-            REQ_TYPE_LB_DELETE: self.lb_delete,
-            REQ_TYPE_LB_UPDATE: self.lb_update,
-            REQ_TYPE_LB_FAILOVER: self.lb_failover,
-            REQ_TYPE_LISTENER_CREATE: self.listener_create,
-            REQ_TYPE_LISTENER_DELETE: self.listener_delete,
-            REQ_TYPE_LISTENER_UPDATE: self.listener_update,
-            REQ_TYPE_POOL_CREATE: self.pool_create,
-            REQ_TYPE_POOL_DELETE: self.pool_delete,
-            REQ_TYPE_POOL_UPDATE: self.pool_update,
-            REQ_TYPE_MEMBER_CREATE: self.member_create,
-            REQ_TYPE_MEMBER_DELETE: self.member_delete,
-            REQ_TYPE_MEMBER_UPDATE: self.member_update,
-            REQ_TYPE_LB_CREATE_LRP_ASSOC: self.lb_create_lrp_assoc,
-            REQ_TYPE_LB_DELETE_LRP_ASSOC: self.lb_delete_lrp_assoc,
-            REQ_TYPE_HANDLE_VIP_FIP: self.handle_vip_fip,
-            REQ_TYPE_HANDLE_MEMBER_DVR: self.handle_member_dvr,
+            ovn_const.REQ_TYPE_LB_CREATE: self.lb_create,
+            ovn_const.REQ_TYPE_LB_DELETE: self.lb_delete,
+            ovn_const.REQ_TYPE_LB_UPDATE: self.lb_update,
+            ovn_const.REQ_TYPE_LB_FAILOVER: self.lb_failover,
+            ovn_const.REQ_TYPE_LISTENER_CREATE: self.listener_create,
+            ovn_const.REQ_TYPE_LISTENER_DELETE: self.listener_delete,
+            ovn_const.REQ_TYPE_LISTENER_UPDATE: self.listener_update,
+            ovn_const.REQ_TYPE_POOL_CREATE: self.pool_create,
+            ovn_const.REQ_TYPE_POOL_DELETE: self.pool_delete,
+            ovn_const.REQ_TYPE_POOL_UPDATE: self.pool_update,
+            ovn_const.REQ_TYPE_MEMBER_CREATE: self.member_create,
+            ovn_const.REQ_TYPE_MEMBER_DELETE: self.member_delete,
+            ovn_const.REQ_TYPE_MEMBER_UPDATE: self.member_update,
+            ovn_const.REQ_TYPE_LB_CREATE_LRP_ASSOC: self.lb_create_lrp_assoc,
+            ovn_const.REQ_TYPE_LB_DELETE_LRP_ASSOC: self.lb_delete_lrp_assoc,
+            ovn_const.REQ_TYPE_HANDLE_VIP_FIP: self.handle_vip_fip,
+            ovn_const.REQ_TYPE_HANDLE_MEMBER_DVR: self.handle_member_dvr,
         }
 
     @staticmethod
@@ -190,7 +158,7 @@ class OvnProviderHelper(object):
 
     @staticmethod
     def _delete_disabled_from_status(status):
-        d_regex = ':%s$' % DISABLED_RESOURCE_SUFFIX
+        d_regex = ':%s$' % ovn_const.DISABLED_RESOURCE_SUFFIX
         return {
             k: [{c: re.sub(d_regex, '', d) for c, d in i.items()}
                 for i in v]
@@ -212,7 +180,7 @@ class OvnProviderHelper(object):
             Stream.ssl_set_ca_cert_file(ca_cert_file)
 
     def shutdown(self):
-        self.requests.put({'type': REQ_TYPE_EXIT})
+        self.requests.put({'type': ovn_const.REQ_TYPE_EXIT})
         self.helper_thread.join()
         self.ovn_nbdb.stop()
 
@@ -275,7 +243,7 @@ class OvnProviderHelper(object):
             return
         request_info = {'network': network,
                         'router': router}
-        self.add_request({'type': REQ_TYPE_LB_DELETE_LRP_ASSOC,
+        self.add_request({'type': ovn_const.REQ_TYPE_LB_DELETE_LRP_ASSOC,
                           'info': request_info})
 
     def lb_delete_lrp_assoc(self, info):
@@ -310,7 +278,7 @@ class OvnProviderHelper(object):
             return
         request_info = {'network': network,
                         'router': router}
-        self.add_request({'type': REQ_TYPE_LB_CREATE_LRP_ASSOC,
+        self.add_request({'type': ovn_const.REQ_TYPE_LB_CREATE_LRP_ASSOC,
                           'info': request_info})
 
     def lb_create_lrp_assoc(self, info):
@@ -358,12 +326,12 @@ class OvnProviderHelper(object):
             request_info = {'ovn_lb': lb,
                             'vip_fip': fip}
             if fip and fip != lb_vip_fip:
-                request_info['action'] = REQ_INFO_ACTION_ASSOCIATE
+                request_info['action'] = ovn_const.REQ_INFO_ACTION_ASSOCIATE
             elif fip is None and fip != lb_vip_fip:
-                request_info['action'] = REQ_INFO_ACTION_DISASSOCIATE
+                request_info['action'] = ovn_const.REQ_INFO_ACTION_DISASSOCIATE
             else:
                 continue
-            self.add_request({'type': REQ_TYPE_HANDLE_VIP_FIP,
+            self.add_request({'type': ovn_const.REQ_TYPE_HANDLE_VIP_FIP,
                               'info': request_info})
 
     def _find_lb_in_ls(self, network):
@@ -393,7 +361,7 @@ class OvnProviderHelper(object):
             try:
                 request = self.requests.get()
                 request_type = request['type']
-                if request_type == REQ_TYPE_EXIT:
+                if request_type == ovn_const.REQ_TYPE_EXIT:
                     break
 
                 request_handler = self._lb_request_func_maps.get(request_type)
@@ -717,13 +685,13 @@ class OvnProviderHelper(object):
     def _get_listener_key(self, listener_id, is_enabled=True):
         listener_key = ovn_const.LB_EXT_IDS_LISTENER_PREFIX + str(listener_id)
         if not is_enabled:
-            listener_key += ':' + DISABLED_RESOURCE_SUFFIX
+            listener_key += ':' + ovn_const.DISABLED_RESOURCE_SUFFIX
         return listener_key
 
     def _get_pool_key(self, pool_id, is_enabled=True):
         pool_key = ovn_const.LB_EXT_IDS_POOL_PREFIX + str(pool_id)
         if not is_enabled:
-            pool_key += ':' + DISABLED_RESOURCE_SUFFIX
+            pool_key += ':' + ovn_const.DISABLED_RESOURCE_SUFFIX
         return pool_key
 
     def _extract_member_info(self, member):
@@ -766,7 +734,7 @@ class OvnProviderHelper(object):
 
     def _is_listener_disabled(self, listener_key):
         v = listener_key.split(':')
-        if len(v) == 2 and v[1] == DISABLED_RESOURCE_SUFFIX:
+        if len(v) == 2 and v[1] == ovn_const.DISABLED_RESOURCE_SUFFIX:
             return True
 
         return False
@@ -935,7 +903,7 @@ class OvnProviderHelper(object):
         # immediately or reschedule the lb_create request later.
         # For now lets report immediately.
         except Exception:
-            LOG.exception(EXCEPTION_MSG, "creation of loadbalancer")
+            LOG.exception(ovn_const.EXCEPTION_MSG, "creation of loadbalancer")
             # Any Exception set the status to ERROR
             if isinstance(port, dict):
                 self.delete_vip_port(port.get('id'))
@@ -980,7 +948,7 @@ class OvnProviderHelper(object):
             # https://cito.github.io/blog/never-iterate-a-changing-dict/
             status = {key: value for key, value in status.items() if value}
         except Exception:
-            LOG.exception(EXCEPTION_MSG, "deletion of loadbalancer")
+            LOG.exception(ovn_const.EXCEPTION_MSG, "deletion of loadbalancer")
             lbalancer_status[constants.PROVISIONING_STATUS] = constants.ERROR
             lbalancer_status[constants.OPERATING_STATUS] = constants.ERROR
         # Delete VIP port from neutron.
@@ -1086,7 +1054,7 @@ class OvnProviderHelper(object):
                     operating_status = constants.OFFLINE
                 lb_status[constants.OPERATING_STATUS] = operating_status
         except Exception:
-            LOG.exception(EXCEPTION_MSG, "update of loadbalancer")
+            LOG.exception(ovn_const.EXCEPTION_MSG, "update of loadbalancer")
             lb_status[constants.PROVISIONING_STATUS] = constants.ERROR
             lb_status[constants.OPERATING_STATUS] = constants.ERROR
         return status
@@ -1136,7 +1104,7 @@ class OvnProviderHelper(object):
                     {constants.ID: listener[constants.LOADBALANCER_ID],
                      constants.PROVISIONING_STATUS: constants.ACTIVE}]}
         except Exception:
-            LOG.exception(EXCEPTION_MSG, "creation of listener")
+            LOG.exception(ovn_const.EXCEPTION_MSG, "creation of listener")
             status = {
                 constants.LISTENERS: [
                     {constants.ID: listener[constants.ID],
@@ -1188,7 +1156,7 @@ class OvnProviderHelper(object):
                         self._refresh_lb_vips(ovn_lb.uuid, external_ids))
                 self._execute_commands(commands)
             except Exception:
-                LOG.exception(EXCEPTION_MSG, "deletion of listener")
+                LOG.exception(ovn_const.EXCEPTION_MSG, "deletion of listener")
                 status = {
                     constants.LISTENERS: [
                         {constants.ID: listener[constants.ID],
@@ -1219,7 +1187,7 @@ class OvnProviderHelper(object):
                 listener[constants.LOADBALANCER_ID],
                 protocol=listener[constants.PROTOCOL])
         except idlutils.RowNotFound:
-            LOG.exception(EXCEPTION_MSG, "update of listener")
+            LOG.exception(ovn_const.EXCEPTION_MSG, "update of listener")
             # LB row not found during update of a listener. That is a problem.
             listener_status[constants.PROVISIONING_STATUS] = constants.ERROR
             lbalancer_status[constants.PROVISIONING_STATUS] = constants.ERROR
@@ -1294,7 +1262,7 @@ class OvnProviderHelper(object):
                 self._refresh_lb_vips(ovn_lb.uuid, external_ids))
             self._execute_commands(commands)
         except Exception:
-            LOG.exception(EXCEPTION_MSG, "update of listener")
+            LOG.exception(ovn_const.EXCEPTION_MSG, "update of listener")
             status = {
                 constants.LISTENERS: [
                     {constants.ID: listener[constants.ID],
@@ -1339,7 +1307,7 @@ class OvnProviderHelper(object):
                      constants.PROVISIONING_STATUS: constants.ACTIVE}]
                 status[constants.LISTENERS] = listener_status
         except Exception:
-            LOG.exception(EXCEPTION_MSG, "creation of pool")
+            LOG.exception(ovn_const.EXCEPTION_MSG, "creation of pool")
             status = {
                 constants.POOLS: [
                     {constants.ID: pool[constants.ID],
@@ -1412,7 +1380,7 @@ class OvnProviderHelper(object):
                     {constants.ID: listener_id,
                      constants.PROVISIONING_STATUS: constants.ACTIVE}]
         except Exception:
-            LOG.exception(EXCEPTION_MSG, "deletion of pool")
+            LOG.exception(ovn_const.EXCEPTION_MSG, "deletion of pool")
             status = {
                 constants.POOLS: [
                     {constants.ID: pool[constants.ID],
@@ -1438,7 +1406,7 @@ class OvnProviderHelper(object):
                 pool[constants.LOADBALANCER_ID],
                 protocol=pool[constants.PROTOCOL])
         except idlutils.RowNotFound:
-            LOG.exception(EXCEPTION_MSG, "update of pool")
+            LOG.exception(ovn_const.EXCEPTION_MSG, "update of pool")
             # LB row not found during update of a listener. That is a problem.
             pool_status[constants.PROVISIONING_STATUS] = constants.ERROR
             lbalancer_status[constants.PROVISIONING_STATUS] = constants.ERROR
@@ -1494,7 +1462,7 @@ class OvnProviderHelper(object):
                      constants.PROVISIONING_STATUS: constants.ACTIVE})
             status[constants.LISTENERS] = listener_status
         except Exception:
-            LOG.exception(EXCEPTION_MSG, "update of pool")
+            LOG.exception(ovn_const.EXCEPTION_MSG, "update of pool")
             status = {
                 constants.POOLS: [
                     {constants.ID: pool[constants.ID],
@@ -1560,7 +1528,7 @@ class OvnProviderHelper(object):
                      constants.PROVISIONING_STATUS: constants.ACTIVE})
             status[constants.LISTENERS] = listener_status
         except Exception:
-            LOG.exception(EXCEPTION_MSG, "creation of member")
+            LOG.exception(ovn_const.EXCEPTION_MSG, "creation of member")
             status = {
                 constants.POOLS: [
                     {constants.ID: member[constants.POOL_ID],
@@ -1636,7 +1604,7 @@ class OvnProviderHelper(object):
                      constants.PROVISIONING_STATUS: constants.ACTIVE})
             status[constants.LISTENERS] = listener_status
         except Exception:
-            LOG.exception(EXCEPTION_MSG, "deletion of member")
+            LOG.exception(ovn_const.EXCEPTION_MSG, "deletion of member")
             status = {
                 constants.POOLS: [
                     {constants.ID: member[constants.POOL_ID],
@@ -1700,7 +1668,7 @@ class OvnProviderHelper(object):
                      constants.PROVISIONING_STATUS: constants.ACTIVE})
             status[constants.LISTENERS] = listener_status
         except Exception:
-            LOG.exception(EXCEPTION_MSG, "update of member")
+            LOG.exception(ovn_const.EXCEPTION_MSG, "update of member")
             status = {
                 constants.POOLS: [
                     {constants.ID: member[constants.POOL_ID],
@@ -1788,7 +1756,7 @@ class OvnProviderHelper(object):
         external_ids = copy.deepcopy(ovn_lb.external_ids)
         commands = []
 
-        if fip_info['action'] == REQ_INFO_ACTION_ASSOCIATE:
+        if fip_info['action'] == ovn_const.REQ_INFO_ACTION_ASSOCIATE:
             external_ids[ovn_const.LB_EXT_IDS_VIP_FIP_KEY] = (
                 fip_info['vip_fip'])
             vip_fip_info = {
@@ -1851,7 +1819,7 @@ class OvnProviderHelper(object):
                       info['id'])
             return
 
-        if info['action'] == REQ_INFO_MEMBER_ADDED:
+        if info['action'] == ovn_const.REQ_INFO_MEMBER_ADDED:
             LOG.info('Member %(member)s is added to Load Balancer %(lb)s '
                      'and both have FIP assigned. Member FIP %(fip)s '
                      'needs to be centralized in those conditions. '
@@ -1900,14 +1868,14 @@ class OvnProviderDriver(driver_base.ProviderDriver):
         self._ovn_helper.shutdown()
 
     def _check_for_supported_protocols(self, protocol):
-        if protocol not in OVN_NATIVE_LB_PROTOCOLS:
+        if protocol not in ovn_const.OVN_NATIVE_LB_PROTOCOLS:
             msg = _('OVN provider does not support %s protocol') % protocol
             raise driver_exceptions.UnsupportedOptionError(
                 user_fault_string=msg,
                 operator_fault_string=msg)
 
     def _check_for_supported_algorithms(self, algorithm):
-        if algorithm not in OVN_NATIVE_LB_ALGORITHMS:
+        if algorithm not in ovn_const.OVN_NATIVE_LB_ALGORITHMS:
             msg = _('OVN provider does not support %s algorithm') % algorithm
             raise driver_exceptions.UnsupportedOptionError(
                 user_fault_string=msg,
@@ -1922,20 +1890,20 @@ class OvnProviderDriver(driver_base.ProviderDriver):
                         'vip_network_id': loadbalancer.vip_network_id,
                         'admin_state_up': admin_state_up}
 
-        request = {'type': REQ_TYPE_LB_CREATE,
+        request = {'type': ovn_const.REQ_TYPE_LB_CREATE,
                    'info': request_info}
         self._ovn_helper.add_request(request)
 
     def loadbalancer_delete(self, loadbalancer, cascade=False):
         request_info = {'id': loadbalancer.loadbalancer_id,
                         'cascade': cascade}
-        request = {'type': REQ_TYPE_LB_DELETE,
+        request = {'type': ovn_const.REQ_TYPE_LB_DELETE,
                    'info': request_info}
         self._ovn_helper.add_request(request)
 
     def loadbalancer_failover(self, loadbalancer_id):
         request_info = {'id': loadbalancer_id}
-        request = {'type': REQ_TYPE_LB_FAILOVER,
+        request = {'type': ovn_const.REQ_TYPE_LB_FAILOVER,
                    'info': request_info}
         self._ovn_helper.add_request(request)
 
@@ -1944,7 +1912,7 @@ class OvnProviderDriver(driver_base.ProviderDriver):
         if not isinstance(
                 new_loadbalancer.admin_state_up, o_datamodels.UnsetType):
             request_info['admin_state_up'] = new_loadbalancer.admin_state_up
-        request = {'type': REQ_TYPE_LB_UPDATE,
+        request = {'type': ovn_const.REQ_TYPE_LB_UPDATE,
                    'info': request_info}
         self._ovn_helper.add_request(request)
 
@@ -1960,7 +1928,7 @@ class OvnProviderDriver(driver_base.ProviderDriver):
                         'protocol': pool.protocol,
                         'listener_id': pool.listener_id,
                         'admin_state_up': admin_state_up}
-        request = {'type': REQ_TYPE_POOL_CREATE,
+        request = {'type': ovn_const.REQ_TYPE_POOL_CREATE,
                    'info': request_info}
         self._ovn_helper.add_request(request)
 
@@ -1971,7 +1939,7 @@ class OvnProviderDriver(driver_base.ProviderDriver):
         request_info = {'id': pool.pool_id,
                         'protocol': pool.protocol,
                         'loadbalancer_id': pool.loadbalancer_id}
-        request = {'type': REQ_TYPE_POOL_DELETE,
+        request = {'type': ovn_const.REQ_TYPE_POOL_DELETE,
                    'info': request_info}
         self._ovn_helper.add_request(request)
 
@@ -1986,7 +1954,7 @@ class OvnProviderDriver(driver_base.ProviderDriver):
 
         if not isinstance(new_pool.admin_state_up, o_datamodels.UnsetType):
             request_info['admin_state_up'] = new_pool.admin_state_up
-        request = {'type': REQ_TYPE_POOL_UPDATE,
+        request = {'type': ovn_const.REQ_TYPE_POOL_UPDATE,
                    'info': request_info}
         self._ovn_helper.add_request(request)
 
@@ -2001,7 +1969,7 @@ class OvnProviderDriver(driver_base.ProviderDriver):
                         'protocol_port': listener.protocol_port,
                         'default_pool_id': listener.default_pool_id,
                         'admin_state_up': admin_state_up}
-        request = {'type': REQ_TYPE_LISTENER_CREATE,
+        request = {'type': ovn_const.REQ_TYPE_LISTENER_CREATE,
                    'info': request_info}
         self._ovn_helper.add_request(request)
 
@@ -2010,7 +1978,7 @@ class OvnProviderDriver(driver_base.ProviderDriver):
                         'loadbalancer_id': listener.loadbalancer_id,
                         'protocol_port': listener.protocol_port,
                         'protocol': listener.protocol}
-        request = {'type': REQ_TYPE_LISTENER_DELETE,
+        request = {'type': ovn_const.REQ_TYPE_LISTENER_DELETE,
                    'info': request_info}
         self._ovn_helper.add_request(request)
 
@@ -2027,7 +1995,7 @@ class OvnProviderDriver(driver_base.ProviderDriver):
                           o_datamodels.UnsetType):
             request_info['default_pool_id'] = new_listener.default_pool_id
 
-        request = {'type': REQ_TYPE_LISTENER_UPDATE,
+        request = {'type': ovn_const.REQ_TYPE_LISTENER_UPDATE,
                    'info': request_info}
         self._ovn_helper.add_request(request)
 
@@ -2071,7 +2039,7 @@ class OvnProviderDriver(driver_base.ProviderDriver):
                         'pool_id': member.pool_id,
                         'subnet_id': member.subnet_id,
                         'admin_state_up': admin_state_up}
-        request = {'type': REQ_TYPE_MEMBER_CREATE,
+        request = {'type': ovn_const.REQ_TYPE_MEMBER_CREATE,
                    'info': request_info}
         self._ovn_helper.add_request(request)
 
@@ -2082,8 +2050,8 @@ class OvnProviderDriver(driver_base.ProviderDriver):
                         'address': member.address,
                         'pool_id': member.pool_id,
                         'subnet_id': member.subnet_id,
-                        'action': REQ_INFO_MEMBER_ADDED}
-        request = {'type': REQ_TYPE_HANDLE_MEMBER_DVR,
+                        'action': ovn_const.REQ_INFO_MEMBER_ADDED}
+        request = {'type': ovn_const.REQ_TYPE_HANDLE_MEMBER_DVR,
                    'info': request_info}
         self._ovn_helper.add_request(request)
 
@@ -2093,7 +2061,7 @@ class OvnProviderDriver(driver_base.ProviderDriver):
                         'protocol_port': member.protocol_port,
                         'pool_id': member.pool_id,
                         'subnet_id': member.subnet_id}
-        request = {'type': REQ_TYPE_MEMBER_DELETE,
+        request = {'type': ovn_const.REQ_TYPE_MEMBER_DELETE,
                    'info': request_info}
         self._ovn_helper.add_request(request)
         # NOTE(mjozefcz): If LB has FIP on VIP
@@ -2103,8 +2071,8 @@ class OvnProviderDriver(driver_base.ProviderDriver):
                         'address': member.address,
                         'pool_id': member.pool_id,
                         'subnet_id': member.subnet_id,
-                        'action': REQ_INFO_MEMBER_DELETED}
-        request = {'type': REQ_TYPE_HANDLE_MEMBER_DVR,
+                        'action': ovn_const.REQ_INFO_MEMBER_DELETED}
+        request = {'type': ovn_const.REQ_TYPE_HANDLE_MEMBER_DVR,
                    'info': request_info}
         self._ovn_helper.add_request(request)
 
@@ -2123,7 +2091,7 @@ class OvnProviderDriver(driver_base.ProviderDriver):
                         'subnet_id': old_member.subnet_id}
         if not isinstance(new_member.admin_state_up, o_datamodels.UnsetType):
             request_info['admin_state_up'] = new_member.admin_state_up
-        request = {'type': REQ_TYPE_MEMBER_UPDATE,
+        request = {'type': ovn_const.REQ_TYPE_MEMBER_UPDATE,
                    'info': request_info}
         self._ovn_helper.add_request(request)
 
@@ -2172,10 +2140,10 @@ class OvnProviderDriver(driver_base.ProviderDriver):
             member_found = [x for x in existing_members
                             if re.match(member_info_old, x)]
             if not member_found:
-                req_type = REQ_TYPE_MEMBER_CREATE
+                req_type = ovn_const.REQ_TYPE_MEMBER_CREATE
             else:
                 # If member exists in pool, then Update
-                req_type = REQ_TYPE_MEMBER_UPDATE
+                req_type = ovn_const.REQ_TYPE_MEMBER_UPDATE
                 # Remove all updating members so only deleted ones are left
                 # TODO(mjozefcz): Remove this workaround in W release.
                 try:
@@ -2201,7 +2169,7 @@ class OvnProviderDriver(driver_base.ProviderDriver):
                             'pool_id': pool_id}
             if len(member_info) == 4:
                 request_info['subnet_id'] = member_info[3]
-            request = {'type': REQ_TYPE_MEMBER_DELETE,
+            request = {'type': ovn_const.REQ_TYPE_MEMBER_DELETE,
                        'info': request_info}
             request_list.append(request)
 

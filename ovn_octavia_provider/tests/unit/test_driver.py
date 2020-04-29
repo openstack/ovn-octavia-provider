@@ -233,16 +233,16 @@ class TestOvnProviderDriver(TestOvnOctaviaBase):
                 'pool_id': self.ref_member.pool_id,
                 'subnet_id': self.ref_member.subnet_id,
                 'admin_state_up': self.ref_member.admin_state_up}
-        expected_dict = {'type': ovn_driver.REQ_TYPE_MEMBER_CREATE,
+        expected_dict = {'type': ovn_const.REQ_TYPE_MEMBER_CREATE,
                          'info': info}
         info_dvr = {
             'id': self.ref_member.member_id,
             'address': self.ref_member.address,
             'pool_id': self.ref_member.pool_id,
             'subnet_id': self.ref_member.subnet_id,
-            'action': ovn_driver.REQ_INFO_MEMBER_ADDED}
+            'action': ovn_const.REQ_INFO_MEMBER_ADDED}
         expected_dict_dvr = {
-            'type': ovn_driver.REQ_TYPE_HANDLE_MEMBER_DVR,
+            'type': ovn_const.REQ_TYPE_HANDLE_MEMBER_DVR,
             'info': info_dvr}
         self.driver.member_create(self.ref_member)
         expected = [
@@ -293,9 +293,9 @@ class TestOvnProviderDriver(TestOvnOctaviaBase):
                 'pool_id': self.ref_member.pool_id,
                 'subnet_id': self.ref_member.subnet_id,
                 'admin_state_up': True}
-        expected_dict = {'type': ovn_driver.REQ_TYPE_MEMBER_CREATE,
+        expected_dict = {'type': ovn_const.REQ_TYPE_MEMBER_CREATE,
                          'info': info}
-        expected_dict_dvr = {'type': ovn_driver.REQ_TYPE_HANDLE_MEMBER_DVR,
+        expected_dict_dvr = {'type': ovn_const.REQ_TYPE_HANDLE_MEMBER_DVR,
                              'info': mock.ANY}
         expected = [
             mock.call(expected_dict),
@@ -310,7 +310,7 @@ class TestOvnProviderDriver(TestOvnOctaviaBase):
                 'pool_id': self.ref_member.pool_id,
                 'admin_state_up': self.update_member.admin_state_up,
                 'subnet_id': self.ref_member.subnet_id}
-        expected_dict = {'type': ovn_driver.REQ_TYPE_MEMBER_UPDATE,
+        expected_dict = {'type': ovn_const.REQ_TYPE_MEMBER_UPDATE,
                          'info': info}
         self.driver.member_update(self.ref_member, self.update_member)
         self.mock_add_request.assert_called_once_with(expected_dict)
@@ -373,16 +373,16 @@ class TestOvnProviderDriver(TestOvnOctaviaBase):
                 'protocol_port': self.ref_member.protocol_port,
                 'pool_id': self.ref_member.pool_id,
                 'subnet_id': self.ref_member.subnet_id}
-        expected_dict = {'type': ovn_driver.REQ_TYPE_MEMBER_DELETE,
+        expected_dict = {'type': ovn_const.REQ_TYPE_MEMBER_DELETE,
                          'info': info}
         info_dvr = {
             'id': self.ref_member.member_id,
             'address': self.ref_member.address,
             'pool_id': self.ref_member.pool_id,
             'subnet_id': self.ref_member.subnet_id,
-            'action': ovn_driver.REQ_INFO_MEMBER_DELETED}
+            'action': ovn_const.REQ_INFO_MEMBER_DELETED}
         expected_dict_dvr = {
-            'type': ovn_driver.REQ_TYPE_HANDLE_MEMBER_DVR,
+            'type': ovn_const.REQ_TYPE_HANDLE_MEMBER_DVR,
             'info': info_dvr}
         self.driver.member_delete(self.ref_member)
         expected = [
@@ -397,7 +397,7 @@ class TestOvnProviderDriver(TestOvnOctaviaBase):
                 'default_pool_id': self.ref_listener.default_pool_id,
                 'admin_state_up': self.ref_listener.admin_state_up,
                 'loadbalancer_id': self.ref_listener.loadbalancer_id}
-        expected_dict = {'type': ovn_driver.REQ_TYPE_LISTENER_CREATE,
+        expected_dict = {'type': ovn_const.REQ_TYPE_LISTENER_CREATE,
                          'info': info}
         self.driver.listener_create(self.ref_listener)
         self.mock_add_request.assert_called_once_with(expected_dict)
@@ -410,7 +410,7 @@ class TestOvnProviderDriver(TestOvnOctaviaBase):
                 'default_pool_id': self.ref_listener.default_pool_id,
                 'admin_state_up': True,
                 'loadbalancer_id': self.ref_listener.loadbalancer_id}
-        expected_dict = {'type': ovn_driver.REQ_TYPE_LISTENER_CREATE,
+        expected_dict = {'type': ovn_const.REQ_TYPE_LISTENER_CREATE,
                          'info': info}
         self.driver.listener_create(self.ref_listener)
         self.mock_add_request.assert_called_once_with(expected_dict)
@@ -427,13 +427,13 @@ class TestOvnProviderDriver(TestOvnOctaviaBase):
                 'default_pool_id': self.ref_listener.default_pool_id,
                 'admin_state_up': self.ref_listener.admin_state_up,
                 'loadbalancer_id': self.ref_listener.loadbalancer_id}
-        expected_dict = {'type': ovn_driver.REQ_TYPE_LISTENER_CREATE,
+        expected_dict = {'type': ovn_const.REQ_TYPE_LISTENER_CREATE,
                          'info': info}
         self.driver.listener_create(self.ref_listener)
         self.mock_add_request.assert_called_once_with(expected_dict)
         self.ovn_lb.protocol = ['UDP']
         info['protocol'] = 'UDP'
-        expected_dict = {'type': ovn_driver.REQ_TYPE_LISTENER_CREATE,
+        expected_dict = {'type': ovn_const.REQ_TYPE_LISTENER_CREATE,
                          'info': info}
         self.driver.listener_create(self.ref_listener)
 
@@ -445,7 +445,7 @@ class TestOvnProviderDriver(TestOvnOctaviaBase):
                 'loadbalancer_id': self.ref_listener.loadbalancer_id}
         if self.ref_listener.default_pool_id:
             info['default_pool_id'] = self.ref_listener.default_pool_id
-        expected_dict = {'type': ovn_driver.REQ_TYPE_LISTENER_UPDATE,
+        expected_dict = {'type': ovn_const.REQ_TYPE_LISTENER_UPDATE,
                          'info': info}
         self.driver.listener_update(self.ref_listener, self.ref_listener)
         self.mock_add_request.assert_called_once_with(expected_dict)
@@ -455,7 +455,7 @@ class TestOvnProviderDriver(TestOvnOctaviaBase):
                 'protocol_port': self.ref_listener.protocol_port,
                 'protocol': self.ref_pool.protocol,
                 'loadbalancer_id': self.ref_listener.loadbalancer_id}
-        expected_dict = {'type': ovn_driver.REQ_TYPE_LISTENER_DELETE,
+        expected_dict = {'type': ovn_const.REQ_TYPE_LISTENER_DELETE,
                          'info': info}
         self.driver.listener_delete(self.ref_listener)
         self.mock_add_request.assert_called_once_with(expected_dict)
@@ -465,7 +465,7 @@ class TestOvnProviderDriver(TestOvnOctaviaBase):
                 'vip_address': self.ref_lb0.vip_address,
                 'vip_network_id': self.ref_lb0.vip_network_id,
                 'admin_state_up': self.ref_lb0.admin_state_up}
-        expected_dict = {'type': ovn_driver.REQ_TYPE_LB_CREATE,
+        expected_dict = {'type': ovn_const.REQ_TYPE_LB_CREATE,
                          'info': info}
         self.driver.loadbalancer_create(self.ref_lb0)
         self.mock_add_request.assert_called_once_with(expected_dict)
@@ -476,7 +476,7 @@ class TestOvnProviderDriver(TestOvnOctaviaBase):
                 'vip_address': self.ref_lb0.vip_address,
                 'vip_network_id': self.ref_lb0.vip_network_id,
                 'admin_state_up': True}
-        expected_dict = {'type': ovn_driver.REQ_TYPE_LB_CREATE,
+        expected_dict = {'type': ovn_const.REQ_TYPE_LB_CREATE,
                          'info': info}
         self.driver.loadbalancer_create(self.ref_lb0)
         self.mock_add_request.assert_called_once_with(expected_dict)
@@ -484,7 +484,7 @@ class TestOvnProviderDriver(TestOvnOctaviaBase):
     def test_loadbalancer_update(self):
         info = {'id': self.ref_lb1.loadbalancer_id,
                 'admin_state_up': self.ref_lb1.admin_state_up}
-        expected_dict = {'type': ovn_driver.REQ_TYPE_LB_UPDATE,
+        expected_dict = {'type': ovn_const.REQ_TYPE_LB_UPDATE,
                          'info': info}
         self.driver.loadbalancer_update(self.ref_lb0, self.ref_lb1)
         self.mock_add_request.assert_called_once_with(expected_dict)
@@ -492,14 +492,14 @@ class TestOvnProviderDriver(TestOvnOctaviaBase):
     def test_loadbalancer_delete(self):
         info = {'id': self.ref_lb0.loadbalancer_id,
                 'cascade': False}
-        expected_dict = {'type': ovn_driver.REQ_TYPE_LB_DELETE,
+        expected_dict = {'type': ovn_const.REQ_TYPE_LB_DELETE,
                          'info': info}
         self.driver.loadbalancer_delete(self.ref_lb1)
         self.mock_add_request.assert_called_once_with(expected_dict)
 
     def test_loadbalancer_failover(self):
         info = {'id': self.ref_lb0.loadbalancer_id}
-        expected_dict = {'type': ovn_driver.REQ_TYPE_LB_FAILOVER,
+        expected_dict = {'type': ovn_const.REQ_TYPE_LB_FAILOVER,
                          'info': info}
         self.driver.loadbalancer_failover(info['id'])
         self.mock_add_request.assert_called_once_with(expected_dict)
@@ -520,7 +520,7 @@ class TestOvnProviderDriver(TestOvnOctaviaBase):
                 'listener_id': self.ref_pool.listener_id,
                 'protocol': self.ref_pool.protocol,
                 'admin_state_up': self.ref_pool.admin_state_up}
-        expected_dict = {'type': ovn_driver.REQ_TYPE_POOL_CREATE,
+        expected_dict = {'type': ovn_const.REQ_TYPE_POOL_CREATE,
                          'info': info}
         self.driver.pool_create(self.ref_pool)
         self.mock_add_request.assert_called_once_with(expected_dict)
@@ -532,7 +532,7 @@ class TestOvnProviderDriver(TestOvnOctaviaBase):
                 'protocol': self.ref_pool.protocol,
                 'listener_id': self.ref_pool.listener_id,
                 'admin_state_up': True}
-        expected_dict = {'type': ovn_driver.REQ_TYPE_POOL_CREATE,
+        expected_dict = {'type': ovn_const.REQ_TYPE_POOL_CREATE,
                          'info': info}
         self.driver.pool_create(self.ref_pool)
         self.mock_add_request.assert_called_once_with(expected_dict)
@@ -543,7 +543,7 @@ class TestOvnProviderDriver(TestOvnOctaviaBase):
         info = {'id': self.ref_pool.pool_id,
                 'protocol': self.ref_pool.protocol,
                 'loadbalancer_id': self.ref_pool.loadbalancer_id}
-        expected = {'type': ovn_driver.REQ_TYPE_POOL_DELETE,
+        expected = {'type': ovn_const.REQ_TYPE_POOL_DELETE,
                     'info': info}
         self.driver.pool_delete(self.ref_pool)
         self.mock_add_request.assert_called_once_with(expected)
@@ -552,7 +552,7 @@ class TestOvnProviderDriver(TestOvnOctaviaBase):
         info = {'id': self.ref_pool.pool_id,
                 'protocol': self.ref_pool.protocol,
                 'loadbalancer_id': self.ref_pool.loadbalancer_id}
-        expected = {'type': ovn_driver.REQ_TYPE_POOL_DELETE,
+        expected = {'type': ovn_const.REQ_TYPE_POOL_DELETE,
                     'info': info}
         info_member = {'id': self.ref_member.member_id,
                        'pool_id': self.ref_member.pool_id,
@@ -560,10 +560,10 @@ class TestOvnProviderDriver(TestOvnOctaviaBase):
                        'protocol_port': self.ref_member.protocol_port,
                        'address': self.ref_member.address}
         expected_members = {
-            'type': ovn_driver.REQ_TYPE_MEMBER_DELETE,
+            'type': ovn_const.REQ_TYPE_MEMBER_DELETE,
             'info': info_member}
         expected_members_dvr = {
-            'type': ovn_driver.REQ_TYPE_HANDLE_MEMBER_DVR,
+            'type': ovn_const.REQ_TYPE_HANDLE_MEMBER_DVR,
             'info': mock.ANY}
         calls = [mock.call(expected_members),
                  mock.call(expected_members_dvr),
@@ -576,7 +576,7 @@ class TestOvnProviderDriver(TestOvnOctaviaBase):
                 'loadbalancer_id': self.ref_update_pool.loadbalancer_id,
                 'protocol': self.ref_pool.protocol,
                 'admin_state_up': self.ref_update_pool.admin_state_up}
-        expected_dict = {'type': ovn_driver.REQ_TYPE_POOL_UPDATE,
+        expected_dict = {'type': ovn_const.REQ_TYPE_POOL_UPDATE,
                          'info': info}
         self.driver.pool_update(self.ref_pool, self.ref_update_pool)
         self.mock_add_request.assert_called_once_with(expected_dict)
@@ -2581,7 +2581,7 @@ class TestOvnProviderHelper(TestOvnOctaviaBase):
         info = {
             'id': self.member_id,
             'pool_id': self.pool_id,
-            'action': ovn_driver.REQ_INFO_MEMBER_ADDED}
+            'action': ovn_const.REQ_INFO_MEMBER_ADDED}
         external_ids = {
             'neutron:vip_fip': ''}
         lb.external_ids = external_ids
@@ -2597,7 +2597,7 @@ class TestOvnProviderHelper(TestOvnOctaviaBase):
             'id': self.member_id,
             'subnet_id': self.member_subnet_id,
             'pool_id': self.pool_id,
-            'action': ovn_driver.REQ_INFO_MEMBER_ADDED}
+            'action': ovn_const.REQ_INFO_MEMBER_ADDED}
         external_ids = {
             'neutron:vip_fip': '11.11.11.11'}
         lb.external_ids = external_ids
@@ -2617,7 +2617,7 @@ class TestOvnProviderHelper(TestOvnOctaviaBase):
             'id': self.member_id,
             'subnet_id': self.member_subnet_id,
             'pool_id': self.pool_id,
-            'action': ovn_driver.REQ_INFO_MEMBER_ADDED}
+            'action': ovn_const.REQ_INFO_MEMBER_ADDED}
         external_ids = {
             'neutron:vip_fip': '11.11.11.11'}
         lb.external_ids = external_ids
@@ -2633,7 +2633,7 @@ class TestOvnProviderHelper(TestOvnOctaviaBase):
             'id': self.member_id,
             'subnet_id': self.member_subnet_id,
             'pool_id': self.pool_id,
-            'action': ovn_driver.REQ_INFO_MEMBER_ADDED}
+            'action': ovn_const.REQ_INFO_MEMBER_ADDED}
         external_ids = {
             'neutron:vip_fip': '11.11.11.11'}
         lb.external_ids = external_ids
@@ -2643,7 +2643,7 @@ class TestOvnProviderHelper(TestOvnOctaviaBase):
         self.helper.ovn_nbdb_api.db_clear.assert_not_called()
 
     def _test_handle_member_dvr_lb_fip(
-            self, net_cli, action=ovn_driver.REQ_INFO_MEMBER_ADDED):
+            self, net_cli, action=ovn_const.REQ_INFO_MEMBER_ADDED):
         lb = mock.MagicMock()
         fake_port = fakes.FakePort.create_one_port(
             attrs={'allowed_address_pairs': ''})
@@ -2683,7 +2683,7 @@ class TestOvnProviderHelper(TestOvnOctaviaBase):
         self.mock_find_lb_pool_key.return_value = lb
         self.helper.handle_member_dvr(info)
 
-        if action == ovn_driver.REQ_INFO_MEMBER_ADDED:
+        if action == ovn_const.REQ_INFO_MEMBER_ADDED:
             calls = [
                 mock.call.lookup('Logical_Switch', 'neutron-foo'),
                 mock.call.db_find_rows('NAT', ('external_ids', '=', {
@@ -2709,7 +2709,7 @@ class TestOvnProviderHelper(TestOvnOctaviaBase):
     @mock.patch('ovn_octavia_provider.driver.get_neutron_client')
     def test_handle_member_dvr_lb_fip_member_deleted(self, net_cli):
         self._test_handle_member_dvr_lb_fip(
-            net_cli, action=ovn_driver.REQ_INFO_MEMBER_DELETED)
+            net_cli, action=ovn_const.REQ_INFO_MEMBER_DELETED)
 
     def test_ovsdb_connections(self):
         ovn_driver.OvnProviderHelper.ovn_nbdb_api = None

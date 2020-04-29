@@ -10,6 +10,9 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+from octavia_lib.common import constants
+
+
 # TODO(mjozefcz): Use those variables from neutron-lib once released.
 LRP_PREFIX = "lrp-"
 LB_VIP_PORT_PREFIX = "ovn-lb-vip-"
@@ -37,3 +40,41 @@ LB_EXT_IDS_VIP_PORT_ID_KEY = 'neutron:vip_port_id'
 
 # Auth sections
 SERVICE_AUTH = 'service_auth'
+
+# Request type constants
+REQ_TYPE_LB_CREATE = 'lb_create'
+REQ_TYPE_LB_DELETE = 'lb_delete'
+REQ_TYPE_LB_FAILOVER = 'lb_failover'
+REQ_TYPE_LB_UPDATE = 'lb_update'
+REQ_TYPE_LISTENER_CREATE = 'listener_create'
+REQ_TYPE_LISTENER_DELETE = 'listener_delete'
+REQ_TYPE_LISTENER_UPDATE = 'listener_update'
+REQ_TYPE_POOL_CREATE = 'pool_create'
+REQ_TYPE_POOL_DELETE = 'pool_delete'
+REQ_TYPE_POOL_UPDATE = 'pool_update'
+REQ_TYPE_MEMBER_CREATE = 'member_create'
+REQ_TYPE_MEMBER_DELETE = 'member_delete'
+REQ_TYPE_MEMBER_UPDATE = 'member_update'
+REQ_TYPE_LB_CREATE_LRP_ASSOC = 'lb_create_lrp_assoc'
+REQ_TYPE_LB_DELETE_LRP_ASSOC = 'lb_delete_lrp_assoc'
+REQ_TYPE_HANDLE_VIP_FIP = 'handle_vip_fip'
+REQ_TYPE_HANDLE_MEMBER_DVR = 'handle_member_dvr'
+
+REQ_TYPE_EXIT = 'exit'
+
+# Request information constants
+REQ_INFO_ACTION_ASSOCIATE = 'associate'
+REQ_INFO_ACTION_DISASSOCIATE = 'disassociate'
+REQ_INFO_MEMBER_ADDED = 'member_added'
+REQ_INFO_MEMBER_DELETED = 'member_deleted'
+
+# Disabled resources have a ':D' at the end
+DISABLED_RESOURCE_SUFFIX = 'D'
+
+# This driver only supports TCP and UDP, with a single LB algorithm
+OVN_NATIVE_LB_PROTOCOLS = [constants.PROTOCOL_TCP,
+                           constants.PROTOCOL_UDP, ]
+OVN_NATIVE_LB_ALGORITHMS = [constants.LB_ALGORITHM_SOURCE_IP_PORT, ]
+
+# Prepended to exception log messages
+EXCEPTION_MSG = "Exception occurred during %s"
