@@ -14,8 +14,12 @@
 
 from oslo_log import log as logging
 
+from ovn_octavia_provider.common import config as ovn_conf
 from ovn_octavia_provider import driver
+from ovn_octavia_provider import helper as ovn_helper
 from ovn_octavia_provider.ovsdb import impl_idl_ovn
+
+ovn_conf.register_opts()
 
 LOG = logging.getLogger(__name__)
 
@@ -24,7 +28,7 @@ OVN_EVENT_LOCK_NAME = "neutron_ovn_octavia_event_lock"
 
 def OvnProviderAgent(exit_event):
 
-    helper = driver.OvnProviderHelper()
+    helper = ovn_helper.OvnProviderHelper()
     events = [driver.LogicalRouterPortEvent(helper),
               driver.LogicalSwitchPortUpdateEvent(helper)]
 

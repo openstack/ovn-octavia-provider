@@ -58,14 +58,36 @@ ovn_opts = [
                       'to 60 seconds.')),
 ]
 
-cfg.CONF.register_opts(ovn_opts, group='ovn')
-ks_loading.register_auth_conf_options(cfg.CONF, 'service_auth')
-ks_loading.register_session_conf_options(cfg.CONF, 'service_auth')
+neutron_opts = [
+    cfg.StrOpt('service_name',
+               help=_('The name of the neutron service in the '
+                      'keystone catalog')),
+    cfg.StrOpt('endpoint', help=_('A new endpoint to override the endpoint '
+                                  'in the keystone catalog.')),
+    cfg.StrOpt('region_name',
+               help=_('Region in Identity service catalog to use for '
+                      'communication with the OpenStack services.')),
+    cfg.StrOpt('endpoint_type', default='publicURL',
+               help=_('Endpoint interface in identity service to use')),
+    cfg.StrOpt('ca_certificates_file',
+               help=_('CA certificates file path')),
+    cfg.BoolOpt('insecure',
+                default=False,
+                help=_('Disable certificate validation on SSL connections ')),
+]
+
+
+def register_opts():
+    cfg.CONF.register_opts(ovn_opts, group='ovn')
+    cfg.CONF.register_opts(neutron_opts, group='neutron')
+    ks_loading.register_auth_conf_options(cfg.CONF, 'service_auth')
+    ks_loading.register_session_conf_options(cfg.CONF, 'service_auth')
 
 
 def list_opts():
     return [
         ('ovn', ovn_opts),
+        ('neutron', neutron_opts),
     ]
 
 
