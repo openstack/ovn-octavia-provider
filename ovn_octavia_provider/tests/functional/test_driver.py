@@ -35,6 +35,7 @@ from ovn_octavia_provider import agent as ovn_agent
 from ovn_octavia_provider.common import clients
 from ovn_octavia_provider.common import constants as ovn_const
 from ovn_octavia_provider import driver as ovn_driver
+from ovn_octavia_provider import event as ovn_event
 from ovn_octavia_provider import helper as ovn_helper
 from ovn_octavia_provider.ovsdb import impl_idl_ovn
 
@@ -1181,8 +1182,8 @@ class TestOvnOctaviaProviderAgent(TestOvnOctaviaBase):
         # we can initialize this IDL here instead spawning
         # another process.
         da_helper = ovn_helper.OvnProviderHelper()
-        events = [ovn_driver.LogicalRouterPortEvent(da_helper),
-                  ovn_driver.LogicalSwitchPortUpdateEvent(da_helper)]
+        events = [ovn_event.LogicalRouterPortEvent(da_helper),
+                  ovn_event.LogicalSwitchPortUpdateEvent(da_helper)]
         ovn_nb_idl_for_events = impl_idl_ovn.OvnNbIdlForLb(
             event_lock_name='func_test')
         ovn_nb_idl_for_events.notify_handler.watch_events(events)

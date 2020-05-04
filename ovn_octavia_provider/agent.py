@@ -15,7 +15,7 @@
 from oslo_log import log as logging
 
 from ovn_octavia_provider.common import config as ovn_conf
-from ovn_octavia_provider import driver
+from ovn_octavia_provider import event as ovn_event
 from ovn_octavia_provider import helper as ovn_helper
 from ovn_octavia_provider.ovsdb import impl_idl_ovn
 
@@ -29,8 +29,8 @@ OVN_EVENT_LOCK_NAME = "neutron_ovn_octavia_event_lock"
 def OvnProviderAgent(exit_event):
 
     helper = ovn_helper.OvnProviderHelper()
-    events = [driver.LogicalRouterPortEvent(helper),
-              driver.LogicalSwitchPortUpdateEvent(helper)]
+    events = [ovn_event.LogicalRouterPortEvent(helper),
+              ovn_event.LogicalSwitchPortUpdateEvent(helper)]
 
     # NOTE(mjozefcz): This API is only for handling OVSDB events!
     ovn_nb_idl_for_events = impl_idl_ovn.OvnNbIdlForLb(

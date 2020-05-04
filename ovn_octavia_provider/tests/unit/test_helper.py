@@ -22,7 +22,7 @@ from ovsdbapp.backend.ovs_idl import idlutils
 
 from ovn_octavia_provider.common import clients
 from ovn_octavia_provider.common import constants as ovn_const
-from ovn_octavia_provider import driver as ovn_driver
+from ovn_octavia_provider import event as ovn_event
 from ovn_octavia_provider import helper as ovn_helper
 from ovn_octavia_provider.tests.unit import base as ovn_base
 from ovn_octavia_provider.tests.unit import fakes
@@ -1299,7 +1299,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
 
     @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
     def test_logical_router_port_event_create(self, net_cli):
-        self.router_port_event = ovn_driver.LogicalRouterPortEvent(
+        self.router_port_event = ovn_event.LogicalRouterPortEvent(
             self.helper)
         row = fakes.FakeOvsdbRow.create_one_ovsdb_row(
             attrs={'gateway_chassis': []})
@@ -1313,7 +1313,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
 
     @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
     def test_logical_router_port_event_delete(self, net_cli):
-        self.router_port_event = ovn_driver.LogicalRouterPortEvent(
+        self.router_port_event = ovn_event.LogicalRouterPortEvent(
             self.helper)
         row = fakes.FakeOvsdbRow.create_one_ovsdb_row(
             attrs={'gateway_chassis': []})
@@ -1327,7 +1327,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
 
     @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
     def test_logical_router_port_event_gw_port(self, net_cli):
-        self.router_port_event = ovn_driver.LogicalRouterPortEvent(
+        self.router_port_event = ovn_event.LogicalRouterPortEvent(
             self.helper)
         row = fakes.FakeOvsdbRow.create_one_ovsdb_row(
             attrs={'gateway_chassis': ['temp-gateway-chassis']})
@@ -1848,7 +1848,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
             'Load_Balancer', self.ref_lb1.uuid, ('external_ids', exp_ls_refs))
 
     def test_logical_switch_port_update_event_vip_port(self):
-        self.switch_port_event = ovn_driver.LogicalSwitchPortUpdateEvent(
+        self.switch_port_event = ovn_event.LogicalSwitchPortUpdateEvent(
             self.helper)
         port_name = '%s%s' % (ovn_const.LB_VIP_PORT_PREFIX, 'foo')
         attrs = {
@@ -1867,7 +1867,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         self.mock_add_request.assert_called_once_with(expected_call)
 
     def test_logical_switch_port_update_event_missing_port_name(self):
-        self.switch_port_event = ovn_driver.LogicalSwitchPortUpdateEvent(
+        self.switch_port_event = ovn_event.LogicalSwitchPortUpdateEvent(
             self.helper)
         attrs = {'external_ids': {}}
         row = fakes.FakeOvsdbRow.create_one_ovsdb_row(
@@ -1876,7 +1876,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         self.mock_add_request.assert_not_called()
 
     def test_logical_switch_port_update_event_empty_fip(self):
-        self.switch_port_event = ovn_driver.LogicalSwitchPortUpdateEvent(
+        self.switch_port_event = ovn_event.LogicalSwitchPortUpdateEvent(
             self.helper)
         port_name = '%s%s' % (ovn_const.LB_VIP_PORT_PREFIX, 'foo')
         attrs = {'external_ids':
@@ -1893,7 +1893,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         self.mock_add_request.assert_called_once_with(expected_call)
 
     def test_logical_switch_port_update_event_not_vip_port(self):
-        self.switch_port_event = ovn_driver.LogicalSwitchPortUpdateEvent(
+        self.switch_port_event = ovn_event.LogicalSwitchPortUpdateEvent(
             self.helper)
         port_name = 'foo'
         row = fakes.FakeOvsdbRow.create_one_ovsdb_row(
@@ -1906,7 +1906,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
                 '_find_ovn_lbs')
     def test_vip_port_update_handler_lb_not_found(self, lb):
         lb.side_effect = [idlutils.RowNotFound for _ in range(5)]
-        self.switch_port_event = ovn_driver.LogicalSwitchPortUpdateEvent(
+        self.switch_port_event = ovn_event.LogicalSwitchPortUpdateEvent(
             self.helper)
         port_name = '%s%s' % (ovn_const.LB_VIP_PORT_PREFIX, 'foo')
         attrs = {'external_ids':
@@ -1922,7 +1922,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         lb1 = mock.MagicMock()
         lb2 = mock.MagicMock()
         lb.return_value = [lb1, lb2]
-        self.switch_port_event = ovn_driver.LogicalSwitchPortUpdateEvent(
+        self.switch_port_event = ovn_event.LogicalSwitchPortUpdateEvent(
             self.helper)
         port_name = '%s%s' % (ovn_const.LB_VIP_PORT_PREFIX, 'foo')
         attrs = {'external_ids':
