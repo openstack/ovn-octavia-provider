@@ -33,7 +33,7 @@ disable_service q-dhcp
 disable_service q-meta
 
 # Enable services, these services depend on neutron plugin.
-enable_plugin neutron https://opendev.org/openstack/neutron
+enable_plugin neutron https://opendev.org/openstack/neutron stable/ussuri
 enable_service q-trunk
 enable_service q-dns
 #enable_service q-qos
@@ -59,9 +59,9 @@ PUBLIC_NETWORK_GATEWAY="172.24.5.1"
 # Octavia configuration
 OCTAVIA_NODE="api"
 DISABLE_AMP_IMAGE_BUILD=True
-enable_plugin barbican https://opendev.org/openstack/barbican
-enable_plugin octavia https://opendev.org/openstack/octavia
-enable_plugin octavia-dashboard https://opendev.org/openstack/octavia-dashboard
+enable_plugin barbican https://opendev.org/openstack/barbican stable/ussuri
+enable_plugin octavia https://opendev.org/openstack/octavia stable/ussuri
+enable_plugin octavia-dashboard https://opendev.org/openstack/octavia-dashboard stable/ussuri
 LIBS_FROM_GIT+=python-octaviaclient
 enable_service octavia
 enable_service o-api
@@ -71,7 +71,7 @@ disable_service o-cw
 disable_service o-hm
 
 # OVN octavia provider plugin
-enable_plugin ovn-octavia-provider https://opendev.org/openstack/ovn-octavia-provider
+enable_plugin ovn-octavia-provider https://opendev.org/openstack/ovn-octavia-provider stable/ussuri
 
 [[post-config|$NOVA_CONF]]
 [scheduler]
