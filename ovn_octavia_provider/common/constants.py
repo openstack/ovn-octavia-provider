@@ -78,3 +78,6 @@ OVN_NATIVE_LB_ALGORITHMS = [constants.LB_ALGORITHM_SOURCE_IP_PORT, ]
 
 # Prepended to exception log messages
 EXCEPTION_MSG = "Exception occurred during %s"
+
+# Used in functional tests
+LR_REF_KEY_HEADER = 'neutron-'
