@@ -453,8 +453,8 @@ class TestOvnOctaviaBase(
         # Lets fetch list of L4 protocols defined for this LB.
         for p in lb_data['pools']:
             expected_protocols.add(p.protocol.lower())
-        for l in lb_data['listeners']:
-            expected_protocols.add(l.protocol.lower())
+        for listener in lb_data['listeners']:
+            expected_protocols.add(listener.protocol.lower())
         # If there is no protocol lets add default - empty [].
         expected_protocols = list(expected_protocols)
         if len(expected_protocols) == 0:
@@ -524,28 +524,28 @@ class TestOvnOctaviaBase(
             external_ids[pool_key] = p_members
             pool_info[p.pool_id] = p_members
 
-        for l in lb_data['listeners']:
+        for listener in lb_data['listeners']:
             expected_vips = _get_lb_field_by_protocol(
-                l.protocol.lower(),
+                listener.protocol.lower(),
                 field='vips')
             external_ids = _get_lb_field_by_protocol(
-                l.protocol.lower(),
+                listener.protocol.lower(),
                 field='external_ids')
-            listener_k = 'listener_' + str(l.listener_id)
-            if lb_data['model'].admin_state_up and l.admin_state_up:
+            listener_k = 'listener_' + str(listener.listener_id)
+            if lb_data['model'].admin_state_up and listener.admin_state_up:
                 vip_k = lb_data['model'].vip_address + ":" + str(
-                    l.protocol_port)
-                if not isinstance(l.default_pool_id,
+                    listener.protocol_port)
+                if not isinstance(listener.default_pool_id,
                                   octavia_data_model.UnsetType) and pool_info[
-                                      l.default_pool_id]:
+                                      listener.default_pool_id]:
                     expected_vips[vip_k] = self._extract_member_info(
-                        pool_info[l.default_pool_id])
+                        pool_info[listener.default_pool_id])
             else:
                 listener_k += ':D'
-            external_ids[listener_k] = str(l.protocol_port) + ":"
-            if not isinstance(l.default_pool_id,
+            external_ids[listener_k] = str(listener.protocol_port) + ":"
+            if not isinstance(listener.default_pool_id,
                               octavia_data_model.UnsetType):
-                external_ids[listener_k] += 'pool_' + (l.default_pool_id)
+                external_ids[listener_k] += 'pool_' + listener.default_pool_id
             elif lb_data.get('pools', []):
                 external_ids[listener_k] += 'pool_' + lb_data[
                     'pools'][0].pool_id
@@ -599,8 +599,8 @@ class TestOvnOctaviaBase(
 
         pool_listeners = self._get_pool_listeners(lb_data, m_pool.pool_id)
         expected_listener_status = [
-            {'id': l.listener_id, 'provisioning_status': 'ACTIVE'}
-            for l in pool_listeners]
+            {'id': listener.listener_id, 'provisioning_status': 'ACTIVE'}
+            for listener in pool_listeners]
         self.ovn_driver.pool_update(m_pool, m_pool)
         expected_status = {
             'pools': [{'id': m_pool.pool_id,
@@ -667,16 +667,16 @@ class TestOvnOctaviaBase(
                 return p
 
     def _get_listener_from_lb_data(self, lb_data, protocol, protocol_port):
-        for l in lb_data['listeners']:
-            if (l.protocol_port == protocol_port and
-                    l.protocol == protocol):
-                return l
+        for listener in lb_data['listeners']:
+            if (listener.protocol_port == protocol_port and
+                    listener.protocol == protocol):
+                return listener
 
     def _get_pool_listeners(self, lb_data, pool_id):
         listeners = []
-        for l in lb_data['listeners']:
-            if l.default_pool_id == pool_id:
-                listeners.append(l)
+        for listener in lb_data['listeners']:
+            if listener.default_pool_id == pool_id:
+                listeners.append(listener)
 
         return listeners
 
@@ -695,8 +695,8 @@ class TestOvnOctaviaBase(
         self._update_ls_refs(lb_data, network_id)
         pool_listeners = self._get_pool_listeners(lb_data, pool_id)
         expected_listener_status = [
-            {'id': l.listener_id, 'provisioning_status': 'ACTIVE'}
-            for l in pool_listeners]
+            {'id': listener.listener_id, 'provisioning_status': 'ACTIVE'}
+            for listener in pool_listeners]
 
         expected_status = {
             'pools': [pool_status],

@@ -1438,9 +1438,9 @@ class OvnProviderHelper(object):
 
             pool_listeners = self._get_pool_listeners(ovn_lb, pool_key)
             listener_status = []
-            for l in pool_listeners:
+            for listener in pool_listeners:
                 listener_status.append(
-                    {constants.ID: l,
+                    {constants.ID: listener,
                      constants.PROVISIONING_STATUS: constants.ACTIVE})
             status[constants.LISTENERS] = listener_status
         except Exception:
@@ -1504,9 +1504,9 @@ class OvnProviderHelper(object):
                      constants.PROVISIONING_STATUS: constants.ACTIVE}]}
             pool_listeners = self._get_pool_listeners(ovn_lb, pool_key)
             listener_status = []
-            for l in pool_listeners:
+            for listener in pool_listeners:
                 listener_status.append(
-                    {constants.ID: l,
+                    {constants.ID: listener,
                      constants.PROVISIONING_STATUS: constants.ACTIVE})
             status[constants.LISTENERS] = listener_status
         except Exception:
@@ -1580,9 +1580,9 @@ class OvnProviderHelper(object):
                      constants.PROVISIONING_STATUS: constants.ACTIVE}]}
             pool_listeners = self._get_pool_listeners(ovn_lb, pool_key)
             listener_status = []
-            for l in pool_listeners:
+            for listener in pool_listeners:
                 listener_status.append(
-                    {constants.ID: l,
+                    {constants.ID: listener,
                      constants.PROVISIONING_STATUS: constants.ACTIVE})
             status[constants.LISTENERS] = listener_status
         except Exception:
@@ -1644,9 +1644,9 @@ class OvnProviderHelper(object):
 
             pool_listeners = self._get_pool_listeners(ovn_lb, pool_key)
             listener_status = []
-            for l in pool_listeners:
+            for listener in pool_listeners:
                 listener_status.append(
-                    {constants.ID: l,
+                    {constants.ID: listener,
                      constants.PROVISIONING_STATUS: constants.ACTIVE})
             status[constants.LISTENERS] = listener_status
         except Exception:
