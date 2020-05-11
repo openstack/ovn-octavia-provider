@@ -482,6 +482,7 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
                 'loadbalancer_id': self.ref_pool.loadbalancer_id,
                 'listener_id': self.ref_pool.listener_id,
                 'protocol': self.ref_pool.protocol,
+                'lb_algorithm': constants.LB_ALGORITHM_SOURCE_IP_PORT,
                 'admin_state_up': self.ref_pool.admin_state_up}
         expected_dict = {'type': ovn_const.REQ_TYPE_POOL_CREATE,
                          'info': info}
@@ -493,6 +494,7 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
         info = {'id': self.ref_pool.pool_id,
                 'loadbalancer_id': self.ref_pool.loadbalancer_id,
                 'protocol': self.ref_pool.protocol,
+                'lb_algorithm': constants.LB_ALGORITHM_SOURCE_IP_PORT,
                 'listener_id': self.ref_pool.listener_id,
                 'admin_state_up': True}
         expected_dict = {'type': ovn_const.REQ_TYPE_POOL_CREATE,

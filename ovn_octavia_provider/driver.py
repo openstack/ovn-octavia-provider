@@ -103,6 +103,7 @@ class OvnProviderDriver(driver_base.ProviderDriver):
         request_info = {'id': pool.pool_id,
                         'loadbalancer_id': pool.loadbalancer_id,
                         'protocol': pool.protocol,
+                        'lb_algorithm': pool.lb_algorithm,
                         'listener_id': pool.listener_id,
                         'admin_state_up': admin_state_up}
         request = {'type': ovn_const.REQ_TYPE_POOL_CREATE,

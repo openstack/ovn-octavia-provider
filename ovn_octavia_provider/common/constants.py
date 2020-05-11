@@ -81,3 +81,11 @@ EXCEPTION_MSG = "Exception occurred during %s"
 
 # Used in functional tests
 LR_REF_KEY_HEADER = 'neutron-'
+
+# LB selection fields to represent LB algorithm
+LB_SELECTION_FIELDS_MAP = {
+    constants.LB_ALGORITHM_SOURCE_IP_PORT: ["ip_dst", "ip_src",
+                                            "tp_dst", "tp_src"],
+    constants.LB_ALGORITHM_SOURCE_IP: ["ip_src", "ip_dst"],
+    None: ["ip_src", "ip_dst", "tp_src", "tp_dst"],
+}
