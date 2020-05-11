@@ -1523,9 +1523,9 @@ class OvnProviderHelper(object):
             pool_listeners = self._get_pool_listeners(ovn_lb,
                                                       pool_key)
             listener_status = []
-            for l in pool_listeners:
+            for listener in pool_listeners:
                 listener_status.append(
-                    {'id': l,
+                    {'id': listener,
                      'provisioning_status': constants.ACTIVE})
             status['listeners'] = listener_status
         except Exception:
@@ -1589,9 +1589,9 @@ class OvnProviderHelper(object):
                                    "provisioning_status": constants.ACTIVE}]}
             pool_listeners = self._get_pool_listeners(ovn_lb, pool_key)
             listener_status = []
-            for l in pool_listeners:
+            for listener in pool_listeners:
                 listener_status.append(
-                    {'id': l,
+                    {'id': listener,
                      'provisioning_status': constants.ACTIVE})
             status['listeners'] = listener_status
         except Exception:
@@ -1660,9 +1660,9 @@ class OvnProviderHelper(object):
                                    "provisioning_status": constants.ACTIVE}]}
             pool_listeners = self._get_pool_listeners(ovn_lb, pool_key)
             listener_status = []
-            for l in pool_listeners:
+            for listener in pool_listeners:
                 listener_status.append(
-                    {'id': l,
+                    {'id': listener,
                      'provisioning_status': constants.ACTIVE})
             status['listeners'] = listener_status
         except Exception:
@@ -1719,9 +1719,9 @@ class OvnProviderHelper(object):
 
             pool_listeners = self._get_pool_listeners(ovn_lb, pool_key)
             listener_status = []
-            for l in pool_listeners:
+            for listener in pool_listeners:
                 listener_status.append(
-                    {'id': l,
+                    {'id': listener,
                      'provisioning_status': constants.ACTIVE})
             status['listeners'] = listener_status
         except Exception:
