@@ -10,6 +10,9 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+from octavia_lib.common import constants
+
+
 # TODO(mjozefcz): Use those variables from neutron-lib once released.
 LRP_PREFIX = "lrp-"
 LB_VIP_PORT_PREFIX = "ovn-lb-vip-"
@@ -36,3 +39,11 @@ LB_EXT_IDS_VIP_PORT_ID_KEY = 'neutron:vip_port_id'
 
 # Auth sections
 SERVICE_AUTH = 'service_auth'
+
+# LB selection fields to represent LB algorithm
+LB_SELECTION_FIELDS_MAP = {
+    constants.LB_ALGORITHM_SOURCE_IP_PORT: ["ip_dst", "ip_src",
+                                            "tp_dst", "tp_src"],
+    constants.LB_ALGORITHM_SOURCE_IP: ["ip_src", "ip_dst"],
+    None: ["ip_src", "ip_dst", "tp_src", "tp_dst"],
+}
