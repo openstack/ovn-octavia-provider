@@ -30,15 +30,16 @@ extensions = [
 ]
 
 # Project cross-reference roles
-openstack_projects = [
+openstackdocs_projects = [
     'neutron',
     'octavia',
 ]
 
 # openstackdocstheme options
-repository_name = 'openstack/ovn-octavia-provider'
-bug_project = 'neutron'
-bug_tag = 'ovn-octavia-provider'
+openstackdocs_repo_name = 'openstack/ovn-octavia-provider'
+openstackdocs_pdf_link = True
+openstackdocs_bug_project = 'neutron'
+openstackdocs_bug_tag = 'ovn-octavia-provider'
 
 # autodoc generation is a bit aggressive and a nuisance when doing heavy
 # text edit cycles.
@@ -58,7 +59,7 @@ add_function_parentheses = True
 add_module_names = True
 
 # The name of the Pygments (syntax highlighting) style to use.
-pygments_style = 'sphinx'
+pygments_style = 'native'
 
 # -- Options for HTML output --------------------------------------------------
 
