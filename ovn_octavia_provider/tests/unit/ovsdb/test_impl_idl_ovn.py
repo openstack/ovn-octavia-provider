@@ -17,6 +17,7 @@ from unittest import mock
 
 from neutron.tests import base
 from ovs.db import idl as ovs_idl
+from ovsdbapp.backend import ovs_idl as real_ovs_idl
 from ovsdbapp.backend.ovs_idl import idlutils
 
 from ovn_octavia_provider.ovsdb import impl_idl_ovn
@@ -47,6 +48,8 @@ class TestOvnNbIdlForLb(base.BaseTestCase):
         self.idl._get_ovsdb_helper('foo')
         self.mock_gsh.assert_called_once_with('foo', 'OVN_Northbound')
 
+    @mock.patch.object(real_ovs_idl.Backend, 'autocreate_indices', mock.Mock(),
+                       create=True)
     def test_start(self):
         with mock.patch('ovsdbapp.backend.ovs_idl.connection.Connection',
                         side_effect=lambda x, timeout: mock.Mock()):
