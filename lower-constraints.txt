@@ -15,7 +15,6 @@ cryptography==2.1
 debtcollector==1.2.0
 decorator==3.4.0
 deprecation==1.0
-doc8==0.6.0
 docutils==0.11
 dogpile.cache==0.6.2
 eventlet==0.18.2
@@ -48,7 +47,6 @@ netifaces==0.10.4
 neutron==15.0.0
 neutron-lib==2.1.0
 octavia-lib==1.3.1
-openstackdocstheme==1.20.0
 openstacksdk==0.11.2
 os-client-config==1.28.0
 os-service-types==1.2.0
@@ -100,7 +98,7 @@ python-novaclient==9.1.0
 python-subunit==1.0.0
 pytz==2015.7
 PyYAML==3.12
-reno==2.5.0
+reno==3.1.0
 repoze.lru==0.7
 requests==2.14.2
 requestsexceptions==1.2.0
@@ -108,8 +106,6 @@ rfc3986==0.3.1
 Routes==2.3.1
 simplejson==3.5.1
 snowballstemmer==1.2.1
-Sphinx==1.6.2
-sphinxcontrib-websupport==1.0.1
 SQLAlchemy==1.2.0
 sqlalchemy-migrate==0.11.0
 sqlparse==0.2.2
