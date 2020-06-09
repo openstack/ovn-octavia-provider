@@ -1795,7 +1795,7 @@ class OvnProviderHelper(object):
         neutron_client = get_neutron_client()
         try:
             return neutron_client.create_port(port)
-        except n_exc.IpAddressAlreadyAllocatedClient:
+        except n_exc.IpAddressAlreadyAllocatedClient as e:
             # Sometimes the VIP is already created (race-conditions)
             # Lets get the it from Neutron API.
             ports = neutron_client.list_ports(
@@ -1804,12 +1804,7 @@ class OvnProviderHelper(object):
             if not ports['ports']:
                 LOG.error('Cannot create/get LoadBalancer VIP port with '
                           'fixed IP: %s', vip_d['vip_address'])
-                status = {'loadbalancers': [{
-                    "id": lb_id,
-                    "provisioning_status": constants.ERROR,
-                    "operating_status": constants.ERROR}]}
-                self._update_status_to_octavia(status)
-                return
+                raise e
             # there should only be one port returned
             port = ports['ports'][0]
             LOG.debug('VIP Port already exists, uuid: %s', port['id'])
@@ -2267,5 +2262,10 @@ class OvnProviderDriver(driver_base.ProviderDriver):
             vip_dict['vip_port_id'] = port['id']
             vip_dict['vip_address'] = port['fixed_ips'][0]['ip_address']
         except Exception as e:
-            raise driver_exceptions.DriverError(e)
+            kwargs = {}
+            if hasattr(e, 'message'):
+                kwargs = {'user_fault_string': e.message,
+                          'operator_fault_string': e.message}
+            raise driver_exceptions.DriverError(
+                **kwargs)
         return vip_dict
