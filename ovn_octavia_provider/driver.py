@@ -368,5 +368,10 @@ class OvnProviderDriver(driver_base.ProviderDriver):
             vip_dict[constants.VIP_ADDRESS] = (
                 port['fixed_ips'][0]['ip_address'])
         except Exception as e:
-            raise driver_exceptions.DriverError(e)
+            kwargs = {}
+            if hasattr(e, 'message'):
+                kwargs = {'user_fault_string': e.message,
+                          'operator_fault_string': e.message}
+            raise driver_exceptions.DriverError(
+                **kwargs)
         return vip_dict
