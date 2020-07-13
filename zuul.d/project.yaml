@@ -10,10 +10,12 @@
         - openstack-tox-cover:
             required-projects:
               - openstack/neutron
-        - ovn-octavia-provider-functional
+        - ovn-octavia-provider-functional-release
+        - ovn-octavia-provider-functional-master
         - ovn-octavia-provider-v2-dsvm-scenario
     gate:
       fail-fast: true
       jobs:
-        - ovn-octavia-provider-functional
+        - ovn-octavia-provider-functional-release
+        - ovn-octavia-provider-functional-master
         - ovn-octavia-provider-v2-dsvm-scenario
