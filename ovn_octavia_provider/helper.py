@@ -1246,8 +1246,12 @@ class OvnProviderHelper(object):
             self.ovn_nbdb_api.db_set(
                 'Load_Balancer', ovn_lb.uuid,
                 ('external_ids', external_ids)).execute(check_error=True)
-            # Pool status will be set to Online after a member is added to it.
+
+            # Pool status will be set to Online after a member is added to it
+            # or when it is created with listener.
             operating_status = constants.OFFLINE
+            if pool[constants.LISTENER_ID]:
+                operating_status = constants.ONLINE
 
             status = {
                 constants.POOLS: [
