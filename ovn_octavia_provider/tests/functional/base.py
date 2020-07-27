@@ -167,6 +167,10 @@ class TestOvnOctaviaBase(base.TestOVNFunctionalBase,
         lbs = []
         for lb in self.nb_api.tables['Load_Balancer'].rows.values():
             external_ids = dict(lb.external_ids)
+            # Skip load balancers used by port forwarding plugin
+            if external_ids.get(ovn_const.OVN_DEVICE_OWNER_EXT_ID_KEY) == (
+                    ovn_const.PORT_FORWARDING_PLUGIN):
+                continue
             ls_refs = external_ids.get(ovn_const.LB_EXT_IDS_LS_REFS_KEY)
             if ls_refs:
                 external_ids[
