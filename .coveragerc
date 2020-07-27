@@ -1,0 +1,7 @@
+[run]
+branch = True
+source = ovn_octavia_provider
+omit = ovn_octavia_provider/tests/*
+
+[report]
+ignore_errors = True
