@@ -99,6 +99,7 @@
               l7_protocol_enabled: False
               l4_protocol: "TCP"
               session_persistence_enabled: False
+              not_implemented_is_error: False
       devstack_services:
         c-bak: false
         ceilometer-acentral: false
@@ -146,7 +147,8 @@
     vars:
       tempest_test_regex: ^octavia_tempest_plugin.tests.scenario.v2
       tempest_black_regex: "\
-        (^octavia_tempest_plugin.tests.scenario.v2.test_traffic_ops.TrafficOperationsScenarioTest.test_basic_traffic)|\
+        (^octavia_tempest_plugin.tests.scenario.v2.test_traffic_ops.TrafficOperationsScenarioTest.test_basic_http_traffic)|\
+        (^octavia_tempest_plugin.tests.scenario.v2.test_traffic_ops.TrafficOperationsScenarioTest.test_basic_tcp_traffic)|\
         (^octavia_tempest_plugin.tests.scenario.v2.test_traffic_ops.TrafficOperationsScenarioTest.test_basic_udp_traffic)"
       tempest_concurrency: 2
       tox_envlist: all

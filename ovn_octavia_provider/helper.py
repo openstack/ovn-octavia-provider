@@ -90,6 +90,7 @@ class OvnProviderHelper(object):
 
     @staticmethod
     def _delete_disabled_from_status(status):
+        # pylint: disable=multiple-statements
         d_regex = ':%s$' % ovn_const.DISABLED_RESOURCE_SUFFIX
         return {
             k: [{c: re.sub(d_regex, '', d) for c, d in i.items()}
@@ -747,6 +748,7 @@ class OvnProviderHelper(object):
 
     @staticmethod
     def _get_selection_keys(lb_algorithm):
+        # pylint: disable=multiple-statements
         return ovn_const.LB_SELECTION_FIELDS_MAP[lb_algorithm]
 
     def check_lb_protocol(self, lb_id, listener_protocol):

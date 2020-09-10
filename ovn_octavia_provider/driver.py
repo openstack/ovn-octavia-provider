@@ -138,6 +138,12 @@ class OvnProviderDriver(driver_base.ProviderDriver):
 
     def listener_create(self, listener):
         self._check_for_supported_protocols(listener.protocol)
+        # TODO(haleyb): add support for this
+        if not isinstance(listener.allowed_cidrs, o_datamodels.UnsetType):
+            msg = _('OVN provider does not support allowed_cidrs option')
+            raise driver_exceptions.UnsupportedOptionError(
+                user_fault_string=msg,
+                operator_fault_string=msg)
         admin_state_up = listener.admin_state_up
         if isinstance(admin_state_up, o_datamodels.UnsetType):
             admin_state_up = True
@@ -161,6 +167,13 @@ class OvnProviderDriver(driver_base.ProviderDriver):
         self._ovn_helper.add_request(request)
 
     def listener_update(self, old_listener, new_listener):
+        # TODO(haleyb): add support for this
+        if not isinstance(new_listener.allowed_cidrs, o_datamodels.UnsetType):
+            msg = _('OVN provider does not support allowed_cidrs option')
+            raise driver_exceptions.UnsupportedOptionError(
+                user_fault_string=msg,
+                operator_fault_string=msg)
+
         request_info = {'id': new_listener.listener_id,
                         'loadbalancer_id': old_listener.loadbalancer_id,
                         'protocol': old_listener.protocol,
