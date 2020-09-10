@@ -48,8 +48,9 @@
       OVS_BRANCH: master
 
 - job:
-    name: ovn-octavia-provider-dsvm-base
+    name: ovn-octavia-provider-tempest-base
     parent: devstack-tempest
+    abstract: true
     timeout: 7800
     required-projects:
       - openstack/devstack-gate
@@ -99,6 +100,7 @@
               l7_protocol_enabled: False
               l4_protocol: "TCP"
               session_persistence_enabled: False
+              not_implemented_is_error: False
       devstack_services:
         c-bak: false
         ceilometer-acentral: false
@@ -139,14 +141,26 @@
         octavia: https://opendev.org/openstack/octavia.git
         octavia-tempest-plugin: https://opendev.org/openstack/octavia-tempest-plugin.git
         ovn-octavia-provider: https://opendev.org/openstack/ovn-octavia-provider
-
-- job:
-    name: ovn-octavia-provider-v2-dsvm-scenario
-    parent: ovn-octavia-provider-dsvm-base
-    vars:
-      tempest_test_regex: ^octavia_tempest_plugin.tests.scenario.v2
+      tempest_test_regex: "^octavia_tempest_plugin.tests.scenario.v2"
       tempest_black_regex: "\
-        (^octavia_tempest_plugin.tests.scenario.v2.test_traffic_ops.TrafficOperationsScenarioTest.test_basic_traffic)|\
+        (^octavia_tempest_plugin.tests.scenario.v2.test_traffic_ops.TrafficOperationsScenarioTest.test_basic_http_traffic)|\
+        (^octavia_tempest_plugin.tests.scenario.v2.test_traffic_ops.TrafficOperationsScenarioTest.test_basic_tcp_traffic)|\
         (^octavia_tempest_plugin.tests.scenario.v2.test_traffic_ops.TrafficOperationsScenarioTest.test_basic_udp_traffic)"
       tempest_concurrency: 2
       tox_envlist: all
+
+- job:
+    name: ovn-octavia-provider-tempest-release
+    parent: ovn-octavia-provider-tempest-base
+    vars:
+      devstack_localrc:
+        OVN_BRANCH: v20.06.0
+        OVS_BRANCH: v2.13.0
+
+- job:
+    name: ovn-octavia-provider-tempest-master
+    parent: ovn-octavia-provider-tempest-base
+    vars:
+      devstack_localrc:
+        OVN_BRANCH: master
+        OVS_BRANCH: master

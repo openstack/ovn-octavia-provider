@@ -12,10 +12,12 @@
               - openstack/neutron
         - ovn-octavia-provider-functional-release
         - ovn-octavia-provider-functional-master
-        - ovn-octavia-provider-v2-dsvm-scenario
+        - ovn-octavia-provider-tempest-release
+        - ovn-octavia-provider-tempest-master:
+            voting: false
     gate:
       fail-fast: true
       jobs:
         - ovn-octavia-provider-functional-release
         - ovn-octavia-provider-functional-master
-        - ovn-octavia-provider-v2-dsvm-scenario
+        - ovn-octavia-provider-tempest-release
