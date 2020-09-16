@@ -38,7 +38,7 @@ class OvnNbTransaction(idl_trans.Transaction):
         # NOTE(lucasagomes): The bump_nb_cfg parameter is only used by
         # the agents health status check
         self.bump_nb_cfg = kwargs.pop('bump_nb_cfg', False)
-        super(OvnNbTransaction, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
 
     def pre_commit(self, txn):
         if not self.bump_nb_cfg:
@@ -54,7 +54,7 @@ class Backend(ovs_idl.Backend):
 
     def __init__(self, connection):
         self.ovsdb_connection = connection
-        super(Backend, self).__init__(connection)
+        super().__init__(connection)
 
     def start_connection(self, connection):
         try:
@@ -63,7 +63,7 @@ class Backend(ovs_idl.Backend):
             connection_exception = OvsdbConnectionUnavailable(
                 db_schema=self.schema, error=e)
             LOG.exception(connection_exception)
-            raise connection_exception
+            raise connection_exception from e
 
     @property
     def idl(self):
@@ -100,10 +100,10 @@ class Backend(ovs_idl.Backend):
     def check_for_row_by_value_and_retry(self, table, column, match):
         try:
             idlutils.row_by_value(self.idl, table, column, match)
-        except idlutils.RowNotFound:
+        except idlutils.RowNotFound as e:
             msg = (_("%(match)s does not exist in %(column)s of %(table)s")
                    % {'match': match, 'column': column, 'table': table})
-            raise RuntimeError(msg)
+            raise RuntimeError(msg) from e
 
 
 class OvsdbConnectionUnavailable(n_exc.ServiceUnavailable):
@@ -115,7 +115,7 @@ class OvsdbConnectionUnavailable(n_exc.ServiceUnavailable):
 
 class OvsdbNbOvnIdl(nb_impl_idl.OvnNbApiIdlImpl, Backend):
     def __init__(self, connection):
-        super(OvsdbNbOvnIdl, self).__init__(connection)
+        super().__init__(connection)
         self.idl._session.reconnect.set_probe_interval(
             config.get_ovn_ovsdb_probe_interval())
 
@@ -137,7 +137,7 @@ class OvsdbNbOvnIdl(nb_impl_idl.OvnNbApiIdlImpl, Backend):
         to handle revision conflicts correctly.
         """
         try:
-            with super(OvsdbNbOvnIdl, self).transaction(*args, **kwargs) as t:
+            with super().transaction(*args, **kwargs) as t:
                 yield t
         except ovn_exc.RevisionConflict as e:
             LOG.info('Transaction aborted. Reason: %s', e)
@@ -155,7 +155,7 @@ class OvnNbIdlForLb(ovsdb_monitor.OvnIdl):
         helper = self._get_ovsdb_helper(self.conn_string)
         for table in OvnNbIdlForLb.TABLES:
             helper.register_table(table)
-        super(OvnNbIdlForLb, self).__init__(
+        super().__init__(
             driver=None, remote=self.conn_string, schema=helper)
         self.event_lock_name = event_lock_name
         if self.event_lock_name:

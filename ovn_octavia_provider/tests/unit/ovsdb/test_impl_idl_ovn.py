@@ -31,7 +31,7 @@ schema_files = {
 class TestOvnNbIdlForLb(base.BaseTestCase):
 
     def setUp(self):
-        super(TestOvnNbIdlForLb, self).setUp()
+        super().setUp()
         # TODO(haleyb) - figure out why every test in this class generates
         # this warning, think it's in relation to reading this schema file:
         # sys:1: ResourceWarning: unclosed file <_io.FileIO name=1 mode='wb'

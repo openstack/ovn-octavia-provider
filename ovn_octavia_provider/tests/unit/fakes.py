@@ -37,7 +37,7 @@ class FakeResource(dict):
             A dictionary with all methods
         """
         info = info or {}
-        super(FakeResource, self).__init__(info)
+        super().__init__(info)
         methods = methods or {}
 
         self.__name__ = type(self).__name__
@@ -82,7 +82,7 @@ class FakeResource(dict):
         return self._info
 
     def update(self, info):
-        super(FakeResource, self).update(info)
+        super().update(info)
         self._add_details(info)
 
 
@@ -129,7 +129,7 @@ class FakeOvsdbRow(FakeResource):
                             methods=copy.deepcopy(ovsdb_row_methods))
 
 
-class FakeSubnet(object):
+class FakeSubnet():
     """Fake one or more subnets."""
 
     @staticmethod
@@ -169,7 +169,7 @@ class FakeSubnet(object):
                             loaded=True)
 
 
-class FakeOVNPort(object):
+class FakeOVNPort():
     """Fake one or more ports."""
 
     @staticmethod
@@ -225,7 +225,7 @@ class FakeOVNPort(object):
              'port_security': port_security})
 
 
-class FakeOVNRouter(object):
+class FakeOVNRouter():
 
     @staticmethod
     def create_one_router(attrs=None):
@@ -245,7 +245,7 @@ class FakeOVNRouter(object):
         return type('Logical_Router', (object, ), router_attrs)
 
 
-class FakePort(object):
+class FakePort():
     """Fake one or more ports."""
 
     @staticmethod
@@ -297,7 +297,7 @@ class FakeLB(data_models.LoadBalancer):
     def __init__(self, *args, **kwargs):
         self.external_ids = kwargs.pop('ext_ids')
         self.uuid = kwargs.pop('uuid')
-        super(FakeLB, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
 
     def __hash__(self):
         # Required for Python3, not for Python2

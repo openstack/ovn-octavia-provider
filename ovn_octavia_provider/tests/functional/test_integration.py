@@ -29,7 +29,7 @@ LOG = logging.getLogger(__name__)
 class TestOvnOctaviaProviderIntegration(ovn_base.TestOvnOctaviaBase):
 
     def setUp(self):
-        super(TestOvnOctaviaProviderIntegration, self).setUp()
+        super().setUp()
         # Add port_forwarding as a configured service plugin (if needed)
         svc_plugins = set(cfg.CONF.service_plugins)
         svc_plugins.add("port_forwarding")

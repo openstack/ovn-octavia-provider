@@ -50,7 +50,7 @@ class TestKeystoneSession(base.BaseTestCase):
 
 class TestNeutronAuth(base.BaseTestCase):
     def setUp(self):
-        super(TestNeutronAuth, self).setUp()
+        super().setUp()
         self.mock_client = mock.patch(
             'neutronclient.neutron.client.Client').start()
         self.client_args = {

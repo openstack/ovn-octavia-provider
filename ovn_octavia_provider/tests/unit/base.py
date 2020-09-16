@@ -21,7 +21,7 @@ from oslo_utils import uuidutils
 class TestOvnOctaviaBase(base.BaseTestCase):
 
     def setUp(self):
-        super(TestOvnOctaviaBase, self).setUp()
+        super().setUp()
         self.listener_id = uuidutils.generate_uuid()
         self.loadbalancer_id = uuidutils.generate_uuid()
         self.pool_id = uuidutils.generate_uuid()
