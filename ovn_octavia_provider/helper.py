@@ -428,6 +428,10 @@ class OvnProviderHelper(object):
         lbs = self.ovn_nbdb_api.db_list_rows(
             'Load_Balancer').execute(check_error=True)
         for lb in lbs:
+            # Skip load balancers used by port forwarding plugin
+            if lb.external_ids.get(ovn_const.OVN_DEVICE_OWNER_EXT_ID_KEY) == (
+                    ovn_const.PORT_FORWARDING_PLUGIN):
+                continue
             if pool_key in lb.external_ids:
                 return lb
 

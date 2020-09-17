@@ -33,6 +33,8 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
     def setUp(self):
         super(TestOvnProviderHelper, self).setUp()
         self.helper = ovn_helper.OvnProviderHelper()
+        self.real_helper_find_ovn_lb_with_pool_key = (
+            self.helper._find_ovn_lb_with_pool_key)
         mock.patch.object(self.helper, '_update_status_to_octavia').start()
         self.listener = {'id': self.listener_id,
                          'loadbalancer_id': self.loadbalancer_id,
@@ -184,6 +186,28 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         self.assertEqual(f(expected), expected)
         status = {}
         self.assertFalse(f(status))
+
+    def test__find_ovn_lb_with_pool_key(self):
+        pool_key = self.helper._get_pool_key(uuidutils.generate_uuid())
+        test_lb = mock.MagicMock()
+        test_lb.external_ids = {
+            ovn_const.OVN_DEVICE_OWNER_EXT_ID_KEY:
+                ovn_const.PORT_FORWARDING_PLUGIN,
+            pool_key: 'it_is_a_pool_party',
+        }
+        self.helper.ovn_nbdb_api.db_list_rows.return_value.\
+            execute.return_value = [test_lb]
+        f = self.real_helper_find_ovn_lb_with_pool_key
+
+        # Ensure lb is not found, due to its device owner
+        found = f(pool_key)
+        self.assertIsNone(found)
+
+        # Remove device owner from test_lb.external_ids and make sure test_lb
+        # is found as expected
+        test_lb.external_ids.pop(ovn_const.OVN_DEVICE_OWNER_EXT_ID_KEY)
+        found = f(pool_key)
+        self.assertEqual(found, test_lb)
 
     def test__find_ovn_lbs(self):
         self.mock_find_ovn_lbs.stop()
