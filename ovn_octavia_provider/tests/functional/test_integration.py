@@ -17,9 +17,13 @@ from ovn_octavia_provider.common import constants as ovn_const
 from ovn_octavia_provider.common import utils
 from ovn_octavia_provider.tests.functional import base as ovn_base
 
-from neutron import manager
 from neutron_lib.api.definitions import floating_ip_port_forwarding as pf_def
+from neutron_lib.utils import runtime
 from oslo_config import cfg
+from oslo_log import log as logging
+from oslo_utils import excutils
+
+LOG = logging.getLogger(__name__)
 
 
 class TestOvnOctaviaProviderIntegration(ovn_base.TestOvnOctaviaBase):
@@ -32,12 +36,27 @@ class TestOvnOctaviaProviderIntegration(ovn_base.TestOvnOctaviaBase):
         cfg.CONF.set_override("service_plugins", list(svc_plugins))
         if not self.pf_plugin:
             # OVN does not use RPC: disable it for port-forwarding tests
-            self.pf_plugin = manager.NeutronManager.load_class_for_provider(
-                'neutron.service_plugins', 'port_forwarding')()
+            self.pf_plugin = self._load_port_forwarding_class()
             self.pf_plugin._rpc_notifications_required = False
         self.assertIsNotNone(self.pf_plugin,
                              "TestOVNFunctionalBase is expected to have "
                              "port forwarding plugin configured")
+
+    @staticmethod
+    def _load_port_forwarding_class():
+        """Load port forwarding plugin
+
+        :returns: instance of plugin that is loaded
+        :raises ImportError: if fails to load plugin
+        """
+
+        try:
+            loaded_class = runtime.load_class_by_alias_or_classname(
+                'neutron.service_plugins', 'port_forwarding')
+            return loaded_class()
+        except ImportError:
+            with excutils.save_and_reraise_exception():
+                LOG.error("Error loading port_forwarding plugin")
 
     def _find_pf_lb(self, router_id, fip_id=None):
         result = []
