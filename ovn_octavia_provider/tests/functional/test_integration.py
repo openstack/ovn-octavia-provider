@@ -19,6 +19,7 @@ from ovn_octavia_provider.tests.functional import base as ovn_base
 
 from neutron_lib.api.definitions import floating_ip_port_forwarding as pf_def
 from neutron_lib.utils import runtime
+from neutron_lib.utils import test
 from oslo_config import cfg
 from oslo_log import log as logging
 from oslo_utils import excutils
@@ -85,6 +86,7 @@ class TestOvnOctaviaProviderIntegration(ovn_base.TestOvnOctaviaBase):
         expected_lbs = self._make_expected_lbs(lb_data)
         self._validate_loadbalancers(expected_lbs)
 
+    @test.unstable_test("bug 1896678")
     def test_port_forwarding(self):
 
         def _verify_pf_lb(test, protocol, vip_ext_port, vip_int_port):
