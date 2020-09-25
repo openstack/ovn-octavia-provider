@@ -72,9 +72,10 @@ REQ_INFO_MEMBER_DELETED = 'member_deleted'
 # Disabled resources have a ':D' at the end
 DISABLED_RESOURCE_SUFFIX = 'D'
 
-# This driver only supports TCP and UDP, with a single LB algorithm
+# This driver only supports TCP, UDP and SCTP, with a single LB algorithm
 OVN_NATIVE_LB_PROTOCOLS = [constants.PROTOCOL_TCP,
-                           constants.PROTOCOL_UDP, ]
+                           constants.PROTOCOL_UDP,
+                           constants.PROTOCOL_SCTP, ]
 OVN_NATIVE_LB_ALGORITHMS = [constants.LB_ALGORITHM_SOURCE_IP_PORT, ]
 
 # Prepended to exception log messages
