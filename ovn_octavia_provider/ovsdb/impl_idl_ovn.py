@@ -175,10 +175,11 @@ class OvnNbIdlForLb(ovsdb_monitor.OvnIdl):
 
     def stop(self):
         # Close the running connection if it has been initalized
-        if ((hasattr(self, 'conn') and not
-             self.conn.stop(timeout=config.get_ovn_ovsdb_timeout()))):
-            LOG.debug("Connection terminated to OvnNb "
-                      "but a thread is still alive")
+        if hasattr(self, 'conn'):
+            if not self.conn.stop(timeout=config.get_ovn_ovsdb_timeout()):
+                LOG.debug("Connection terminated to OvnNb "
+                          "but a thread is still alive")
+            del self.conn
         # complete the shutdown for the event handler
         self.notify_handler.shutdown()
         # Close the idl session
