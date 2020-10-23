@@ -34,6 +34,7 @@ LB_EXT_IDS_LR_REF_KEY = 'lr_ref'
 LB_EXT_IDS_POOL_PREFIX = 'pool_'
 LB_EXT_IDS_LISTENER_PREFIX = 'listener_'
 LB_EXT_IDS_MEMBER_PREFIX = 'member_'
+LB_EXT_IDS_HM_KEY = 'octavia:healthmonitor'
 LB_EXT_IDS_VIP_KEY = 'neutron:vip'
 LB_EXT_IDS_VIP_FIP_KEY = 'neutron:vip_fip'
 LB_EXT_IDS_VIP_PORT_ID_KEY = 'neutron:vip_port_id'
@@ -60,6 +61,10 @@ REQ_TYPE_LB_CREATE_LRP_ASSOC = 'lb_create_lrp_assoc'
 REQ_TYPE_LB_DELETE_LRP_ASSOC = 'lb_delete_lrp_assoc'
 REQ_TYPE_HANDLE_VIP_FIP = 'handle_vip_fip'
 REQ_TYPE_HANDLE_MEMBER_DVR = 'handle_member_dvr'
+REQ_TYPE_HM_CREATE = 'hm_create'
+REQ_TYPE_HM_UPDATE = 'hm_update'
+REQ_TYPE_HM_DELETE = 'hm_delete'
+REQ_TYPE_HM_UPDATE_EVENT = 'hm_update_event'
 
 REQ_TYPE_EXIT = 'exit'
 
@@ -77,6 +82,10 @@ OVN_NATIVE_LB_PROTOCOLS = [constants.PROTOCOL_TCP,
                            constants.PROTOCOL_UDP,
                            constants.PROTOCOL_SCTP, ]
 OVN_NATIVE_LB_ALGORITHMS = [constants.LB_ALGORITHM_SOURCE_IP_PORT, ]
+
+# This driver only supports UDP Connect and TCP health monitors
+SUPPORTED_HEALTH_MONITOR_TYPES = [constants.HEALTH_MONITOR_UDP_CONNECT,
+                                  constants.HEALTH_MONITOR_TCP]
 
 # Prepended to exception log messages
 EXCEPTION_MSG = "Exception occurred during %s"

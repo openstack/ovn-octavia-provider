@@ -23,7 +23,8 @@ from octavia_lib.api.drivers import driver_lib
 from octavia_lib.common import constants as o_constants
 from oslo_serialization import jsonutils
 from oslo_utils import uuidutils
-from ovsdbapp.schema.ovn_northbound import impl_idl as idl_ovn
+from ovsdbapp.schema.ovn_northbound import impl_idl as nb_idl_ovn
+from ovsdbapp.schema.ovn_southbound import impl_idl as sb_idl_ovn
 
 # NOTE(mjozefcz): We need base neutron functionals because we need
 # mechanism driver and l3 plugin.
@@ -38,7 +39,8 @@ class TestOvnOctaviaBase(base.TestOVNFunctionalBase,
 
     def setUp(self):
         super().setUp()
-        idl_ovn.OvnNbApiIdlImpl.ovsdb_connection = None
+        nb_idl_ovn.OvnNbApiIdlImpl.ovsdb_connection = None
+        sb_idl_ovn.OvnSbApiIdlImpl.ovsdb_connection = None
         # TODO(mjozefcz): Use octavia listeners to provide needed
         # sockets and modify tests in order to verify if fake
         # listener (status) has received valid value.
@@ -93,7 +95,7 @@ class TestOvnOctaviaBase(base.TestOVNFunctionalBase,
         return e1, e1_s1
 
     def _create_lb_model(self, vip=None, vip_network_id=None,
-                         vip_port_id=None,
+                         vip_subnet_id=None, vip_port_id=None,
                          admin_state_up=True):
         lb = octavia_data_model.LoadBalancer()
         lb.loadbalancer_id = uuidutils.generate_uuid()
@@ -105,6 +107,8 @@ class TestOvnOctaviaBase(base.TestOVNFunctionalBase,
 
         if vip_network_id:
             lb.vip_network_id = vip_network_id
+        if vip_subnet_id:
+            lb.vip_subnet_id = vip_subnet_id
         if vip_port_id:
             lb.vip_port_id = vip_port_id
         lb.admin_state_up = admin_state_up
@@ -331,6 +335,7 @@ class TestOvnOctaviaBase(base.TestOVNFunctionalBase,
         lb_data['vip_net_info'] = net_info
         lb_data['model'] = self._create_lb_model(vip=net_info[2],
                                                  vip_network_id=net_info[0],
+                                                 vip_subnet_id=net_info[1],
                                                  vip_port_id=net_info[3],
                                                  admin_state_up=admin_state_up)
         lb_data[ovn_const.LB_EXT_IDS_LS_REFS_KEY] = {}

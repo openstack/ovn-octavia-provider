@@ -25,7 +25,9 @@ from ovn_octavia_provider.ovsdb import impl_idl_ovn
 basedir = os.path.dirname(os.path.abspath(__file__))
 schema_files = {
     'OVN_Northbound': os.path.join(basedir,
-                                   '..', 'schemas', 'ovn-nb.ovsschema')}
+                                   '..', 'schemas', 'ovn-nb.ovsschema'),
+    'OVN_Southbound': os.path.join(basedir,
+                                   '..', 'schemas', 'ovn-sb.ovsschema')}
 
 
 class TestOvnNbIdlForLb(base.BaseTestCase):
@@ -77,4 +79,51 @@ class TestOvnNbIdlForLb(base.BaseTestCase):
         with mock.patch.object(impl_idl_ovn.OvnNbIdlForLb,
                                'set_lock') as set_lock:
             self.idl = impl_idl_ovn.OvnNbIdlForLb(event_lock_name='foo')
+        set_lock.assert_called_once_with('foo')
+
+
+class TestOvnSbIdlForLb(base.BaseTestCase):
+
+    def setUp(self):
+        super().setUp()
+        # TODO(haleyb) - figure out why every test in this class generates
+        # this warning, think it's in relation to reading this schema file:
+        # sys:1: ResourceWarning: unclosed file <_io.FileIO name=1 mode='wb'
+        # closefd=True> ResourceWarning: Enable tracemalloc to get the object
+        # allocation traceback
+        self.mock_gsh = mock.patch.object(
+            idlutils, 'get_schema_helper',
+            side_effect=lambda x, y: ovs_idl.SchemaHelper(
+                location=schema_files['OVN_Southbound'])).start()
+        self.idl = impl_idl_ovn.OvnSbIdlForLb()
+
+    @mock.patch.object(real_ovs_idl.Backend, 'autocreate_indices', mock.Mock(),
+                       create=True)
+    def test_start(self):
+        with mock.patch('ovsdbapp.backend.ovs_idl.connection.Connection',
+                        side_effect=lambda x, timeout: mock.Mock()):
+            idl1 = impl_idl_ovn.OvnSbIdlForLb()
+            ret1 = idl1.start()
+            id1 = id(ret1.ovsdb_connection)
+            idl2 = impl_idl_ovn.OvnSbIdlForLb()
+            ret2 = idl2.start()
+            id2 = id(ret2.ovsdb_connection)
+            self.assertNotEqual(id1, id2)
+
+    @mock.patch('ovsdbapp.backend.ovs_idl.connection.Connection')
+    def test_stop(self, mock_conn):
+        mock_conn.stop.return_value = False
+        with (
+            mock.patch.object(
+                self.idl.notify_handler, 'shutdown')) as mock_notify, (
+                mock.patch.object(self.idl, 'close')) as mock_close:
+            self.idl.start()
+            self.idl.stop()
+        mock_notify.assert_called_once_with()
+        mock_close.assert_called_once_with()
+
+    def test_setlock(self):
+        with mock.patch.object(impl_idl_ovn.OvnSbIdlForLb,
+                               'set_lock') as set_lock:
+            self.idl = impl_idl_ovn.OvnSbIdlForLb(event_lock_name='foo')
         set_lock.assert_called_once_with('foo')

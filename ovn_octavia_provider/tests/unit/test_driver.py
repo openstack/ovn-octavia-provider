@@ -179,6 +179,34 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
             project_id=self.project_id,
             vip_address=self.vip_address,
             vip_network_id=self.vip_network_id)
+        self.fail_health_monitor = data_models.HealthMonitor(
+            admin_state_up=True,
+            name='UnHealthy',
+            pool_id=self.pool_id,
+            healthmonitor_id=self.healthmonitor_id,
+            type="not_valid",
+            delay=1,
+            timeout=2,
+            max_retries_down=3,
+            max_retries=4)
+        self.ref_health_monitor = data_models.HealthMonitor(
+            admin_state_up=True,
+            name='Healthy',
+            pool_id=self.pool_id,
+            healthmonitor_id=self.healthmonitor_id,
+            type=constants.HEALTH_MONITOR_TCP,
+            delay=6,
+            timeout=7,
+            max_retries_down=5,
+            max_retries=3)
+        self.ref_update_health_monitor = data_models.HealthMonitor(
+            admin_state_up=True,
+            name='ReHealthy',
+            healthmonitor_id=self.healthmonitor_id,
+            delay=16,
+            timeout=17,
+            max_retries_down=15,
+            max_retries=13)
         mock.patch.object(
             ovn_helper.OvnProviderHelper, '_find_ovn_lbs',
             side_effect=lambda x, protocol=None:
@@ -589,3 +617,92 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
                 self.loadbalancer_id,
                 self.project_id,
                 self.vip_dict)
+
+    def test_health_monitor_create(self):
+        info = {'id': self.ref_health_monitor.healthmonitor_id,
+                'pool_id': self.ref_health_monitor.pool_id,
+                'type': self.ref_health_monitor.type,
+                'interval': self.ref_health_monitor.delay,
+                'timeout': self.ref_health_monitor.timeout,
+                'failure_count': self.ref_health_monitor.max_retries_down,
+                'success_count': self.ref_health_monitor.max_retries,
+                'admin_state_up': self.ref_health_monitor.admin_state_up}
+        expected_dict = {'type': ovn_const.REQ_TYPE_HM_CREATE,
+                         'info': info}
+        self.driver.health_monitor_create(self.ref_health_monitor)
+        self.mock_add_request.assert_called_once_with(expected_dict)
+
+    @mock.patch.object(ovn_driver.OvnProviderDriver,
+                       '_is_health_check_supported')
+    def test_health_monitor_create_not_supported(self, ihcs):
+        ihcs.return_value = False
+        self.assertRaises(exceptions.UnsupportedOptionError,
+                          self.driver.health_monitor_create,
+                          self.ref_health_monitor)
+
+    def test_health_monitor_create_failure(self):
+        self.assertRaises(exceptions.UnsupportedOptionError,
+                          self.driver.health_monitor_create,
+                          self.fail_health_monitor)
+
+    def test_health_monitor_create_failure_unset_type(self):
+        self.fail_health_monitor.type = data_models.UnsetType()
+        self.assertRaises(exceptions.UnsupportedOptionError,
+                          self.driver.health_monitor_create,
+                          self.fail_health_monitor)
+
+    def test_health_monitor_create_unset_admin_state_up(self):
+        self.ref_health_monitor.admin_state_up = data_models.UnsetType()
+        info = {'id': self.ref_health_monitor.healthmonitor_id,
+                'pool_id': self.ref_health_monitor.pool_id,
+                'type': self.ref_health_monitor.type,
+                'interval': self.ref_health_monitor.delay,
+                'timeout': self.ref_health_monitor.timeout,
+                'failure_count': self.ref_health_monitor.max_retries_down,
+                'success_count': self.ref_health_monitor.max_retries,
+                'admin_state_up': True}
+        expected_dict = {'type': ovn_const.REQ_TYPE_HM_CREATE,
+                         'info': info}
+        self.driver.health_monitor_create(self.ref_health_monitor)
+        self.mock_add_request.assert_called_once_with(expected_dict)
+
+    def test_health_monitor_update(self):
+        info = {'id': self.ref_update_health_monitor.healthmonitor_id,
+                'pool_id': self.ref_health_monitor.pool_id,
+                'interval': self.ref_update_health_monitor.delay,
+                'timeout': self.ref_update_health_monitor.timeout,
+                'failure_count':
+                    self.ref_update_health_monitor.max_retries_down,
+                'success_count':
+                    self.ref_update_health_monitor.max_retries,
+                'admin_state_up':
+                    self.ref_update_health_monitor.admin_state_up}
+        expected_dict = {'type': ovn_const.REQ_TYPE_HM_UPDATE,
+                         'info': info}
+        self.driver.health_monitor_update(self.ref_health_monitor,
+                                          self.ref_update_health_monitor)
+        self.mock_add_request.assert_called_once_with(expected_dict)
+
+    def test_health_monitor_update_unset_admin_state_up(self):
+        self.ref_update_health_monitor.admin_state_up = data_models.UnsetType()
+        info = {'id': self.ref_update_health_monitor.healthmonitor_id,
+                'pool_id': self.ref_health_monitor.pool_id,
+                'interval': self.ref_update_health_monitor.delay,
+                'timeout': self.ref_update_health_monitor.timeout,
+                'failure_count':
+                    self.ref_update_health_monitor.max_retries_down,
+                'success_count':
+                    self.ref_update_health_monitor.max_retries,
+                'admin_state_up': True}
+        expected_dict = {'type': ovn_const.REQ_TYPE_HM_UPDATE,
+                         'info': info}
+        self.driver.health_monitor_update(self.ref_health_monitor,
+                                          self.ref_update_health_monitor)
+        self.mock_add_request.assert_called_once_with(expected_dict)
+
+    def test_health_monitor_delete(self):
+        info = {'id': self.ref_health_monitor.healthmonitor_id}
+        expected_dict = {'type': ovn_const.REQ_TYPE_HM_DELETE,
+                         'info': info}
+        self.driver.health_monitor_delete(self.ref_health_monitor)
+        self.mock_add_request.assert_called_once_with(expected_dict)
