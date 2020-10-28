@@ -46,7 +46,6 @@ SERVICE_AUTH = 'service_auth'
 # Request type constants
 REQ_TYPE_LB_CREATE = 'lb_create'
 REQ_TYPE_LB_DELETE = 'lb_delete'
-REQ_TYPE_LB_FAILOVER = 'lb_failover'
 REQ_TYPE_LB_UPDATE = 'lb_update'
 REQ_TYPE_LISTENER_CREATE = 'listener_create'
 REQ_TYPE_LISTENER_DELETE = 'listener_delete'

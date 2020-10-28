@@ -528,11 +528,6 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
             mock.call(self.ovn_lb.uuid),
             mock.call(udp_lb.uuid)])
 
-    def test_lb_failover(self):
-        status = self.helper.lb_failover(self.lb)
-        self.assertEqual(status['loadbalancers'][0]['provisioning_status'],
-                         constants.ACTIVE)
-
     @mock.patch.object(ovn_helper.OvnProviderHelper, '_refresh_lb_vips')
     def test_lb_update_disabled(self, refresh_vips):
         self.lb['admin_state_up'] = False
