@@ -66,7 +66,6 @@ class OvnProviderHelper(object):
             ovn_const.REQ_TYPE_LB_CREATE: self.lb_create,
             ovn_const.REQ_TYPE_LB_DELETE: self.lb_delete,
             ovn_const.REQ_TYPE_LB_UPDATE: self.lb_update,
-            ovn_const.REQ_TYPE_LB_FAILOVER: self.lb_failover,
             ovn_const.REQ_TYPE_LISTENER_CREATE: self.listener_create,
             ovn_const.REQ_TYPE_LISTENER_DELETE: self.listener_delete,
             ovn_const.REQ_TYPE_LISTENER_UPDATE: self.listener_update,
@@ -980,13 +979,6 @@ class OvnProviderHelper(object):
                                             if_exists=True))
         commands.append(self.ovn_nbdb_api.lb_del(ovn_lb.uuid))
         self._execute_commands(commands)
-        return status
-
-    def lb_failover(self, loadbalancer):
-        status = {
-            constants.LOADBALANCERS: [
-                {constants.ID: loadbalancer[constants.ID],
-                 constants.PROVISIONING_STATUS: constants.ACTIVE}]}
         return status
 
     def lb_update(self, loadbalancer):
