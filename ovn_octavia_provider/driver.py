@@ -280,7 +280,8 @@ class OvnProviderDriver(driver_base.ProviderDriver):
                         'address': old_member.address,
                         'protocol_port': old_member.protocol_port,
                         'pool_id': old_member.pool_id,
-                        'subnet_id': old_member.subnet_id}
+                        'subnet_id': old_member.subnet_id,
+                        'old_admin_state_up': old_member.admin_state_up}
         if not isinstance(new_member.admin_state_up, o_datamodels.UnsetType):
             request_info['admin_state_up'] = new_member.admin_state_up
         request = {'type': ovn_const.REQ_TYPE_MEMBER_UPDATE,

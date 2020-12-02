@@ -1483,11 +1483,13 @@ class OvnProviderHelper(object):
             pool = {constants.ID: member[constants.POOL_ID],
                     constants.PROVISIONING_STATUS: constants.ACTIVE,
                     constants.OPERATING_STATUS: constants.ONLINE}
+            member_status = {constants.ID: member[constants.ID],
+                             constants.PROVISIONING_STATUS: constants.ACTIVE}
+            if not member[constants.ADMIN_STATE_UP]:
+                member_status[constants.OPERATING_STATUS] = constants.OFFLINE
             status = {
                 constants.POOLS: [pool],
-                constants.MEMBERS: [
-                    {constants.ID: member[constants.ID],
-                     constants.PROVISIONING_STATUS: constants.ACTIVE}],
+                constants.MEMBERS: [member_status],
                 constants.LOADBALANCERS: [
                     {constants.ID: ovn_lb.name,
                      constants.PROVISIONING_STATUS: constants.ACTIVE}]}
@@ -1625,8 +1627,19 @@ class OvnProviderHelper(object):
             self._update_member(member, ovn_lb, pool_key)
             if constants.ADMIN_STATE_UP in member:
                 if member[constants.ADMIN_STATE_UP]:
-                    member_status[constants.OPERATING_STATUS] = (
-                        constants.ONLINE)
+                    old_admin_state_up = member.get('old_admin_state_up')
+                    if old_admin_state_up is None:
+                        exist_member = self._octavia_driver_lib.get_member(
+                            member[constants.ID])
+                        if exist_member:
+                            old_admin_state_up = exist_member.admin_state_up
+                    if old_admin_state_up:
+                        member_status[constants.OPERATING_STATUS] = (
+                            constants.ONLINE)
+                    else:
+                        # going from down to up should reflect NO_MONITOR state
+                        member_status[constants.OPERATING_STATUS] = (
+                            constants.NO_MONITOR)
                 else:
                     member_status[constants.OPERATING_STATUS] = (
                         constants.OFFLINE)

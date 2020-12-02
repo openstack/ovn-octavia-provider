@@ -273,6 +273,7 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
                 'protocol_port': self.ref_member.protocol_port,
                 'pool_id': self.ref_member.pool_id,
                 'admin_state_up': self.update_member.admin_state_up,
+                'old_admin_state_up': self.ref_member.admin_state_up,
                 'subnet_id': self.ref_member.subnet_id}
         expected_dict = {'type': ovn_const.REQ_TYPE_MEMBER_UPDATE,
                          'info': info}

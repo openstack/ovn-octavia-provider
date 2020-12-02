@@ -62,7 +62,8 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
                        'protocol_port': self.member_port,
                        'subnet_id': self.member_subnet_id,
                        'pool_id': self.member_pool_id,
-                       'admin_state_up': True}
+                       'admin_state_up': True,
+                       'old_admin_state_up': True}
         self.ovn_nbdb_api = mock.patch.object(self.helper, 'ovn_nbdb_api')
         self.ovn_nbdb_api.start()
         add_req_thread = mock.patch.object(ovn_helper.OvnProviderHelper,
@@ -1133,6 +1134,8 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
                          constants.ACTIVE)
         self.assertEqual(status['members'][0]['provisioning_status'],
                          constants.ACTIVE)
+        self.assertEqual(status['members'][0]['operating_status'],
+                         constants.OFFLINE)
 
     @mock.patch.object(ovn_helper.OvnProviderHelper, '_add_member')
     def test_member_create_exception(self, mock_add_member):
@@ -1238,6 +1241,17 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
                          constants.ACTIVE)
         self.assertEqual(status['members'][0]['operating_status'],
                          constants.OFFLINE)
+        self.member['old_admin_state_up'] = False
+        self.member['admin_state_up'] = True
+        status = self.helper.member_update(self.member)
+        self.assertEqual(status['loadbalancers'][0]['provisioning_status'],
+                         constants.ACTIVE)
+        self.assertEqual(status['pools'][0]['provisioning_status'],
+                         constants.ACTIVE)
+        self.assertEqual(status['members'][0]['provisioning_status'],
+                         constants.ACTIVE)
+        self.assertEqual(status['members'][0]['operating_status'],
+                         constants.NO_MONITOR)
 
     def test_member_update_disabled_lb(self):
         self.helper._find_ovn_lb_with_pool_key.side_effect = [
