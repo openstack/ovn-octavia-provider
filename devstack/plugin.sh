@@ -25,7 +25,9 @@ function _configure_provider_driver {
 }
 
 function is_ovn_enabled {
-    [[ $NEUTRON_AGENT == "ovn" ]] && return 0
+    if [[ $NEUTRON_AGENT == "ovn" || $Q_AGENT == "ovn" ]]; then
+        return 0
+    fi
     return 1
 }
 
