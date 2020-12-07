@@ -27,8 +27,7 @@ class LogicalRouterPortEvent(row_event.RowEvent):
     def __init__(self, driver):
         table = 'Logical_Router_Port'
         events = (self.ROW_CREATE, self.ROW_DELETE)
-        super(LogicalRouterPortEvent, self).__init__(
-            events, table, None)
+        super().__init__(events, table, None)
         self.event_name = 'LogicalRouterPortEvent'
         self.driver = driver
 
@@ -50,8 +49,7 @@ class LogicalSwitchPortUpdateEvent(row_event.RowEvent):
     def __init__(self, driver):
         table = 'Logical_Switch_Port'
         events = (self.ROW_UPDATE,)
-        super(LogicalSwitchPortUpdateEvent, self).__init__(
-            events, table, None)
+        super().__init__(events, table, None)
         self.event_name = 'LogicalSwitchPortUpdateEvent'
         self.driver = driver
 

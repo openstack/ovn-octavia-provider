@@ -38,7 +38,7 @@ LOG = logging.getLogger(__name__)
 class OvnProviderDriver(driver_base.ProviderDriver):
 
     def __init__(self):
-        super(OvnProviderDriver, self).__init__()
+        super().__init__()
         self._ovn_helper = ovn_helper.OvnProviderHelper()
 
     def __del__(self):

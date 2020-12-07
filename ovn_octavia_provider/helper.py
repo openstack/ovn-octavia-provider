@@ -124,9 +124,9 @@ class OvnProviderHelper(object):
         # and is expected to be caught by the caller.
         try:
             return getattr(row, col)[key]
-        except KeyError:
+        except KeyError as e:
             raise idlutils.RowNotFound(table=row._table.name,
-                                       col=col, match=key)
+                                       col=col, match=key) from e
 
     def _get_nw_router_info_on_interface_event(self, lrp):
         """Get the Router and Network information on an interface event
