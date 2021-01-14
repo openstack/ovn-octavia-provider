@@ -116,6 +116,7 @@ class OvnProviderHelper(object):
         self.requests.put({'type': ovn_const.REQ_TYPE_EXIT})
         self.helper_thread.join()
         self.ovn_nbdb.stop()
+        del self.ovn_nbdb_api
 
     @staticmethod
     def _map_val(row, col, key):
