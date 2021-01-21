@@ -154,6 +154,7 @@
     parent: ovn-octavia-provider-tempest-base
     vars:
       devstack_localrc:
+        OVN_BUILD_FROM_SOURCE: True
         OVN_BRANCH: v20.06.0
         OVS_BRANCH: v2.13.0
 
@@ -162,5 +163,6 @@
     parent: ovn-octavia-provider-tempest-base
     vars:
       devstack_localrc:
+        OVN_BUILD_FROM_SOURCE: True
         OVN_BRANCH: master
         OVS_BRANCH: master
