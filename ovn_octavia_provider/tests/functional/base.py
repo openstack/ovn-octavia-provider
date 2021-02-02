@@ -576,10 +576,14 @@ class TestOvnOctaviaBase(base.TestOVNFunctionalBase,
         lb_pools.append(m_pool)
         self._o_driver_lib.update_loadbalancer_status.reset_mock()
         self.ovn_driver.pool_create(m_pool)
+        operating_status = (
+            o_constants.ONLINE
+            if listener_id else o_constants.OFFLINE)
+
         expected_status = {
             'pools': [{'id': m_pool.pool_id,
                        'provisioning_status': 'ACTIVE',
-                       'operating_status': o_constants.OFFLINE}],
+                       'operating_status': operating_status}],
             'loadbalancers': [{'id': m_pool.loadbalancer_id,
                                'provisioning_status': 'ACTIVE'}]
         }

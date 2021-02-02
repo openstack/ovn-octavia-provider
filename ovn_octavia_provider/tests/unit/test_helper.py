@@ -897,7 +897,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         self.assertEqual(status['pools'][0]['provisioning_status'],
                          constants.ACTIVE)
         self.assertEqual(status['pools'][0]['operating_status'],
-                         constants.OFFLINE)
+                         constants.ONLINE)
         self.pool['admin_state_up'] = True
         # Pool Operating status shouldnt change if member isnt present.
         status = self.helper.pool_create(self.pool)
@@ -905,6 +905,11 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
                          constants.ACTIVE)
         self.assertEqual(status['pools'][0]['provisioning_status'],
                          constants.ACTIVE)
+        self.assertEqual(status['pools'][0]['operating_status'],
+                         constants.ONLINE)
+        # Pool without listener set should be OFFLINE
+        self.pool['listener_id'] = None
+        status = self.helper.pool_create(self.pool)
         self.assertEqual(status['pools'][0]['operating_status'],
                          constants.OFFLINE)
 
