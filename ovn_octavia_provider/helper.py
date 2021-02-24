@@ -85,8 +85,8 @@ class OvnProviderHelper(object):
     @staticmethod
     def _is_lb_empty(external_ids):
         """Check if there is no pool or listener defined."""
-        return not any([k.startswith('listener') or k.startswith('pool')
-                        for k in external_ids])
+        return not any(k.startswith('listener') or k.startswith('pool')
+                       for k in external_ids)
 
     @staticmethod
     def _delete_disabled_from_status(status):
