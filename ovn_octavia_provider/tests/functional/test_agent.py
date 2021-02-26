@@ -29,7 +29,7 @@ from ovn_octavia_provider.tests.functional import base as ovn_base
 class TestOvnOctaviaProviderAgent(ovn_base.TestOvnOctaviaBase):
 
     def setUp(self):
-        super(TestOvnOctaviaProviderAgent, self).setUp()
+        super().setUp()
         self._initialize_ovn_da()
 
     def _initialize_ovn_da(self):

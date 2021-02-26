@@ -31,7 +31,7 @@ from ovn_octavia_provider.tests.unit import fakes
 class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
 
     def setUp(self):
-        super(TestOvnProviderHelper, self).setUp()
+        super().setUp()
         self.helper = ovn_helper.OvnProviderHelper()
         self.real_helper_find_ovn_lb_with_pool_key = (
             self.helper._find_ovn_lb_with_pool_key)

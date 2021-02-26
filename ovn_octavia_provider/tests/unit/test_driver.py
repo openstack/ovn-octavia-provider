@@ -28,7 +28,7 @@ from ovn_octavia_provider.tests.unit import base as ovn_base
 class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
 
     def setUp(self):
-        super(TestOvnProviderDriver, self).setUp()
+        super().setUp()
         self.driver = ovn_driver.OvnProviderDriver()
         add_req_thread = mock.patch.object(ovn_helper.OvnProviderHelper,
                                            'add_request')

@@ -39,7 +39,7 @@ class BaseOvnIdl(connection.OvsdbIdl):
 class OvnIdl(BaseOvnIdl):
 
     def __init__(self, driver, remote, schema):
-        super(OvnIdl, self).__init__(remote, schema)
+        super().__init__(remote, schema)
         self.driver = driver
         self.notify_handler = OvnDbNotifyHandler(driver)
         # ovsdb lock name to acquire.
@@ -75,7 +75,7 @@ class OvnIdl(BaseOvnIdl):
 
 class OvnDbNotifyHandler(event.RowEventHandler):
     def __init__(self, driver):
-        super(OvnDbNotifyHandler, self).__init__()
+        super().__init__()
         self.driver = driver
 
 

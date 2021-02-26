@@ -37,7 +37,7 @@ class TestOvnOctaviaBase(base.TestOVNFunctionalBase,
                          base.BaseLoggingTestCase):
 
     def setUp(self):
-        super(TestOvnOctaviaBase, self).setUp()
+        super().setUp()
         idl_ovn.OvnNbApiIdlImpl.ovsdb_connection = None
         # TODO(mjozefcz): Use octavia listeners to provide needed
         # sockets and modify tests in order to verify if fake

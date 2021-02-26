@@ -28,7 +28,7 @@ CONF = cfg.CONF
 NEUTRON_VERSION = '2.0'
 
 
-class KeystoneSession(object):
+class KeystoneSession():
 
     def __init__(self, section=constants.SERVICE_AUTH):
         self._session = None
