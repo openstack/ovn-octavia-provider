@@ -789,7 +789,7 @@ class OvnProviderHelper():
                         break
 
         # If protocol set make sure its lowercase
-        protocol = protocol.lower() if protocol else None
+        protocol = protocol.lower() if protocol else []
         # In case port is not found for the vip_address we will see an
         # exception when port['id'] is accessed.
         external_ids = {
