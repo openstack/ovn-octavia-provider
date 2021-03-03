@@ -91,7 +91,6 @@
           "$TEMPEST_CONFIG":
             load_balancer:
               provider: 'ovn'
-              test_with_ipv6: False
               enable_security_groups: True
               enabled_provider_drivers: 'ovn:OVN provider driver'
             loadbalancer-feature-enabled:
