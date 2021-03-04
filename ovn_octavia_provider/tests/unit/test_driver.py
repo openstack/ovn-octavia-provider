@@ -943,7 +943,7 @@ class TestOvnProviderHelper(TestOvnOctaviaBase):
                 ovn_const.LB_EXT_IDS_VIP_PORT_ID_KEY: mock.ANY,
                 'enabled': 'False'},
             name=mock.ANY,
-            protocol=None,
+            protocol=[],
             selection_fields=['ip_src', 'ip_dst', 'tp_src', 'tp_dst'])
 
     @mock.patch('ovn_octavia_provider.driver.get_neutron_client')
@@ -961,7 +961,7 @@ class TestOvnProviderHelper(TestOvnOctaviaBase):
                 ovn_const.LB_EXT_IDS_VIP_PORT_ID_KEY: mock.ANY,
                 'enabled': 'True'},
             name=mock.ANY,
-            protocol=None,
+            protocol=[],
             selection_fields=['ip_src', 'ip_dst', 'tp_src', 'tp_dst'])
 
     @mock.patch('ovn_octavia_provider.driver.get_neutron_client')
@@ -981,7 +981,7 @@ class TestOvnProviderHelper(TestOvnOctaviaBase):
                 ovn_const.LB_EXT_IDS_VIP_PORT_ID_KEY: mock.ANY,
                 'enabled': 'True'},
             name=mock.ANY,
-            protocol=None)
+            protocol=[])
 
     @mock.patch('ovn_octavia_provider.driver.get_neutron_client')
     def test_lb_create_selection_fields_not_supported_algo(self, net_cli):
@@ -1001,7 +1001,7 @@ class TestOvnProviderHelper(TestOvnOctaviaBase):
                 ovn_const.LB_EXT_IDS_VIP_PORT_ID_KEY: mock.ANY,
                 'enabled': 'True'},
             name=mock.ANY,
-            protocol=None,
+            protocol=[],
             selection_fields=['ip_src', 'ip_dst', 'tp_src', 'tp_dst'])
 
     @mock.patch('ovn_octavia_provider.driver.get_neutron_client')
