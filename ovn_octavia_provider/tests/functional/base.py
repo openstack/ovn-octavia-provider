@@ -192,11 +192,10 @@ class TestOvnOctaviaBase(base.TestOVNFunctionalBase,
 
     def _validate_loadbalancers(self, expected_lbs):
         observed_lbs = self._get_loadbalancers()
-        # NOTE (mjozefcz): assertItemsEqual works only on first level
-        # of comparison, if dicts inside dics are in diffrent
+        # NOTE (mjozefcz): assertCountEqual works only on first level
+        # of comparison, if dicts inside dicts are in different
         # order it would fail.
-        self.assertEqual(len(expected_lbs),
-                         len(observed_lbs))
+        self.assertEqual(len(expected_lbs), len(observed_lbs))
         for expected_lb in expected_lbs:
             # search for LB with same name and protocol
             found = False
@@ -308,7 +307,7 @@ class TestOvnOctaviaBase(base.TestOVNFunctionalBase,
                         calls_found.append(expected_status)
                         break
             # Validate if we found all expected calls.
-            self.assertItemsEqual(expected_statuses, calls_found)
+            self.assertCountEqual(expected_statuses, calls_found)
 
     def _wait_for_status_and_validate(self, lb_data, expected_status,
                                       check_call=True):
