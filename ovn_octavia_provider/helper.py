@@ -304,9 +304,8 @@ class OvnProviderHelper():
                         self._update_status_to_octavia(status)
                 self.requests.task_done()
             except driver_exceptions.UpdateStatusError as e:
-                msg = ("Error while updating the load balancer "
-                       "status: %s") % e.fault_string
-                LOG.error(msg)
+                LOG.error("Error while updating the load balancer status: %s",
+                          e.fault_string)
                 # TODO(haleyb): The resource(s) we were updating status for
                 # should be cleaned-up
             except Exception:
@@ -539,11 +538,9 @@ class OvnProviderHelper():
                           [lr.strip() for lr in lr_ref.split(',')]
                           if r != ovn_lr.name]
             except ValueError:
-                msg = ('The loadbalancer %(lb)s is not associated with '
-                       'the router %(router)s' %
-                       {'lb': ovn_lb.name,
-                        'router': ovn_lr.name})
-                LOG.warning(msg)
+                LOG.warning('The loadbalancer %(lb)s is not associated with '
+                            'the router %(router)s',
+                            {'lb': ovn_lb.name, 'router': ovn_lr.name})
             if lr_ref:
                 commands.append(
                     self.ovn_nbdb_api.db_set(
