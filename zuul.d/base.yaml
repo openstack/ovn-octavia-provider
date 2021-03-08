@@ -53,7 +53,6 @@
     abstract: true
     timeout: 7800
     required-projects:
-      - openstack/devstack-gate
       - openstack/neutron
       - openstack/octavia
       - openstack/octavia-lib
