@@ -237,13 +237,24 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
             self.ovn_lb.id,
             protocol='UDP')
 
+        # LB with given protocol not found
+        self.helper.ovn_nbdb_api.db_find_rows.return_value.\
+            execute.return_value = []
+        self.assertRaises(
+            idlutils.RowNotFound,
+            f,
+            self.ovn_lb.id,
+            protocol='SCTP')
+
         # Multiple protocols
         udp_lb = copy.copy(self.ovn_lb)
         udp_lb.protocol = ['udp']
+        sctp_lb = copy.copy(self.ovn_lb)
+        sctp_lb.protocol = ['sctp']
         self.helper.ovn_nbdb_api.db_find_rows.return_value.\
-            execute.return_value = [self.ovn_lb, udp_lb]
+            execute.return_value = [self.ovn_lb, udp_lb, sctp_lb]
         found = f(self.ovn_lb.id)
-        self.assertListEqual(found, [self.ovn_lb, udp_lb])
+        self.assertListEqual(found, [self.ovn_lb, udp_lb, sctp_lb])
 
     def test__get_or_create_ovn_lb_no_lb_found(self):
         self.mock_find_ovn_lbs.stop()
@@ -388,18 +399,18 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
             selection_fields=['ip_src', 'ip_dst', 'tp_src', 'tp_dst'])
 
     @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
-    def test_lb_create_on_multi_protocol(self, net_cli):
+    def _test_lb_create_on_multi_protocol(self, protocol, net_cli):
         """This test situation when new protocol is added
 
            to the same loadbalancer and we need to add
            additional OVN lb with the same name.
         """
         self.lb['admin_state_up'] = True
-        self.lb['protocol'] = 'UDP'
+        self.lb['protocol'] = protocol
         self.lb[ovn_const.LB_EXT_IDS_LR_REF_KEY] = 'foo'
         self.lb[ovn_const.LB_EXT_IDS_LS_REFS_KEY] = '{\"neutron-foo\": 1}'
         net_cli.return_value.list_ports.return_value = self.ports
-        status = self.helper.lb_create(self.lb, protocol='UDP')
+        status = self.helper.lb_create(self.lb, protocol=protocol)
         self.assertEqual(status['loadbalancers'][0]['provisioning_status'],
                          constants.ACTIVE)
         self.assertEqual(status['loadbalancers'][0]['operating_status'],
@@ -411,12 +422,18 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
                 ovn_const.LB_EXT_IDS_LR_REF_KEY: 'foo',
                 'enabled': 'True'},
             name=mock.ANY,
-            protocol='udp',
+            protocol=protocol.lower(),
             selection_fields=['ip_src', 'ip_dst', 'tp_src', 'tp_dst'])
         self.helper._update_lb_to_ls_association.assert_has_calls([
             mock.call(self.ovn_lb, associate=True,
                       network_id=self.lb['vip_network_id']),
             mock.call(self.ovn_lb, associate=True, network_id='foo')])
+
+    def test_lb_create_on_multi_protocol_UDP(self):
+        self._test_lb_create_on_multi_protocol('UDP')
+
+    def test_lb_create_on_multi_protocol_SCTP(self):
+        self._test_lb_create_on_multi_protocol('SCTP')
 
     @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
     @mock.patch.object(ovn_helper.OvnProviderHelper, 'delete_vip_port')
@@ -2356,6 +2373,11 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         ret = self.helper.check_lb_protocol(self.listener_id, 'udp')
         self.assertFalse(ret)
         ret = self.helper.check_lb_protocol(self.listener_id, 'UDP')
+        self.assertFalse(ret)
+
+        ret = self.helper.check_lb_protocol(self.listener_id, 'sctp')
+        self.assertFalse(ret)
+        ret = self.helper.check_lb_protocol(self.listener_id, 'SCTP')
         self.assertFalse(ret)
 
         ret = self.helper.check_lb_protocol(self.listener_id, 'tcp')

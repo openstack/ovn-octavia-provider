@@ -143,6 +143,16 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
             name='listener',
             protocol='UDP',
             protocol_port=42)
+        self.ref_listener_sctp = data_models.Listener(
+            admin_state_up=False,
+            connection_limit=5,
+            default_pool=self.ref_pool,
+            default_pool_id=self.pool_id,
+            listener_id=self.listener_id,
+            loadbalancer_id=self.loadbalancer_id,
+            name='listener',
+            protocol='SCTP',
+            protocol_port=42)
         self.fail_listener = data_models.Listener(
             admin_state_up=False,
             connection_limit=5,
@@ -389,7 +399,7 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
                           self.driver.listener_create, self.fail_listener)
 
     def test_listener_create_multiple_protocols(self):
-        self.ovn_lb.protocol = ['tcp']
+        self.ovn_lb.protocol = ['TCP']
         info = {'id': self.ref_listener.listener_id,
                 'protocol': self.ref_listener.protocol,
                 'protocol_port': self.ref_listener.protocol_port,
@@ -402,6 +412,11 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
         self.mock_add_request.assert_called_once_with(expected_dict)
         self.ovn_lb.protocol = ['UDP']
         info['protocol'] = 'UDP'
+        expected_dict = {'type': ovn_const.REQ_TYPE_LISTENER_CREATE,
+                         'info': info}
+        self.driver.listener_create(self.ref_listener)
+        self.ovn_lb.protocol = ['SCTP']
+        info['protocol'] = 'SCTP'
         expected_dict = {'type': ovn_const.REQ_TYPE_LISTENER_CREATE,
                          'info': info}
         self.driver.listener_create(self.ref_listener)

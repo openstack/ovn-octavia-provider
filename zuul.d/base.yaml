@@ -75,6 +75,7 @@
         USE_PYTHON3: True
         TEMPEST_PLUGINS: '/opt/stack/octavia-tempest-plugin'
         OCTAVIA_NODE: api
+        OCTAVIA_TEMPEST_PLUGIN_CUSTOMIZE_IMAGE: true
         DISABLE_AMP_IMAGE_BUILD: true
         OVN_L3_CREATE_PUBLIC_NETWORK: true
         Q_USE_PROVIDERNET_FOR_PUBLIC: true
@@ -93,6 +94,7 @@
               provider: 'ovn'
               enable_security_groups: True
               enabled_provider_drivers: 'ovn:OVN provider driver'
+              test_sctp_protocol: True
             loadbalancer-feature-enabled:
               health_monitor_enabled: False
               pool_algorithms_enabled: False
@@ -144,7 +146,8 @@
       tempest_exclude_regex: "\
         (^octavia_tempest_plugin.tests.scenario.v2.test_traffic_ops.TrafficOperationsScenarioTest.test_basic_http_traffic)|\
         (^octavia_tempest_plugin.tests.scenario.v2.test_traffic_ops.TrafficOperationsScenarioTest.test_basic_tcp_traffic)|\
-        (^octavia_tempest_plugin.tests.scenario.v2.test_traffic_ops.TrafficOperationsScenarioTest.test_basic_udp_traffic)"
+        (^octavia_tempest_plugin.tests.scenario.v2.test_traffic_ops.TrafficOperationsScenarioTest.test_basic_udp_traffic)|\
+        (^octavia_tempest_plugin.tests.scenario.v2.test_traffic_ops.TrafficOperationsScenarioTest.test_basic_sctp_traffic)"
       zuul_copy_output:
         '{{ devstack_base_dir }}/data/ovs': 'logs'
         '{{ devstack_base_dir }}/data/ovn': 'logs'

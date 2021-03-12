@@ -454,7 +454,7 @@ class TestOvnOctaviaBase(base.TestOVNFunctionalBase,
                         'neutron:vip_port_id': vip_net_info[3],
                         'enabled': str(lb_data['model'].admin_state_up)}
         # NOTE(mjozefcz): By default we don't set protocol. We don't know if
-        # listener/pool would be TCP or UDP, so do not set it.
+        # listener/pool would be TCP, UDP or SCTP, so do not set it.
         expected_protocols = set()
 
         # Lets fetch list of L4 protocols defined for this LB.

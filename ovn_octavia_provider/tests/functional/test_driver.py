@@ -56,23 +56,22 @@ class TestOvnOctaviaProviderDriver(ovn_base.TestOvnOctaviaBase):
         lb_data = self._create_load_balancer_and_validate(
             {'vip_network': 'vip_network',
              'cidr': '10.0.0.0/24'})
-        self._create_pool_and_validate(lb_data, "p1",
-                                       protocol='TCP')
-        self._update_pool_and_validate(lb_data, "p1")
-        self._create_pool_and_validate(lb_data, "p2",
-                                       protocol='UDP')
-        self._create_pool_and_validate(lb_data, "p3",
-                                       protocol='TCP')
-        self._update_pool_and_validate(lb_data, "p3",
+        self._create_pool_and_validate(lb_data, "p_TCP_1", protocol='TCP')
+        self._update_pool_and_validate(lb_data, "p_TCP_1")
+        self._create_pool_and_validate(lb_data, "p_UDP_1", protocol='UDP')
+        self._create_pool_and_validate(lb_data, "p_SCTP_1", protocol='SCTP')
+        self._create_pool_and_validate(lb_data, "p_TCP_2", protocol='TCP')
+        self._update_pool_and_validate(lb_data, "p_TCP_2",
                                        admin_state_up=False)
-        self._update_pool_and_validate(lb_data, "p3",
+        self._update_pool_and_validate(lb_data, "p_TCP_2",
                                        admin_state_up=True)
-        self._update_pool_and_validate(lb_data, "p3",
+        self._update_pool_and_validate(lb_data, "p_TCP_2",
                                        admin_state_up=False)
-        self._create_pool_and_validate(lb_data, "p4",
-                                       protocol='UDP')
-        self._delete_pool_and_validate(lb_data, "p2")
-        self._delete_pool_and_validate(lb_data, "p1")
+        self._create_pool_and_validate(lb_data, "p_UDP_2", protocol='UDP')
+        self._create_pool_and_validate(lb_data, "p_SCTP_2", protocol='SCTP')
+        self._delete_pool_and_validate(lb_data, "p_SCTP_1")
+        self._delete_pool_and_validate(lb_data, "p_UDP_1")
+        self._delete_pool_and_validate(lb_data, "p_TCP_1")
         self._delete_load_balancer_and_validate(lb_data)
 
     def test_member(self):
@@ -81,32 +80,43 @@ class TestOvnOctaviaProviderDriver(ovn_base.TestOvnOctaviaBase):
              'cidr': '10.0.0.0/24'})
 
         # TCP Pool
-        self._create_pool_and_validate(lb_data, "p1",
-                                       protocol='TCP')
+        self._create_pool_and_validate(lb_data, "p_TCP", protocol='TCP')
 
         # UDP Pool
-        self._create_pool_and_validate(lb_data, "p2",
-                                       protocol='UDP')
+        self._create_pool_and_validate(lb_data, "p_UDP", protocol='UDP')
 
-        pool_1_id = lb_data['pools'][0].pool_id
-        pool_2_id = lb_data['pools'][1].pool_id
+        # SCTP Pool
+        self._create_pool_and_validate(lb_data, "p_SCTP", protocol='SCTP')
+
+        pool_TCP_id = lb_data['pools'][0].pool_id
+        pool_UDP_id = lb_data['pools'][1].pool_id
+        pool_SCTP_id = lb_data['pools'][2].pool_id
 
         # Members for TCP Pool
         self._create_member_and_validate(
-            lb_data, pool_1_id, lb_data['vip_net_info'][1],
+            lb_data, pool_TCP_id, lb_data['vip_net_info'][1],
             lb_data['vip_net_info'][0], '10.0.0.10')
-        self._update_member_and_validate(lb_data, pool_1_id, "10.0.0.10")
+        self._update_member_and_validate(lb_data, pool_TCP_id, "10.0.0.10")
         self._create_member_and_validate(
-            lb_data, pool_1_id, lb_data['vip_net_info'][1],
+            lb_data, pool_TCP_id, lb_data['vip_net_info'][1],
             lb_data['vip_net_info'][0], '10.0.0.11')
 
         # Members for UDP Pool
         self._create_member_and_validate(
-            lb_data, pool_2_id, lb_data['vip_net_info'][1],
+            lb_data, pool_UDP_id, lb_data['vip_net_info'][1],
             lb_data['vip_net_info'][0], '10.0.0.10')
-        self._update_member_and_validate(lb_data, pool_1_id, "10.0.0.10")
+        self._update_member_and_validate(lb_data, pool_UDP_id, "10.0.0.10")
         self._create_member_and_validate(
-            lb_data, pool_2_id, lb_data['vip_net_info'][1],
+            lb_data, pool_UDP_id, lb_data['vip_net_info'][1],
+            lb_data['vip_net_info'][0], '10.0.0.11')
+
+        # Members for SCTP Pool
+        self._create_member_and_validate(
+            lb_data, pool_SCTP_id, lb_data['vip_net_info'][1],
+            lb_data['vip_net_info'][0], '10.0.0.10')
+        self._update_member_and_validate(lb_data, pool_SCTP_id, "10.0.0.10")
+        self._create_member_and_validate(
+            lb_data, pool_SCTP_id, lb_data['vip_net_info'][1],
             lb_data['vip_net_info'][0], '10.0.0.11')
 
         # Disable loadbalancer
@@ -117,41 +127,42 @@ class TestOvnOctaviaProviderDriver(ovn_base.TestOvnOctaviaBase):
                                                 admin_state_up=True)
 
         # Delete members from TCP Pool
-        self._delete_member_and_validate(lb_data, pool_1_id,
+        self._delete_member_and_validate(lb_data, pool_TCP_id,
                                          lb_data['vip_net_info'][0],
                                          '10.0.0.10')
-        self._delete_member_and_validate(lb_data, pool_1_id,
+        self._delete_member_and_validate(lb_data, pool_TCP_id,
                                          lb_data['vip_net_info'][0],
                                          '10.0.0.11')
         # Add again member to TCP Pool
         self._create_member_and_validate(
-            lb_data, pool_1_id, lb_data['vip_net_info'][1],
+            lb_data, pool_TCP_id, lb_data['vip_net_info'][1],
             lb_data['vip_net_info'][0], '10.0.0.10')
 
         # Create new networks and add member to TCP pool from it.
         net20_info = self._create_net('net20', '20.0.0.0/24')
         net20 = net20_info[0]
         subnet20 = net20_info[1]
-        self._create_member_and_validate(lb_data, pool_1_id, subnet20, net20,
+        self._create_member_and_validate(lb_data, pool_TCP_id, subnet20, net20,
                                          '20.0.0.4')
-        self._create_member_and_validate(lb_data, pool_1_id, subnet20, net20,
+        self._create_member_and_validate(lb_data, pool_TCP_id, subnet20, net20,
                                          '20.0.0.6')
         net30_info = self._create_net('net30', '30.0.0.0/24')
         net30 = net30_info[0]
         subnet30 = net30_info[1]
-        self._create_member_and_validate(lb_data, pool_1_id, subnet30, net30,
+        self._create_member_and_validate(lb_data, pool_TCP_id, subnet30, net30,
                                          '30.0.0.6')
-        self._delete_member_and_validate(lb_data, pool_1_id, net20, '20.0.0.6')
+        self._delete_member_and_validate(lb_data, pool_TCP_id, net20,
+                                         '20.0.0.6')
 
         # Test creating Member without subnet
-        m_member = self._create_member_model(pool_1_id,
+        m_member = self._create_member_model(pool_TCP_id,
                                              None,
                                              '30.0.0.7', 80)
         self.assertRaises(o_exceptions.UnsupportedOptionError,
                           self.ovn_driver.member_create, m_member)
 
         # Deleting the pool should also delete the members.
-        self._delete_pool_and_validate(lb_data, "p1")
+        self._delete_pool_and_validate(lb_data, "p_TCP")
 
         # Delete the whole LB.
         self._delete_load_balancer_and_validate(lb_data)
@@ -160,31 +171,38 @@ class TestOvnOctaviaProviderDriver(ovn_base.TestOvnOctaviaBase):
         lb_data = self._create_load_balancer_and_validate(
             {'vip_network': 'vip_network',
              'cidr': '10.0.0.0/24'})
-        self._create_pool_and_validate(lb_data, "p1",
-                                       protocol='TCP')
-        self._create_pool_and_validate(lb_data, "p2",
-                                       protocol='UDP')
-        pool_1_id = lb_data['pools'][0].pool_id
-        pool_2_id = lb_data['pools'][1].pool_id
+        self._create_pool_and_validate(lb_data, "p_TCP", protocol='TCP')
+        self._create_pool_and_validate(lb_data, "p_UDP", protocol='UDP')
+        self._create_pool_and_validate(lb_data, "p_SCTP", protocol='SCTP')
+        pool_TCP_id = lb_data['pools'][0].pool_id
+        pool_UDP_id = lb_data['pools'][1].pool_id
+        pool_SCTP_id = lb_data['pools'][2].pool_id
         net_info = self._create_net('net1', '20.0.0.0/24')
 
-        # Create member in first pool
+        # Create member in TCP pool
         self._create_member_and_validate(
-            lb_data, pool_1_id, lb_data['vip_net_info'][1],
+            lb_data, pool_TCP_id, lb_data['vip_net_info'][1],
             lb_data['vip_net_info'][0], '10.0.0.4')
-        self._create_member_and_validate(lb_data, pool_1_id,
+        self._create_member_and_validate(lb_data, pool_TCP_id,
                                          net_info[1], net_info[0], '20.0.0.4')
 
-        # Create member in second pool
+        # Create member in UDP pool
         self._create_member_and_validate(
-            lb_data, pool_2_id, lb_data['vip_net_info'][1],
+            lb_data, pool_UDP_id, lb_data['vip_net_info'][1],
             lb_data['vip_net_info'][0], '10.0.0.4')
-        self._create_member_and_validate(lb_data, pool_2_id,
+        self._create_member_and_validate(lb_data, pool_UDP_id,
                                          net_info[1], net_info[0], '20.0.0.4')
 
-        # Play around first listener linked to first pool.
+        # Create member in SCTP pool
+        self._create_member_and_validate(
+            lb_data, pool_SCTP_id, lb_data['vip_net_info'][1],
+            lb_data['vip_net_info'][0], '10.0.0.4')
+        self._create_member_and_validate(lb_data, pool_SCTP_id,
+                                         net_info[1], net_info[0], '20.0.0.4')
+
+        # Play around first listener linked to TCP pool
         self._create_listener_and_validate(
-            lb_data, pool_1_id, 80, protocol='TCP')
+            lb_data, pool_TCP_id, 80, protocol='TCP')
         self._update_listener_and_validate(lb_data, protocol_port=80)
         self._update_listener_and_validate(
             lb_data, protocol_port=80, admin_state_up=True)
@@ -193,11 +211,11 @@ class TestOvnOctaviaProviderDriver(ovn_base.TestOvnOctaviaBase):
         self._update_listener_and_validate(
             lb_data, protocol_port=80, admin_state_up=True)
         self._create_listener_and_validate(
-            lb_data, pool_1_id, protocol_port=82, protocol='TCP')
+            lb_data, pool_TCP_id, protocol_port=82, protocol='TCP')
 
-        # Play around second listener linked to second pool.
+        # Play around second listener linked to UDP pool
         self._create_listener_and_validate(
-            lb_data, pool_2_id, 53, protocol='UDP')
+            lb_data, pool_UDP_id, 53, protocol='UDP')
         self._update_listener_and_validate(lb_data, 53, protocol='UDP')
         self._update_listener_and_validate(
             lb_data, protocol_port=53, protocol='UDP', admin_state_up=True)
@@ -206,21 +224,34 @@ class TestOvnOctaviaProviderDriver(ovn_base.TestOvnOctaviaBase):
         self._update_listener_and_validate(
             lb_data, protocol_port=53, protocol='UDP', admin_state_up=True)
         self._create_listener_and_validate(
-            lb_data, pool_2_id, protocol_port=21, protocol='UDP')
+            lb_data, pool_UDP_id, protocol_port=21, protocol='UDP')
 
-        # Delete listeners linked to first pool.
+        # Play around third listener linked to SCTP pool
+        self._create_listener_and_validate(
+            lb_data, pool_SCTP_id, 8081, protocol='SCTP')
+        self._update_listener_and_validate(lb_data, 8081, protocol='SCTP')
+        self._update_listener_and_validate(
+            lb_data, protocol_port=8081, protocol='SCTP', admin_state_up=True)
+        self._update_listener_and_validate(
+            lb_data, protocol_port=8081, protocol='SCTP', admin_state_up=False)
+        self._update_listener_and_validate(
+            lb_data, protocol_port=8081, protocol='SCTP', admin_state_up=True)
+        self._create_listener_and_validate(
+            lb_data, pool_SCTP_id, protocol_port=8082, protocol='SCTP')
+
+        # Delete listeners linked to TCP pool
         self._delete_listener_and_validate(
             lb_data, protocol_port=82, protocol='TCP')
         self._delete_listener_and_validate(
             lb_data, protocol_port=80, protocol='TCP')
-        # Delete first pool members.
-        self._delete_member_and_validate(lb_data, pool_1_id,
+        # Delete TCP pool members
+        self._delete_member_and_validate(lb_data, pool_TCP_id,
                                          net_info[0], '20.0.0.4')
-        self._delete_member_and_validate(lb_data, pool_1_id,
+        self._delete_member_and_validate(lb_data, pool_TCP_id,
                                          lb_data['vip_net_info'][0],
                                          '10.0.0.4')
-        # Delete empty, first pool
-        self._delete_pool_and_validate(lb_data, "p1")
+        # Delete empty, TCP pool
+        self._delete_pool_and_validate(lb_data, "p_TCP")
         # Delete the rest
         self._delete_load_balancer_and_validate(lb_data)
 
@@ -229,22 +260,29 @@ class TestOvnOctaviaProviderDriver(ovn_base.TestOvnOctaviaBase):
             {'vip_network': 'vip_network',
              'cidr': '10.0.0.0/24'})
         if pool:
-            self._create_pool_and_validate(lb_data, "p1", protocol='TCP')
-            self._create_pool_and_validate(lb_data, "p2", protocol='UDP')
-            pool_1_id = lb_data['pools'][0].pool_id
-            pool_2_id = lb_data['pools'][1].pool_id
+            self._create_pool_and_validate(lb_data, "p_TCP", protocol='TCP')
+            self._create_pool_and_validate(lb_data, "p_UDP", protocol='UDP')
+            self._create_pool_and_validate(lb_data, "p_SCTP", protocol='SCTP')
+            pool_TCP_id = lb_data['pools'][0].pool_id
+            pool_UDP_id = lb_data['pools'][1].pool_id
+            pool_SCTP_id = lb_data['pools'][2].pool_id
             if member:
                 self._create_member_and_validate(
-                    lb_data, pool_1_id, lb_data['vip_net_info'][1],
+                    lb_data, pool_TCP_id, lb_data['vip_net_info'][1],
                     lb_data['vip_net_info'][0], '10.0.0.10')
                 self._create_member_and_validate(
-                    lb_data, pool_2_id, lb_data['vip_net_info'][1],
+                    lb_data, pool_UDP_id, lb_data['vip_net_info'][1],
+                    lb_data['vip_net_info'][0], '10.0.0.10')
+                self._create_member_and_validate(
+                    lb_data, pool_SCTP_id, lb_data['vip_net_info'][1],
                     lb_data['vip_net_info'][0], '10.0.0.10')
             if listener:
                 self._create_listener_and_validate(
-                    lb_data, pool_1_id, protocol_port=80, protocol='TCP')
+                    lb_data, pool_TCP_id, protocol_port=80, protocol='TCP')
                 self._create_listener_and_validate(
-                    lb_data, pool_2_id, protocol_port=53, protocol='UDP')
+                    lb_data, pool_UDP_id, protocol_port=53, protocol='UDP')
+                self._create_listener_and_validate(
+                    lb_data, pool_SCTP_id, protocol_port=8081, protocol='SCTP')
 
         self._delete_load_balancer_and_validate(lb_data, cascade=True)
 
