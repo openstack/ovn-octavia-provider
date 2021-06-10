@@ -15,6 +15,7 @@ import copy
 from unittest import mock
 
 from neutronclient.common import exceptions as n_exc
+from octavia_lib.api.drivers import data_models
 from octavia_lib.api.drivers import exceptions
 from octavia_lib.common import constants
 from oslo_utils import uuidutils
@@ -289,6 +290,32 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
             execute.return_value = [self.ovn_lb, udp_lb, sctp_lb]
         found = f(self.ovn_lb.id)
         self.assertListEqual(found, [self.ovn_lb, udp_lb, sctp_lb])
+
+    def test__get_subnet_from_pool(self):
+        f = self.helper._get_subnet_from_pool
+
+        lb = data_models.LoadBalancer(
+            loadbalancer_id=self.loadbalancer_id,
+            name='The LB',
+            vip_address=self.vip_address,
+            vip_subnet_id=self.vip_subnet_id,
+            vip_network_id=self.vip_network_id)
+
+        lb_pool = data_models.Pool(
+            loadbalancer_id=self.loadbalancer_id,
+            name='The pool',
+            pool_id=self.pool_id,
+            protocol='TCP')
+
+        with mock.patch.object(self.helper, '_octavia_driver_lib') as dlib:
+            dlib.get_pool.return_value = None
+            found = f('not_found')
+            self.assertIsNone(found)
+
+            dlib.get_pool.return_value = lb_pool
+            dlib.get_loadbalancer.return_value = lb
+            found = f(self.pool_id)
+            self.assertEqual(found, lb.vip_subnet_id)
 
     def test__get_or_create_ovn_lb_no_lb_found(self):
         self.mock_find_ovn_lbs.stop()
