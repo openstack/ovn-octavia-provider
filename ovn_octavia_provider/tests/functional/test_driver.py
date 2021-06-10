@@ -143,12 +143,38 @@ class TestOvnOctaviaProviderDriver(ovn_base.TestOvnOctaviaBase):
                                          '30.0.0.6')
         self._delete_member_and_validate(lb_data, pool_1_id, net20, '20.0.0.6')
 
-        # Test creating Member without subnet
-        m_member = self._create_member_model(pool_1_id,
+        # Deleting the pool should also delete the members.
+        self._delete_pool_and_validate(lb_data, "p1")
+
+        # Delete the whole LB.
+        self._delete_load_balancer_and_validate(lb_data)
+
+    def test_member_no_subnet(self):
+        self._o_driver_lib.get_pool.return_value = None
+
+        # Test creating Member without subnet and unknown pool
+        m_member = self._create_member_model('pool_from_nowhere',
                                              None,
                                              '30.0.0.7', 80)
         self.assertRaises(o_exceptions.UnsupportedOptionError,
                           self.ovn_driver.member_create, m_member)
+
+        lb_data = self._create_load_balancer_and_validate(
+            {'vip_network': 'vip_network',
+             'cidr': '10.0.0.0/24'})
+
+        # TCP Pool
+        self._create_pool_and_validate(lb_data, "p1", protocol='TCP')
+        pool_TCP_id = lb_data['pools'][0].pool_id
+
+        self._o_driver_lib.get_pool.return_value = lb_data['pools'][0]
+        self._o_driver_lib.get_loadbalancer.return_value = lb_data['model']
+
+        # Test creating Member without subnet but with pool
+        self._create_member_and_validate(
+            lb_data, pool_TCP_id, None,
+            lb_data['vip_net_info'][0], '10.0.0.10',
+            expected_subnet=lb_data['vip_net_info'][1])
 
         # Deleting the pool should also delete the members.
         self._delete_pool_and_validate(lb_data, "p1")

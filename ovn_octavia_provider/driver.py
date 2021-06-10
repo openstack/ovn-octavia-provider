@@ -202,6 +202,8 @@ class OvnProviderDriver(driver_base.ProviderDriver):
 
     def _ip_version_differs(self, member):
         _, ovn_lb = self._ovn_helper._find_ovn_lb_by_pool_id(member.pool_id)
+        if not ovn_lb:
+            return False
         lb_vip = ovn_lb.external_ids[ovn_const.LB_EXT_IDS_VIP_KEY]
         return netaddr.IPNetwork(lb_vip).version != (
             netaddr.IPNetwork(member.address).version)
@@ -215,13 +217,16 @@ class OvnProviderDriver(driver_base.ProviderDriver):
         if self._ip_version_differs(member):
             raise ovn_exc.IPVersionsMixingNotSupportedError()
         admin_state_up = member.admin_state_up
-        if (isinstance(member.subnet_id, o_datamodels.UnsetType) or
-                not member.subnet_id):
-            msg = _('Subnet is required for Member creation '
-                    'with OVN Provider Driver')
-            raise driver_exceptions.UnsupportedOptionError(
-                user_fault_string=msg,
-                operator_fault_string=msg)
+        subnet_id = member.subnet_id
+        if (isinstance(subnet_id, o_datamodels.UnsetType) or not subnet_id):
+            subnet_id = self._ovn_helper._get_subnet_from_pool(member.pool_id)
+            if not subnet_id:
+                msg = _('Subnet is required, or Loadbalancer associated with '
+                        'Pool must have a subnet, for Member creation '
+                        'with OVN Provider Driver')
+                raise driver_exceptions.UnsupportedOptionError(
+                    user_fault_string=msg,
+                    operator_fault_string=msg)
 
         if isinstance(admin_state_up, o_datamodels.UnsetType):
             admin_state_up = True
@@ -229,7 +234,7 @@ class OvnProviderDriver(driver_base.ProviderDriver):
                         'address': member.address,
                         'protocol_port': member.protocol_port,
                         'pool_id': member.pool_id,
-                        'subnet_id': member.subnet_id,
+                        'subnet_id': subnet_id,
                         'admin_state_up': admin_state_up}
         request = {'type': ovn_const.REQ_TYPE_MEMBER_CREATE,
                    'info': request_info}
@@ -241,7 +246,7 @@ class OvnProviderDriver(driver_base.ProviderDriver):
         request_info = {'id': member.member_id,
                         'address': member.address,
                         'pool_id': member.pool_id,
-                        'subnet_id': member.subnet_id,
+                        'subnet_id': subnet_id,
                         'action': ovn_const.REQ_INFO_MEMBER_ADDED}
         request = {'type': ovn_const.REQ_TYPE_HANDLE_MEMBER_DVR,
                    'info': request_info}

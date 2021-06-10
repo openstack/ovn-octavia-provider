@@ -93,7 +93,7 @@ class TestOvnOctaviaBase(base.TestOVNFunctionalBase,
         return e1, e1_s1
 
     def _create_lb_model(self, vip=None, vip_network_id=None,
-                         vip_port_id=None,
+                         vip_subnet_id=None, vip_port_id=None,
                          admin_state_up=True):
         lb = octavia_data_model.LoadBalancer()
         lb.loadbalancer_id = uuidutils.generate_uuid()
@@ -105,6 +105,8 @@ class TestOvnOctaviaBase(base.TestOVNFunctionalBase,
 
         if vip_network_id:
             lb.vip_network_id = vip_network_id
+        if vip_subnet_id:
+            lb.vip_subnet_id = vip_subnet_id
         if vip_port_id:
             lb.vip_port_id = vip_port_id
         lb.admin_state_up = admin_state_up
@@ -332,6 +334,7 @@ class TestOvnOctaviaBase(base.TestOVNFunctionalBase,
         lb_data['vip_net_info'] = net_info
         lb_data['model'] = self._create_lb_model(vip=net_info[2],
                                                  vip_network_id=net_info[0],
+                                                 vip_subnet_id=net_info[1],
                                                  vip_port_id=net_info[3],
                                                  admin_state_up=admin_state_up)
         lb_data[ovn_const.LB_EXT_IDS_LS_REFS_KEY] = {}
@@ -693,7 +696,7 @@ class TestOvnOctaviaBase(base.TestOVNFunctionalBase,
         return listeners
 
     def _create_member_and_validate(self, lb_data, pool_id, subnet_id,
-                                    network_id, address):
+                                    network_id, address, expected_subnet=None):
         self._o_driver_lib.update_loadbalancer_status.reset_mock()
         pool = self._get_pool_from_lb_data(lb_data, pool_id=pool_id)
         pool_status = {'id': pool.pool_id,
@@ -701,7 +704,15 @@ class TestOvnOctaviaBase(base.TestOVNFunctionalBase,
                        'operating_status': o_constants.ONLINE}
 
         m_member = self._create_member_model(pool.pool_id, subnet_id, address)
-        pool.members.append(m_member)
+        # The "expected" member value, which might be different from what
+        # we pass to member_create(), for example, if an expected_subnet
+        # was given.
+        if expected_subnet:
+            e_member = copy.deepcopy(m_member)
+            e_member.subnet_id = expected_subnet
+        else:
+            e_member = m_member
+        pool.members.append(e_member)
 
         self.ovn_driver.member_create(m_member)
         self._update_ls_refs(lb_data, network_id)
