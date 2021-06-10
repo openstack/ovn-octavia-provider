@@ -697,7 +697,7 @@ class TestOvnOctaviaBase(base.TestOVNFunctionalBase,
         return listeners
 
     def _create_member_and_validate(self, lb_data, pool_id, subnet_id,
-                                    network_id, address):
+                                    network_id, address, expected_subnet=None):
         self._o_driver_lib.update_loadbalancer_status.reset_mock()
         pool = self._get_pool_from_lb_data(lb_data, pool_id=pool_id)
         pool_status = {'id': pool.pool_id,
@@ -705,7 +705,15 @@ class TestOvnOctaviaBase(base.TestOVNFunctionalBase,
                        'operating_status': o_constants.ONLINE}
 
         m_member = self._create_member_model(pool.pool_id, subnet_id, address)
-        pool.members.append(m_member)
+        # The "expected" member value, which might be different from what
+        # we pass to member_create(), for example, if an expected_subnet
+        # was given.
+        if expected_subnet:
+            e_member = copy.deepcopy(m_member)
+            e_member.subnet_id = expected_subnet
+        else:
+            e_member = m_member
+        pool.members.append(e_member)
 
         self.ovn_driver.member_create(m_member)
         self._update_ls_refs(lb_data, network_id)

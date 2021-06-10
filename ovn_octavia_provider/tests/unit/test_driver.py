@@ -215,6 +215,10 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
             ovn_helper.OvnProviderHelper,
             '_find_ovn_lb_with_pool_key',
             return_value=self.ovn_lb).start()
+        self.mock_get_subnet_from_pool = mock.patch.object(
+            ovn_helper.OvnProviderHelper,
+            '_get_subnet_from_pool',
+            return_value=None).start()
 
     def test__ip_version_differs(self):
         self.assertFalse(self.driver._ip_version_differs(self.ref_member))
@@ -228,7 +232,7 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
             mock.call('pool_%s' % self.pool_id),
             mock.call('pool_%s:D' % self.pool_id)])
 
-    def test_member_create(self):
+    def _test_member_create(self, member):
         info = {'id': self.ref_member.member_id,
                 'address': self.ref_member.address,
                 'protocol_port': self.ref_member.protocol_port,
@@ -246,11 +250,14 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
         expected_dict_dvr = {
             'type': ovn_const.REQ_TYPE_HANDLE_MEMBER_DVR,
             'info': info_dvr}
-        self.driver.member_create(self.ref_member)
+        self.driver.member_create(member)
         expected = [
             mock.call(expected_dict),
             mock.call(expected_dict_dvr)]
         self.mock_add_request.assert_has_calls(expected)
+
+    def test_member_create(self):
+        self._test_member_create(self.ref_member)
 
     def test_member_create_failure(self):
         self.assertRaises(exceptions.UnsupportedOptionError,
@@ -278,6 +285,15 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
         self.ref_member.subnet_id = None
         self.assertRaises(exceptions.UnsupportedOptionError,
                           self.driver.member_create, self.ref_member)
+
+    def test_member_create_no_subnet_provided_get_from_pool(self):
+        self.driver._ovn_helper._get_subnet_from_pool.return_value = (
+            self.ref_member.subnet_id)
+        member = copy.copy(self.ref_member)
+        member.subnet_id = data_models.UnsetType()
+        self._test_member_create(member)
+        member.subnet_id = None
+        self._test_member_create(member)
 
     def test_member_create_monitor_opts(self):
         self.ref_member.monitor_address = '172.20.20.1'
