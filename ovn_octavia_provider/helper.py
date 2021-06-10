@@ -466,6 +466,14 @@ class OvnProviderHelper():
             ovn_lb = self._find_ovn_lb_with_pool_key(pool_key)
         return pool_key, ovn_lb
 
+    def _get_subnet_from_pool(self, pool_id):
+        pool = self._octavia_driver_lib.get_pool(pool_id)
+        if not pool:
+            return
+        lb = self._octavia_driver_lib.get_loadbalancer(pool.loadbalancer_id)
+        if lb and lb.vip_subnet_id:
+            return lb.vip_subnet_id
+
     def _execute_commands(self, commands):
         with self.ovn_nbdb_api.transaction(check_error=True) as txn:
             for command in commands:
