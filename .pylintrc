@@ -65,7 +65,8 @@ disable=
  consider-using-in,
  consider-using-set-comprehension,
  unnecessary-pass,
- useless-object-inheritance
+ useless-object-inheritance,
+ arguments-renamed
 
 
 [BASIC]
