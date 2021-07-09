@@ -1,6 +1,6 @@
 OCTAVIA_DIR=${OCTAVIA_DIR:-"${DEST}/octavia"}
 OCTAVIA_CONF_DIR=${OCTAVIA_CONF_DIR:-"/etc/octavia"}
-OCTAVIA_PROVIDER_DRIVERS=${OCTAVIA_PROVIDER_DRIVERS:-"amphora:Amphora,ovn:OVN"}
+OCTAVIA_PROVIDER_DRIVERS=${OCTAVIA_PROVIDER_DRIVERS:-"amphora:The Octavia Amphora driver.,octavia:Deprecated alias of the Octavia Amphora driver.,ovn:Octavia OVN driver."}
 OCTAVIA_PROVIDER_AGENTS=${OCTAVIA_PROVIDER_AGENTS:-"ovn"}
 
 OVN_OCTAVIA_PROVIDER_DIR=$DEST/ovn-octavia-provider
