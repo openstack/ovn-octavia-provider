@@ -12,7 +12,7 @@ and OVN.
 
 * Mailing list:
   http://lists.openstack.org/cgi-bin/mailman/listinfo/openstack-discuss
-* IRC: #openstack-neutron on Freenode.
+* IRC: #openstack-neutron on OFTC.
 * Docs: https://docs.openstack.org/ovn-octavia-provider/latest
 
 Team and repository tags
