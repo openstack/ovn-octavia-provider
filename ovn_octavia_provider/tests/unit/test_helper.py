@@ -558,8 +558,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         net_cli.return_value.delete_port.return_value = None
         (self.helper.ovn_nbdb_api.ls_get.return_value.execute.
             return_value) = self.network
-        (self.helper.ovn_nbdb_api.tables['Logical_Router'].rows.
-            values.return_value) = [self.router]
+        self.helper.ovn_nbdb_api.lookup.return_value = self.router
         self.helper.lb_delete(self.ovn_lb)
         self.helper.ovn_nbdb_api.ls_lb_del.assert_called_once_with(
             self.network.uuid, self.ovn_lb.uuid)
@@ -1818,8 +1817,8 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         ls = fakes.FakeOvsdbRow.create_one_ovsdb_row(
             attrs={'ports': [lsp]})
 
-        (self.helper.ovn_nbdb_api.tables['Logical_Router'].rows.
-            values.return_value) = [lr]
+        (self.helper.ovn_nbdb_api.get_lrs.return_value.
+            execute.return_value) = [lr]
         returned_lr = self.helper._find_lr_of_ls(ls)
         self.assertEqual(lr, returned_lr)
 
@@ -1841,8 +1840,8 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         ls = fakes.FakeOvsdbRow.create_one_ovsdb_row(
             attrs={'ports': [lsp]})
 
-        (self.helper.ovn_nbdb_api.tables['Logical_Router'].rows.
-            values.return_value) = [lr]
+        (self.helper.ovn_nbdb_api.get_lrs.return_value.
+            execute.return_value) = [lr]
         returned_lr = self.helper._find_lr_of_ls(ls)
         self.assertEqual(lr, returned_lr)
 
