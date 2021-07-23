@@ -302,3 +302,23 @@ class FakeLB(data_models.LoadBalancer):
     def __hash__(self):
         # Required for Python3, not for Python2
         return self.__sizeof__()
+
+
+class FakePool(data_models.Pool):
+    def __init__(self, *args, **kwargs):
+        self.uuid = kwargs.pop('uuid')
+        super().__init__(*args, **kwargs)
+
+    def __hash__(self):
+        # Required for Python3, not for Python2
+        return self.__sizeof__()
+
+
+class FakeMember(data_models.Member):
+    def __init__(self, *args, **kwargs):
+        self.uuid = kwargs.pop('uuid')
+        super().__init__(*args, **kwargs)
+
+    def __hash__(self):
+        # Required for Python3, not for Python2
+        return self.__sizeof__()

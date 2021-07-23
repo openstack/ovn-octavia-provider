@@ -36,9 +36,13 @@ class TestOvnOctaviaBase(base.BaseTestCase):
         self.vip_network_id = uuidutils.generate_uuid()
         self.vip_port_id = uuidutils.generate_uuid()
         self.vip_subnet_id = uuidutils.generate_uuid()
+        self.healthmonitor_id = uuidutils.generate_uuid()
         ovn_nb_idl = mock.patch(
             'ovn_octavia_provider.ovsdb.impl_idl_ovn.OvnNbIdlForLb')
         self.mock_ovn_nb_idl = ovn_nb_idl.start()
+        ovn_sb_idl = mock.patch(
+            'ovn_octavia_provider.ovsdb.impl_idl_ovn.OvnSbIdlForLb')
+        self.mock_ovn_sb_idl = ovn_sb_idl.start()
         self.member_address = '192.168.2.149'
         self.vip_address = '192.148.210.109'
         self.vip_dict = {'vip_network_id': uuidutils.generate_uuid(),

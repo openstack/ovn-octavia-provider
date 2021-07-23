@@ -95,7 +95,7 @@
               enabled_provider_drivers: 'ovn:OVN provider driver'
               test_sctp_protocol: True
             loadbalancer-feature-enabled:
-              health_monitor_enabled: False
+              health_monitor_enabled: True
               pool_algorithms_enabled: False
               l7_protocol_enabled: False
               l4_protocol: "TCP"

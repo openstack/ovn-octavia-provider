@@ -88,3 +88,12 @@ def _check_and_set_ssl_files(schema_name):
         Stream.ssl_set_private_key_file(priv_key_file)
         Stream.ssl_set_certificate_file(cert_file)
         Stream.ssl_set_ca_cert_file(ca_cert_file)
+
+    if schema_name == 'OVN_Southbound':
+        priv_key_file = ovn_config.get_ovn_sb_private_key()
+        cert_file = ovn_config.get_ovn_sb_certificate()
+        ca_cert_file = ovn_config.get_ovn_sb_ca_cert()
+
+        Stream.ssl_set_private_key_file(priv_key_file)
+        Stream.ssl_set_certificate_file(cert_file)
+        Stream.ssl_set_ca_cert_file(ca_cert_file)

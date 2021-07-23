@@ -25,3 +25,4 @@ class TestOvnProviderAgent(ovn_base.TestOvnOctaviaBase):
         ovn_agent.OvnProviderAgent(mock_exit_event)
         self.assertEqual(1, mock_exit_event.wait.call_count)
         self.assertEqual(2, self.mock_ovn_nb_idl.call_count)
+        self.assertEqual(1, self.mock_ovn_sb_idl.call_count)

@@ -31,6 +31,7 @@ def OvnProviderAgent(exit_event):
     helper = ovn_helper.OvnProviderHelper()
     events = [ovn_event.LogicalRouterPortEvent(helper),
               ovn_event.LogicalSwitchPortUpdateEvent(helper)]
+    sb_events = [ovn_event.ServiceMonitorUpdateEvent(helper)]
 
     # NOTE(mjozefcz): This API is only for handling OVSDB events!
     ovn_nb_idl_for_events = impl_idl_ovn.OvnNbIdlForLb(
@@ -38,8 +39,15 @@ def OvnProviderAgent(exit_event):
     ovn_nb_idl_for_events.notify_handler.watch_events(events)
     ovn_nb_idl_for_events.start()
 
+    ovn_sb_idl_for_events = impl_idl_ovn.OvnSbIdlForLb(
+        event_lock_name=OVN_EVENT_LOCK_NAME)
+    ovn_sb_idl_for_events.notify_handler.watch_events(sb_events)
+    ovn_sb_idl_for_events.start()
+
     LOG.info('OVN provider agent has started.')
     exit_event.wait()
     LOG.info('OVN provider agent is exiting.')
     ovn_nb_idl_for_events.notify_handler.unwatch_events(events)
     ovn_nb_idl_for_events.stop()
+    ovn_sb_idl_for_events.notify_handler.unwatch_events(sb_events)
+    ovn_sb_idl_for_events.stop()
