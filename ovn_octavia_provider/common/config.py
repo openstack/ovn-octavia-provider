@@ -40,6 +40,26 @@ ovn_opts = [
                default='',
                help=_('The PEM file with CA certificate that OVN should use to'
                       ' verify certificates presented to it by SSL peers')),
+    cfg.StrOpt('ovn_sb_connection',
+               default='tcp:127.0.0.1:6642',
+               help=_('The connection string for the OVN_Southbound OVSDB.\n'
+                      'Use tcp:IP:PORT for TCP connection.\n'
+                      'Use ssl:IP:PORT for SSL connection. The '
+                      'ovn_sb_private_key, ovn_sb_certificate and '
+                      'ovn_sb_ca_cert are mandatory.\n'
+                      'Use unix:FILE for unix domain socket connection.')),
+    cfg.StrOpt('ovn_sb_private_key',
+               default='',
+               help=_('The PEM file with private key for SSL connection to '
+                      'OVN-SB-DB')),
+    cfg.StrOpt('ovn_sb_certificate',
+               default='',
+               help=_('The PEM file with certificate that certifies the '
+                      'private key specified in ovn_sb_private_key')),
+    cfg.StrOpt('ovn_sb_ca_cert',
+               default='',
+               help=_('The PEM file with CA certificate that OVN should use to'
+                      ' verify certificates presented to it by SSL peers')),
     cfg.IntOpt('ovsdb_connection_timeout',
                default=180,
                help=_('Timeout in seconds for the OVSDB '
@@ -105,6 +125,22 @@ def get_ovn_nb_certificate():
 
 def get_ovn_nb_ca_cert():
     return cfg.CONF.ovn.ovn_nb_ca_cert
+
+
+def get_ovn_sb_connection():
+    return cfg.CONF.ovn.ovn_sb_connection
+
+
+def get_ovn_sb_private_key():
+    return cfg.CONF.ovn.ovn_sb_private_key
+
+
+def get_ovn_sb_certificate():
+    return cfg.CONF.ovn.ovn_sb_certificate
+
+
+def get_ovn_sb_ca_cert():
+    return cfg.CONF.ovn.ovn_sb_ca_cert
 
 
 def get_ovn_ovsdb_timeout():

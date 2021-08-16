@@ -1,0 +1,10 @@
+---
+features:
+  - |
+    The OVN Octavia provider drvier now supports health monitoring.
+    TCP and UDP Connect health monitors are now supported by the
+    provider driver, when the underlying OVN version supports
+    them. The health monitor uses the OVN distributed DHCP port as the
+    source IP for messages by default, if one doesn't exist then
+    a port will be created on each given subnet. The list of member
+    ports to monitor is updated whenever one is created or deleted.

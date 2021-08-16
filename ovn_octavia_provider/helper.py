@@ -18,6 +18,7 @@ import re
 import threading
 
 import netaddr
+from neutron_lib import constants as n_const
 from neutronclient.common import exceptions as n_exc
 from octavia_lib.api.drivers import data_models as o_datamodels
 from octavia_lib.api.drivers import driver_lib as o_driver_lib
@@ -79,6 +80,10 @@ class OvnProviderHelper():
             ovn_const.REQ_TYPE_LB_DELETE_LRP_ASSOC: self.lb_delete_lrp_assoc,
             ovn_const.REQ_TYPE_HANDLE_VIP_FIP: self.handle_vip_fip,
             ovn_const.REQ_TYPE_HANDLE_MEMBER_DVR: self.handle_member_dvr,
+            ovn_const.REQ_TYPE_HM_CREATE: self.hm_create,
+            ovn_const.REQ_TYPE_HM_UPDATE: self.hm_update,
+            ovn_const.REQ_TYPE_HM_DELETE: self.hm_delete,
+            ovn_const.REQ_TYPE_HM_UPDATE_EVENT: self.hm_update_event,
         }
 
     @staticmethod
@@ -126,6 +131,17 @@ class OvnProviderHelper():
         except KeyError as e:
             raise idlutils.RowNotFound(table=row._table.name,
                                        col=col, match=key) from e
+
+    def _ensure_hm_ovn_port(self, network_id):
+        # We need to have a metadata or dhcp port, OVN should have created
+        # one when the network was created
+
+        neutron_client = clients.get_neutron_client()
+        meta_dhcp_port = neutron_client.list_ports(
+            network_id=network_id,
+            device_owner=n_const.DEVICE_OWNER_DISTRIBUTED)
+        if meta_dhcp_port['ports']:
+            return meta_dhcp_port['ports'][0]
 
     def _get_nw_router_info_on_interface_event(self, lrp):
         """Get the Router and Network information on an interface event
@@ -646,28 +662,31 @@ class OvnProviderHelper():
         mem_info = []
         if member:
             for mem in member.split(','):
-                mem_ip_port = mem.split('_')[2]
-                mem_info.append(tuple(mem_ip_port.rsplit(':', 1)))
+                mem_split = mem.split('_')
+                mem_ip_port = mem_split[2]
+                mem_ip, mem_port = mem_ip_port.rsplit(':', 1)
+                mem_subnet = mem_split[3]
+                mem_info.append((mem_ip, mem_port, mem_subnet))
         return mem_info
 
-    def _get_member_key(self, member, old_convention=False):
+    def _get_member_info(self, member):
         member_info = ''
         if isinstance(member, dict):
-            member_info = '%s%s_%s:%s' % (
+            subnet_id = member.get(constants.SUBNET_ID, '')
+            member_info = '%s%s_%s:%s_%s' % (
                 ovn_const.LB_EXT_IDS_MEMBER_PREFIX,
                 member[constants.ID],
                 member[constants.ADDRESS],
-                member[constants.PROTOCOL_PORT])
-            if not old_convention and member.get(constants.SUBNET_ID):
-                member_info += "_" + member[constants.SUBNET_ID]
+                member[constants.PROTOCOL_PORT],
+                subnet_id)
         elif isinstance(member, o_datamodels.Member):
-            member_info = '%s%s_%s:%s' % (
+            subnet_id = member.subnet_id or ''
+            member_info = '%s%s_%s:%s_%s' % (
                 ovn_const.LB_EXT_IDS_MEMBER_PREFIX,
                 member.member_id,
                 member.address,
-                member.protocol_port)
-            if not old_convention and member.subnet_id:
-                member_info += "_" + member.subnet_id
+                member.protocol_port,
+                subnet_id)
         return member_info
 
     def _make_listener_key_value(self, listener_port, pool_id):
@@ -698,6 +717,15 @@ class OvnProviderHelper():
                     k[len(ovn_const.LB_EXT_IDS_LISTENER_PREFIX):])
         return pool_listeners
 
+    def _get_pool_listener_port(self, ovn_lb, pool_key):
+        for k, v in ovn_lb.external_ids.items():
+            if ovn_const.LB_EXT_IDS_LISTENER_PREFIX not in k:
+                continue
+            vip_port, p_key = self._extract_listener_key_value(v)
+            if pool_key == p_key:
+                return vip_port
+        return None
+
     def _frame_vip_ips(self, lb_external_ids):
         vip_ips = {}
         # If load balancer is disabled, return
@@ -720,7 +748,7 @@ class OvnProviderHelper():
                 continue
 
             ips = []
-            for member_ip, member_port in self._extract_member_info(
+            for member_ip, member_port, subnet in self._extract_member_info(
                     lb_external_ids[pool_id]):
                 if netaddr.IPNetwork(member_ip).version == 6:
                     ips.append('[%s]:%s' % (member_ip, member_port))
@@ -1047,18 +1075,6 @@ class OvnProviderHelper():
                          str(listener[constants.PROTOCOL]).lower())))
             commands.extend(self._refresh_lb_vips(ovn_lb.uuid, external_ids))
             self._execute_commands(commands)
-
-            operating_status = constants.ONLINE
-            if not listener.get(constants.ADMIN_STATE_UP, True):
-                operating_status = constants.OFFLINE
-            status = {
-                constants.LISTENERS: [
-                    {constants.ID: listener[constants.ID],
-                     constants.PROVISIONING_STATUS: constants.ACTIVE,
-                     constants.OPERATING_STATUS: operating_status}],
-                constants.LOADBALANCERS: [
-                    {constants.ID: listener[constants.LOADBALANCER_ID],
-                     constants.PROVISIONING_STATUS: constants.ACTIVE}]}
         except Exception:
             LOG.exception(ovn_const.EXCEPTION_MSG, "creation of listener")
             status = {
@@ -1069,6 +1085,25 @@ class OvnProviderHelper():
                 constants.LOADBALANCERS: [
                     {constants.ID: listener[constants.LOADBALANCER_ID],
                      constants.PROVISIONING_STATUS: constants.ACTIVE}]}
+            return status
+
+        operating_status = constants.ONLINE
+        if not listener.get(constants.ADMIN_STATE_UP, True):
+            operating_status = constants.OFFLINE
+
+        if (ovn_lb.health_check and
+                not self._update_hm_vip(ovn_lb,
+                                        listener[constants.PROTOCOL_PORT])):
+            operating_status = constants.ERROR
+
+        status = {
+            constants.LISTENERS: [
+                {constants.ID: listener[constants.ID],
+                 constants.PROVISIONING_STATUS: constants.ACTIVE,
+                 constants.OPERATING_STATUS: operating_status}],
+            constants.LOADBALANCERS: [
+                {constants.ID: listener[constants.LOADBALANCER_ID],
+                 constants.PROVISIONING_STATUS: constants.ACTIVE}]}
         return status
 
     def listener_delete(self, listener):
@@ -1440,14 +1475,10 @@ class OvnProviderHelper():
         existing_members = external_ids[pool_key]
         if existing_members:
             existing_members = existing_members.split(",")
-        member_info = self._get_member_key(member)
-        # TODO(mjozefcz): Remove this workaround in W release.
-        member_info_old = self._get_member_key(member, old_convention=True)
-        member_found = [x for x in existing_members
-                        if re.match(member_info_old, x)]
-        if member_found:
+        member_info = self._get_member_info(member)
+        if member_info in existing_members:
             # Member already present
-            return
+            return None
         if existing_members:
             existing_members.append(member_info)
             pool_data = {pool_key: ",".join(existing_members)}
@@ -1487,12 +1518,14 @@ class OvnProviderHelper():
             pass
 
         self._execute_commands(commands)
+        return member_info
 
     def member_create(self, member):
+        new_member = None
         try:
             pool_key, ovn_lb = self._find_ovn_lb_by_pool_id(
                 member[constants.POOL_ID])
-            self._add_member(member, ovn_lb, pool_key)
+            new_member = self._add_member(member, ovn_lb, pool_key)
             pool = {constants.ID: member[constants.POOL_ID],
                     constants.PROVISIONING_STATUS: constants.ACTIVE,
                     constants.OPERATING_STATUS: constants.ONLINE}
@@ -1526,22 +1559,20 @@ class OvnProviderHelper():
                     {constants.ID: ovn_lb.name,
                      constants.PROVISIONING_STATUS: constants.ACTIVE}]}
 
+        if new_member and ovn_lb.health_check:
+            operating_status = constants.ONLINE
+            if not self._update_hm_members(ovn_lb, pool_key):
+                operating_status = constants.ERROR
+            member_status[constants.OPERATING_STATUS] = operating_status
         return status
 
     def _remove_member(self, member, ovn_lb, pool_key):
         external_ids = copy.deepcopy(ovn_lb.external_ids)
         existing_members = external_ids[pool_key].split(",")
-        # TODO(mjozefcz): Delete this workaround in W release.
-        # To support backward compatibility member
-        # could be defined as `member`_`id`_`ip`:`port`_`subnet_id`
-        # or defined as `member`_`id`_`ip`:`port
-        member_info_old = self._get_member_key(member, old_convention=True)
-
-        member_found = [x for x in existing_members
-                        if re.match(member_info_old, x)]
-        if member_found:
+        member_info = self._get_member_info(member)
+        if member_info in existing_members:
             commands = []
-            existing_members.remove(member_found[0])
+            existing_members.remove(member_info)
 
             if not existing_members:
                 pool_status = constants.OFFLINE
@@ -1574,6 +1605,8 @@ class OvnProviderHelper():
             pool = {constants.ID: member[constants.POOL_ID],
                     constants.PROVISIONING_STATUS: constants.ACTIVE,
                     constants.OPERATING_STATUS: pool_status}
+            if pool_status == constants.ONLINE and ovn_lb.health_check:
+                self._update_hm_members(ovn_lb, pool_key)
             status = {
                 constants.POOLS: [pool],
                 constants.MEMBERS: [
@@ -1608,7 +1641,7 @@ class OvnProviderHelper():
         commands = []
         external_ids = copy.deepcopy(ovn_lb.external_ids)
         existing_members = external_ids[pool_key].split(",")
-        member_info = self._get_member_key(member)
+        member_info = self._get_member_info(member)
         for mem in existing_members:
             if (member_info.split('_')[1] == mem.split('_')[1] and
                     mem != member_info):
@@ -1843,7 +1876,540 @@ class OvnProviderHelper():
                     fip.external_ids[ovn_const.OVN_FIP_EXT_ID_KEY],
                     empty_update)
             except n_exc.NotFound:
-                LOG.warning('Members %(member)s FIP %(fip)s not found in '
+                LOG.warning('Member %(member)s FIP %(fip)s not found in '
                             'Neutron. Cannot update it.',
                             {'member': info['id'],
                              'fip': fip.external_ip})
+
+    def _get_member_lsp(self, member_ip, member_subnet_id):
+        neutron_client = clients.get_neutron_client()
+        try:
+            member_subnet = neutron_client.show_subnet(member_subnet_id)
+        except n_exc.NotFound:
+            LOG.exception('Subnet %s not found while trying to '
+                          'fetch its data.', member_subnet_id)
+            return
+        ls_name = utils.ovn_name(member_subnet['subnet']['network_id'])
+        try:
+            ls = self.ovn_nbdb_api.lookup('Logical_Switch', ls_name)
+        except idlutils.RowNotFound:
+            LOG.warning("Logical Switch %s not found.", ls_name)
+            return
+        f = utils.remove_macs_from_lsp_addresses
+        for port in ls.ports:
+            if member_ip in f(port.addresses):
+                # We found particular port
+                return port
+
+    def _add_hm(self, ovn_lb, pool_key, info):
+        hm_id = info[constants.ID]
+        status = {constants.ID: hm_id,
+                  constants.PROVISIONING_STATUS: constants.ERROR,
+                  constants.OPERATING_STATUS: constants.ERROR}
+        # Example
+        # MONITOR_PRT = 80
+        # ID=$(ovn-nbctl --bare --column _uuid find
+        #    Load_Balancer_Health_Check vip="${LB_VIP_ADDR}\:${MONITOR_PRT}")
+        # In our case the monitor port will be the members protocol port
+        vip = ovn_lb.external_ids.get(ovn_const.LB_EXT_IDS_VIP_KEY)
+        if not vip:
+            LOG.error("Could not find VIP for HM %s, LB external_ids: %s",
+                      hm_id, ovn_lb.external_ids)
+            return status
+        vip_port = self._get_pool_listener_port(ovn_lb, pool_key)
+        if not vip_port:
+            # This is not fatal as we can add it when a listener is created
+            vip = []
+        else:
+            vip = vip + ':' + vip_port
+
+        # ovn-nbctl --wait=sb --
+        #  set Load_Balancer_Health_Check ${ID} options:\"interval\"=6 --
+        #  set Load_Balancer_Health_Check ${ID} options:\"timeoutl\"=2 --
+        #  set Load_Balancer_Health_Check ${ID} options:\"success_count\"=1 --
+        #  set Load_Balancer_Health_Check ${ID} options:\"failure_count\"=3
+        options = {
+            'interval': str(info['interval']),
+            'timeout': str(info['timeout']),
+            'success_count': str(info['success_count']),
+            'failure_count': str(info['failure_count'])}
+
+        # This is to enable lookups by Octavia DB ID value
+        external_ids = {ovn_const.LB_EXT_IDS_HM_KEY: hm_id}
+
+        # Just seems like this needs ovsdbapp support, see:
+        #  ovsdbapp/schema/ovn_northbound/impl_idl.py - lb_add()
+        #  ovsdbapp/schema/ovn_northbound/commands.py - LbAddCommand()
+        # then this could just be self.ovn_nbdb_api.lb_hm_add()
+        kwargs = {
+            'vip': vip,
+            'options': options,
+            'external_ids': external_ids}
+        operating_status = constants.ONLINE
+        if not info['admin_state_up']:
+            operating_status = constants.OFFLINE
+        try:
+            with self.ovn_nbdb_api.transaction(check_error=True) as txn:
+                health_check = txn.add(
+                    self.ovn_nbdb_api.db_create(
+                        'Load_Balancer_Health_Check',
+                        **kwargs))
+                txn.add(self.ovn_nbdb_api.db_add(
+                    'Load_Balancer', ovn_lb.uuid,
+                    'health_check', health_check))
+            status = {constants.ID: hm_id,
+                      constants.PROVISIONING_STATUS: constants.ACTIVE,
+                      constants.OPERATING_STATUS: operating_status}
+        except Exception:
+            # Any Exception will return ERROR status
+            LOG.exception(ovn_const.EXCEPTION_MSG, "set of health check")
+        return status
+
+    def _update_hm_vip(self, ovn_lb, vip_port):
+        hm = self._lookup_hm_by_id(ovn_lb.health_check)
+        if not hm:
+            LOG.error("Could not find HM with key: %s", ovn_lb.health_check)
+            return False
+
+        vip = ovn_lb.external_ids.get(ovn_const.LB_EXT_IDS_VIP_KEY)
+        if not vip:
+            LOG.error("Could not find VIP for HM %s, LB external_ids: %s",
+                      hm.uuid, ovn_lb.external_ids)
+            return False
+
+        vip = vip + ':' + str(vip_port)
+        commands = []
+        commands.append(
+            self.ovn_nbdb_api.db_set(
+                'Load_Balancer_Health_Check', hm.uuid,
+                ('vip', vip)))
+        self._execute_commands(commands)
+        return True
+
+    def _update_hm_members(self, ovn_lb, pool_key):
+        mappings = {}
+        # For each member, set it's HM
+        for member_ip, member_port, member_subnet in self._extract_member_info(
+                ovn_lb.external_ids[pool_key]):
+            member_lsp = self._get_member_lsp(member_ip, member_subnet)
+            if not member_lsp:
+                LOG.error("Member %(member)s Logical_Switch_Port not found. "
+                          "Cannot create a Health Monitor for pool %(pool)s.",
+                          {'member': member_ip, 'pool': pool_key})
+                return False
+
+            network_id = member_lsp.external_ids.get(
+                ovn_const.OVN_NETWORK_NAME_EXT_ID_KEY).split('neutron-')[1]
+            hm_port = self._ensure_hm_ovn_port(network_id)
+            if not hm_port:
+                LOG.error("No port on network %(network)s available for "
+                          "health monitoring. Cannot create a Health Monitor "
+                          "for pool %(pool)s.",
+                          {'network': network_id,
+                           'pool': pool_key})
+                return False
+            hm_source_ip = None
+            for fixed_ip in hm_port['fixed_ips']:
+                if fixed_ip['subnet_id'] == member_subnet:
+                    hm_source_ip = fixed_ip['ip_address']
+                    break
+            if not hm_source_ip:
+                LOG.error("No port on subnet %(subnet)s available for "
+                          "health monitoring member IP %(member)s. Cannot "
+                          "create a Health Monitor for pool %(pool)s.",
+                          {'subnet': member_subnet,
+                           'member': member_ip,
+                           'pool': pool_key})
+                return False
+            # ovn-nbctl set load_balancer ${OVN_LB_ID}
+            #   ip_port_mappings:${MEMBER_IP}=${LSP_NAME_MEMBER}:${HEALTH_SRC}
+            # where:
+            #  OVN_LB_ID: id of LB
+            #  MEMBER_IP: IP of member_lsp
+            #  HEALTH_SRC: source IP of hm_port
+
+            # need output like this
+            # vips: {"172.24.4.246:80"="10.0.0.10:80"}
+            # ip_port_mappings: {"10.0.0.10"="ID:10.0.0.2"}
+            # ip_port_mappings: {"MEMBER_IP"="LSP_NAME_MEMBER:HEALTH_SRC"}
+            # OVN does not support IPv6 Health Checks, but we check anyways
+            member_src = '%s:' % member_lsp.name
+            if netaddr.IPNetwork(hm_source_ip).version == 6:
+                member_src += '[%s]' % hm_source_ip
+            else:
+                member_src += '%s' % hm_source_ip
+
+            if netaddr.IPNetwork(member_ip).version == 6:
+                member_ip = '[%s]' % member_ip
+            mappings[member_ip] = member_src
+
+        commands = []
+        commands.append(
+            self.ovn_nbdb_api.db_set(
+                'Load_Balancer', ovn_lb.uuid,
+                ('ip_port_mappings', mappings)))
+        self._execute_commands(commands)
+        return True
+
+    def _lookup_hm_by_id(self, hm_id):
+        hms = self.ovn_nbdb_api.db_list_rows(
+            'Load_Balancer_Health_Check').execute(check_error=True)
+        for hm in hms:
+            if (ovn_const.LB_EXT_IDS_HM_KEY in hm.external_ids and
+                    hm.external_ids[ovn_const.LB_EXT_IDS_HM_KEY] == hm_id):
+                return hm
+        raise idlutils.RowNotFound(table='Load_Balancer_Health_Check',
+                                   col='external_ids', match=hm_id)
+
+    def _lookup_lb_by_hm_id(self, hm_id):
+        lbs = self.ovn_nbdb_api.db_find_rows(
+            'Load_Balancer', ('health_check', '=', [hm_id])).execute()
+        return lbs[0] if lbs else None
+
+    def _find_ovn_lb_from_hm_id(self, hm_id):
+        try:
+            hm = self._lookup_hm_by_id(hm_id)
+        except idlutils.RowNotFound:
+            LOG.debug("Loadbalancer health monitor %s not found!", hm_id)
+            return None, None
+
+        try:
+            ovn_lb = self._lookup_lb_by_hm_id(hm.uuid)
+        except idlutils.RowNotFound:
+            LOG.debug("Loadbalancer not found with health_check %s !", hm.uuid)
+            return hm, None
+
+        return hm, ovn_lb
+
+    def hm_create(self, info):
+        status = {
+            constants.HEALTHMONITORS: [
+                {constants.ID: info[constants.ID],
+                 constants.OPERATING_STATUS: constants.NO_MONITOR,
+                 constants.PROVISIONING_STATUS: constants.ERROR}]}
+
+        pool_id = info[constants.POOL_ID]
+        pool_key, ovn_lb = self._find_ovn_lb_by_pool_id(pool_id)
+        if not ovn_lb:
+            LOG.debug("Could not find LB with pool id %s", pool_id)
+            return status
+        status[constants.LOADBALANCERS] = [
+            {constants.ID: ovn_lb.name,
+             constants.PROVISIONING_STATUS: constants.ACTIVE}]
+        if pool_key not in ovn_lb.external_ids:
+            # Returning early here will cause the pool to go into
+            # PENDING_UPDATE state, which is not good
+            LOG.error("Could not find pool with key %s, LB external_ids: %s",
+                      pool_key, ovn_lb.external_ids)
+            status[constants.POOLS] = [
+                {constants.ID: pool_id,
+                 constants.OPERATING_STATUS: constants.OFFLINE}]
+            return status
+        status[constants.POOLS] = [
+            {constants.ID: pool_id,
+             constants.PROVISIONING_STATUS: constants.ACTIVE,
+             constants.OPERATING_STATUS: constants.ONLINE}]
+
+        # Update status for all members in the pool
+        member_status = []
+        existing_members = ovn_lb.external_ids[pool_key]
+        if len(existing_members) > 0:
+            for mem_info in existing_members.split(','):
+                member_status.append({
+                    constants.ID: mem_info.split('_')[1],
+                    constants.PROVISIONING_STATUS: constants.ACTIVE,
+                    constants.OPERATING_STATUS: constants.ONLINE})
+        status[constants.MEMBERS] = member_status
+
+        # MONITOR_PRT = 80
+        # ovn-nbctl --wait=sb -- --id=@hc create Load_Balancer_Health_Check
+        #   vip="${LB_VIP_ADDR}\:${MONITOR_PRT}" -- add Load_Balancer
+        #   ${OVN_LB_ID} health_check @hc
+        # options here are interval, timeout, failure_count and success_count
+        # from info object passed-in
+        hm_status = self._add_hm(ovn_lb, pool_key, info)
+        if hm_status[constants.PROVISIONING_STATUS] == constants.ACTIVE:
+            if not self._update_hm_members(ovn_lb, pool_key):
+                hm_status[constants.PROVISIONING_STATUS] = constants.ERROR
+                hm_status[constants.OPERATING_STATUS] = constants.ERROR
+        status[constants.HEALTHMONITORS] = [hm_status]
+        return status
+
+    def hm_update(self, info):
+        status = {
+            constants.HEALTHMONITORS: [
+                {constants.ID: info[constants.ID],
+                 constants.OPERATING_STATUS: constants.ERROR,
+                 constants.PROVISIONING_STATUS: constants.ERROR}]}
+
+        hm_id = info[constants.ID]
+        pool_id = info[constants.POOL_ID]
+
+        hm, ovn_lb = self._find_ovn_lb_from_hm_id(hm_id)
+        if not hm:
+            LOG.debug("Loadbalancer health monitor %s not found!", hm_id)
+            return status
+        if not ovn_lb:
+            LOG.debug("Could not find LB with health monitor id %s", hm_id)
+            # Do we really need to try this hard?
+            pool_key, ovn_lb = self._find_ovn_lb_by_pool_id(pool_id)
+            if not ovn_lb:
+                LOG.debug("Could not find LB with pool id %s", pool_id)
+                return status
+
+        options = {
+            'interval': str(info['interval']),
+            'timeout': str(info['timeout']),
+            'success_count': str(info['success_count']),
+            'failure_count': str(info['failure_count'])}
+
+        commands = []
+        commands.append(
+            self.ovn_nbdb_api.db_set(
+                'Load_Balancer_Health_Check', hm.uuid,
+                ('options', options)))
+        self._execute_commands(commands)
+
+        operating_status = constants.ONLINE
+        if not info['admin_state_up']:
+            operating_status = constants.OFFLINE
+        status = {
+            constants.LOADBALANCERS: [
+                {constants.ID: ovn_lb.name,
+                 constants.PROVISIONING_STATUS: constants.ACTIVE}],
+            constants.POOLS: [
+                {constants.ID: pool_id,
+                 constants.PROVISIONING_STATUS: constants.ACTIVE}],
+            constants.HEALTHMONITORS: [
+                {constants.ID: info[constants.ID],
+                 constants.OPERATING_STATUS: operating_status,
+                 constants.PROVISIONING_STATUS: constants.ACTIVE}]}
+        return status
+
+    def hm_delete(self, info):
+        hm_id = info[constants.ID]
+        status = {
+            constants.HEALTHMONITORS: [
+                {constants.ID: hm_id,
+                 constants.OPERATING_STATUS: constants.NO_MONITOR,
+                 constants.PROVISIONING_STATUS: constants.DELETED}]}
+
+        hm, ovn_lb = self._find_ovn_lb_from_hm_id(hm_id)
+        if not hm or not ovn_lb:
+            LOG.debug("Loadbalancer Health Check %s not found in OVN "
+                      "Northbound DB. Setting the Loadbalancer Health "
+                      "Monitor status to DELETED in Octavia", hm_id)
+            return status
+
+        # Need to send pool info in status update to avoid immutable objects,
+        # the LB should have this info
+        pool_id = None
+        for k, v in ovn_lb.external_ids.items():
+            if ovn_const.LB_EXT_IDS_POOL_PREFIX in k:
+                pool_id = k.split('_')[1]
+                break
+
+        # ovn-nbctl clear load_balancer ${OVN_LB_ID} ip_port_mappings
+        # ovn-nbctl clear load_balancer ${OVN_LB_ID} health_check
+        # TODO(haleyb) remove just the ip_port_mappings for this hm
+        commands = []
+        commands.append(
+            self.ovn_nbdb_api.db_clear('Load_Balancer', ovn_lb.uuid,
+                                       'ip_port_mappings'))
+        commands.append(
+            self.ovn_nbdb_api.db_remove('Load_Balancer', ovn_lb.uuid,
+                                        'health_check', hm.uuid))
+        commands.append(
+            self.ovn_nbdb_api.db_destroy('Load_Balancer_Health_Check',
+                                         hm.uuid))
+        self._execute_commands(commands)
+        status = {
+            constants.LOADBALANCERS: [
+                {constants.ID: ovn_lb.name,
+                 constants.PROVISIONING_STATUS: constants.ACTIVE}],
+            constants.HEALTHMONITORS: [
+                {constants.ID: info[constants.ID],
+                 constants.OPERATING_STATUS: constants.NO_MONITOR,
+                 constants.PROVISIONING_STATUS: constants.DELETED}]}
+        if pool_id:
+            status[constants.POOLS] = [
+                {constants.ID: pool_id,
+                 constants.PROVISIONING_STATUS: constants.ACTIVE}]
+        else:
+            LOG.warning('Pool not found for load balancer %s, status '
+                        'update will have incomplete data', ovn_lb.name)
+        return status
+
+    def _get_lb_on_hm_event(self, row):
+        """Get the Load Balancer information on a health_monitor event
+
+        This function is called when the status of a member has
+        been updated.
+        Input: Service Monitor row which is coming from
+               ServiceMonitorUpdateEvent.
+        Output: A row from load_balancer table table matching the member
+                for which the event was generated.
+        Exception: RowNotFound exception can be generated.
+        """
+        # ip_port_mappings: {"MEMBER_IP"="LSP_NAME_MEMBER:HEALTH_SRC"}
+        # There could be more than one entry in ip_port_mappings!
+        mappings = {}
+        hm_source_ip = str(row.src_ip)
+        member_ip = str(row.ip)
+        member_src = '%s:' % row.logical_port
+        if netaddr.IPNetwork(hm_source_ip).version == 6:
+            member_src += '[%s]' % hm_source_ip
+        else:
+            member_src += '%s' % hm_source_ip
+        if netaddr.IPNetwork(member_ip).version == 6:
+            member_ip = '[%s]' % member_ip
+        mappings[member_ip] = member_src
+        lbs = self.ovn_nbdb_api.db_find_rows(
+            'Load_Balancer', (('ip_port_mappings', '=', mappings),
+                              ('protocol', '=', row.protocol))).execute()
+        return lbs[0] if lbs else None
+
+    def hm_update_event_handler(self, row):
+        try:
+            ovn_lb = self._get_lb_on_hm_event(row)
+        except idlutils.RowNotFound:
+            LOG.debug("Load balancer information not found")
+            return
+
+        if not ovn_lb:
+            LOG.debug("Load balancer not found")
+            return
+
+        if row.protocol != ovn_lb.protocol:
+            LOG.debug('Row protocol (%s) does not match LB protocol (%s)',
+                      row.protocol, ovn_lb.protocol)
+            return
+
+        request_info = {'ovn_lb': ovn_lb,
+                        'ip': row.ip,
+                        'port': str(row.port),
+                        'status': row.status}
+        self.add_request({'type': ovn_const.REQ_TYPE_HM_UPDATE_EVENT,
+                          'info': request_info})
+
+    def _get_new_operating_statuses(self, ovn_lb, pool_id, member_id,
+                                    member_status):
+        # When a member's operating status changes, we have to determine
+        # the correct operating_status to report back to Octavia.
+        # For example:
+        #
+        #   LB with Pool and 2 members
+        #
+        #   member-1 goes offline
+        #     member-1 operating_status is ERROR
+        #     if Pool operating_status is ONLINE
+        #         Pool operating_status is DEGRADED
+        #         if LB operating_status is ONLINE
+        #             LB operating_status is DEGRADED
+        #
+        #   member-2 then goes offline
+        #     member-2 operating_status is ERROR
+        #     Pool operating_status is ERROR
+        #     LB operating_status is ERROR
+        #
+        # The opposite would also have to happen.
+        #
+        # If there is only one member, the Pool and LB will reflect
+        # the same status
+        operating_status = member_status
+
+        # Assume the best
+        pool_status = constants.ONLINE
+        lb_status = constants.ONLINE
+
+        pool = self._octavia_driver_lib.get_pool(pool_id)
+        if pool:
+            pool_status = pool.operating_status
+
+        lb = self._octavia_driver_lib.get_loadbalancer(ovn_lb.name)
+        if lb:
+            lb_status = lb.operating_status
+
+        for k, v in ovn_lb.external_ids.items():
+            if ovn_const.LB_EXT_IDS_POOL_PREFIX not in k:
+                continue
+            lb_pool_id = k.split('_')[1]
+            if lb_pool_id != pool_id:
+                continue
+            existing_members = v.split(",")
+            for mem in existing_members:
+                # Ignore the passed member ID, we already know it's status
+                mem_id = mem.split('_')[1]
+                if mem_id != member_id:
+                    member = self._octavia_driver_lib.get_member(mem_id)
+                    # If the statuses are different it is degraded
+                    if member and member.operating_status != member_status:
+                        operating_status = constants.DEGRADED
+                        break
+
+        # operating_status will either be ONLINE, ERROR or DEGRADED
+        if operating_status == constants.ONLINE:
+            if pool_status != constants.ONLINE:
+                pool_status = constants.ONLINE
+                if lb_status != constants.ONLINE:
+                    lb_status = constants.ONLINE
+        elif operating_status == constants.ERROR:
+            if pool_status == constants.ONLINE:
+                pool_status = constants.ERROR
+                if lb_status == constants.ONLINE:
+                    lb_status = constants.ERROR
+        else:
+            if pool_status == constants.ONLINE:
+                pool_status = constants.DEGRADED
+                if lb_status == constants.ONLINE:
+                    lb_status = constants.DEGRADED
+
+        return lb_status, pool_status
+
+    def hm_update_event(self, info):
+        ovn_lb = info['ovn_lb']
+
+        # Lookup pool and member
+        pool_id = None
+        member_id = None
+        for k, v in ovn_lb.external_ids.items():
+            if ovn_const.LB_EXT_IDS_POOL_PREFIX not in k:
+                continue
+            for member_ip, member_port, subnet in self._extract_member_info(v):
+                if info['ip'] != member_ip:
+                    continue
+                if info['port'] != member_port:
+                    continue
+                # match
+                pool_id = k.split('_')[1]
+                member_id = v.split('_')[1]
+                break
+
+            # found it in inner loop
+            if member_id:
+                break
+
+        if not member_id:
+            LOG.warning('Member for event not found, info: %s', info)
+            return
+
+        member_status = constants.ONLINE
+        if info['status'] == ['offline']:
+            member_status = constants.ERROR
+        lb_status, pool_status = self._get_new_operating_statuses(
+            ovn_lb, pool_id, member_id, member_status)
+
+        status = {
+            constants.POOLS: [
+                {constants.ID: pool_id,
+                 constants.PROVISIONING_STATUS: constants.ACTIVE,
+                 constants.OPERATING_STATUS: pool_status}],
+            constants.MEMBERS: [
+                {constants.ID: member_id,
+                 constants.PROVISIONING_STATUS: constants.ACTIVE,
+                 constants.OPERATING_STATUS: member_status}],
+            constants.LOADBALANCERS: [
+                {constants.ID: ovn_lb.name,
+                 constants.PROVISIONING_STATUS: constants.ACTIVE,
+                 constants.OPERATING_STATUS: lb_status}]}
+        return status

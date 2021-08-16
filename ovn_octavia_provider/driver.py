@@ -13,7 +13,6 @@
 #    under the License.
 
 import copy
-import re
 
 import netaddr
 from octavia_lib.api.drivers import data_models as o_datamodels
@@ -43,6 +42,10 @@ class OvnProviderDriver(driver_base.ProviderDriver):
 
     def __del__(self):
         self._ovn_helper.shutdown()
+
+    def _is_health_check_supported(self):
+        return self._ovn_helper.ovn_nbdb_api.is_col_present(
+            'Load_Balancer', 'health_check')
 
     def _check_for_supported_protocols(self, protocol):
         if protocol not in ovn_const.OVN_NATIVE_LB_PROTOCOLS:
@@ -200,6 +203,14 @@ class OvnProviderDriver(driver_base.ProviderDriver):
             return True
         return False
 
+    def _check_member_monitor_options(self, member):
+        if self._check_monitor_options(member):
+            msg = _('OVN Load Balancer does not support different member '
+                    'monitor address or port.')
+            raise driver_exceptions.UnsupportedOptionError(
+                user_fault_string=msg,
+                operator_fault_string=msg)
+
     def _ip_version_differs(self, member):
         _, ovn_lb = self._ovn_helper._find_ovn_lb_by_pool_id(member.pool_id)
         lb_vip = ovn_lb.external_ids[ovn_const.LB_EXT_IDS_VIP_KEY]
@@ -207,11 +218,8 @@ class OvnProviderDriver(driver_base.ProviderDriver):
             netaddr.IPNetwork(member.address).version)
 
     def member_create(self, member):
-        if self._check_monitor_options(member):
-            msg = _('OVN provider does not support monitor options')
-            raise driver_exceptions.UnsupportedOptionError(
-                user_fault_string=msg,
-                operator_fault_string=msg)
+        # Validate monitoring options if present
+        self._check_member_monitor_options(member)
         if self._ip_version_differs(member):
             raise ovn_exc.IPVersionsMixingNotSupportedError()
         admin_state_up = member.admin_state_up
@@ -269,11 +277,8 @@ class OvnProviderDriver(driver_base.ProviderDriver):
         self._ovn_helper.add_request(request)
 
     def member_update(self, old_member, new_member):
-        if self._check_monitor_options(new_member):
-            msg = _('OVN provider does not support monitor options')
-            raise driver_exceptions.UnsupportedOptionError(
-                user_fault_string=msg,
-                operator_fault_string=msg)
+        # Validate monitoring options if present
+        self._check_member_monitor_options(new_member)
         if new_member.address and self._ip_version_differs(new_member):
             raise ovn_exc.IPVersionsMixingNotSupportedError()
         request_info = {'id': new_member.member_id,
@@ -313,23 +318,14 @@ class OvnProviderDriver(driver_base.ProviderDriver):
             if isinstance(admin_state_up, o_datamodels.UnsetType):
                 admin_state_up = True
 
-            member_info = self._ovn_helper._get_member_key(member)
-            # TODO(mjozefcz): Remove this workaround in W release.
-            member_info_old = self._ovn_helper._get_member_key(
-                member, old_convention=True)
-            member_found = [x for x in existing_members
-                            if re.match(member_info_old, x)]
-            if not member_found:
+            member_info = self._ovn_helper._get_member_info(member)
+            if member_info not in existing_members:
                 req_type = ovn_const.REQ_TYPE_MEMBER_CREATE
             else:
                 # If member exists in pool, then Update
                 req_type = ovn_const.REQ_TYPE_MEMBER_UPDATE
                 # Remove all updating members so only deleted ones are left
-                # TODO(mjozefcz): Remove this workaround in W release.
-                try:
-                    members_to_delete.remove(member_info_old)
-                except ValueError:
-                    members_to_delete.remove(member_info)
+                members_to_delete.remove(member_info)
 
             request_info = {'id': member.member_id,
                             'address': member.address,
@@ -377,3 +373,66 @@ class OvnProviderDriver(driver_base.ProviderDriver):
             raise driver_exceptions.DriverError(
                 **kwargs)
         return vip_dict
+
+    def _validate_hm_support(self, hm, action='create'):
+        if not self._is_health_check_supported():
+            msg = _('OVN Load Balancer supports Health Check provider '
+                    'from version 2.12. Upgrade OVN in order to use it.')
+            raise driver_exceptions.UnsupportedOptionError(
+                user_fault_string=msg,
+                operator_fault_string=msg)
+        # type is only required for create
+        if action == 'create':
+            if isinstance(hm.type, o_datamodels.UnsetType):
+                msg = _('OVN provider health monitor type not specified.')
+                # seems this should be other than "unsupported"?
+                raise driver_exceptions.UnsupportedOptionError(
+                    user_fault_string=msg,
+                    operator_fault_string=msg)
+            if hm.type not in ovn_const.SUPPORTED_HEALTH_MONITOR_TYPES:
+                msg = (_('OVN provider does not support %s '
+                         'health monitor type. Supported types: %s') %
+                        (hm.type,
+                         ', '.join(ovn_const.SUPPORTED_HEALTH_MONITOR_TYPES)))
+                raise driver_exceptions.UnsupportedOptionError(
+                    user_fault_string=msg,
+                    operator_fault_string=msg)
+
+    def health_monitor_create(self, healthmonitor):
+        self._validate_hm_support(healthmonitor)
+        admin_state_up = healthmonitor.admin_state_up
+        if isinstance(admin_state_up, o_datamodels.UnsetType):
+            admin_state_up = True
+        request_info = {'id': healthmonitor.healthmonitor_id,
+                        'pool_id': healthmonitor.pool_id,
+                        'type': healthmonitor.type,
+                        'interval': healthmonitor.delay,
+                        'timeout': healthmonitor.timeout,
+                        'failure_count': healthmonitor.max_retries_down,
+                        'success_count': healthmonitor.max_retries,
+                        'admin_state_up': admin_state_up}
+        request = {'type': ovn_const.REQ_TYPE_HM_CREATE,
+                   'info': request_info}
+        self._ovn_helper.add_request(request)
+
+    def health_monitor_update(self, old_healthmonitor, new_healthmonitor):
+        self._validate_hm_support(new_healthmonitor, action='update')
+        admin_state_up = new_healthmonitor.admin_state_up
+        if isinstance(admin_state_up, o_datamodels.UnsetType):
+            admin_state_up = True
+        request_info = {'id': new_healthmonitor.healthmonitor_id,
+                        'pool_id': old_healthmonitor.pool_id,
+                        'interval': new_healthmonitor.delay,
+                        'timeout': new_healthmonitor.timeout,
+                        'failure_count': new_healthmonitor.max_retries_down,
+                        'success_count': new_healthmonitor.max_retries,
+                        'admin_state_up': admin_state_up}
+        request = {'type': ovn_const.REQ_TYPE_HM_UPDATE,
+                   'info': request_info}
+        self._ovn_helper.add_request(request)
+
+    def health_monitor_delete(self, healthmonitor):
+        request_info = {'id': healthmonitor.healthmonitor_id}
+        request = {'type': ovn_const.REQ_TYPE_HM_DELETE,
+                   'info': request_info}
+        self._ovn_helper.add_request(request)

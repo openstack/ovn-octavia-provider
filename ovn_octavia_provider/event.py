@@ -66,3 +66,20 @@ class LogicalSwitchPortUpdateEvent(row_event.RowEvent):
             # Handle port update only for vip ports created by
             # this driver.
             self.driver.vip_port_update_handler(row)
+
+
+class ServiceMonitorUpdateEvent(row_event.RowEvent):
+
+    def __init__(self, driver):
+        table = 'Service_Monitor'
+        events = (self.ROW_UPDATE,)
+        super().__init__(events, table, None)
+        self.event_name = 'ServiceMonitorUpdateEvent'
+        self.driver = driver
+
+    def run(self, event, row, old):
+        LOG.debug('ServiceMonitorUpdateEvent logged, '
+                  '%(event)s, %(row)s',
+                  {'event': event,
+                   'row': row})
+        self.driver.hm_update_event_handler(row)
