@@ -43,8 +43,7 @@ Octavia with OVN
 ----------------
 
 The OVN native LoadBalancer currently supports L4 protocols, with support for
-L7 protocols aimed for future releases. Currently, it also does not have any
-monitoring facility. However, it does not need any extra
+L7 protocols aimed for future releases. It does not need any extra
 hardware/VM/Container for deployment, which is a major positive point when
 compared with Amphorae. Also, it does not need any special network to
 handle the LoadBalancer's requests as they are taken care by OpenFlow rules
@@ -283,9 +282,6 @@ Limitations
 The Following actions are not supported by the OVN Provider Driver:
 
 - Creating a LoadBalancer/Listener/Pool with an L7 Protocol
-
-- While Health Checks are now available in OVN, they are not currently
-  implemented in OVN's Provider Driver for Octavia.
 
 - Currently only one algorithm is supported for pool management
   (Source IP Port)

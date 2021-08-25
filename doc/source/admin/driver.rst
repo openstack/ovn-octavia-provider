@@ -28,14 +28,8 @@ Limitations of the OVN Provider Driver
 OVN has its own set of limitations when considered as an Load Balancer driver.
 These include:
 
-* OVN currently supports TCP and UDP, so Layer-7 based load balancing is not
-  possible with OVN.
-
-* While Health Checks are now available in OVN, they are not currently
-  implemented in OVN's Provider Driver for Octavia.
-
-* There are currently no *Health Monitors* in OVN's Provider Driver for Octavia.
-  Therefore Health Checking is not possible with OVN.
+* OVN currently supports TCP, UDP and SCTP, so Layer-7 based load balancing
+  is not possible with OVN.
 
 * Currently, the OVN Provider Driver supports a 1:1 protocol mapping between
   Listeners and associated Pools, i.e. a Listener which can handle TCP
