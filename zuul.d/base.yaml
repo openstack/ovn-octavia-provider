@@ -40,14 +40,6 @@
       OVS_BRANCH: v2.13.0
 
 - job:
-    name: ovn-octavia-provider-functional-master
-    parent: ovn-octavia-provider-functional-base
-    description: Run OVN Octavia provider functional tests - OVN master
-    vars:
-      OVN_BRANCH: master
-      OVS_BRANCH: master
-
-- job:
     name: ovn-octavia-provider-tempest-base
     parent: devstack-tempest
     abstract: true
@@ -146,7 +138,9 @@
         (^octavia_tempest_plugin.tests.scenario.v2.test_traffic_ops.TrafficOperationsScenarioTest.test_basic_http_traffic)|\
         (^octavia_tempest_plugin.tests.scenario.v2.test_traffic_ops.TrafficOperationsScenarioTest.test_basic_tcp_traffic)|\
         (^octavia_tempest_plugin.tests.scenario.v2.test_traffic_ops.TrafficOperationsScenarioTest.test_basic_udp_traffic)|\
-        (^octavia_tempest_plugin.tests.scenario.v2.test_traffic_ops.TrafficOperationsScenarioTest.test_basic_sctp_traffic)"
+        (^octavia_tempest_plugin.tests.scenario.v2.test_traffic_ops.TrafficOperationsScenarioTest.test_basic_sctp_traffic)|\
+        (^octavia_tempest_plugin.tests.scenario.v2.test_traffic_ops.TrafficOperationsScenarioTest.test_source_ip_port_tcp_traffic)|\
+        (^octavia_tempest_plugin.tests.scenario.v2.test_traffic_ops.TrafficOperationsScenarioTest.test_source_ip_port_udp_traffic)"
       zuul_copy_output:
         '{{ devstack_base_dir }}/data/ovs': 'logs'
         '{{ devstack_base_dir }}/data/ovn': 'logs'
@@ -163,12 +157,3 @@
         OVN_BUILD_FROM_SOURCE: True
         OVN_BRANCH: v20.06.0
         OVS_BRANCH: v2.13.0
-
-- job:
-    name: ovn-octavia-provider-tempest-master
-    parent: ovn-octavia-provider-tempest-base
-    vars:
-      devstack_localrc:
-        OVN_BUILD_FROM_SOURCE: True
-        OVN_BRANCH: master
-        OVS_BRANCH: master
