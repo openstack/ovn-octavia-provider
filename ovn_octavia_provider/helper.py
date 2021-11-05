@@ -95,7 +95,7 @@ class OvnProviderHelper():
     @staticmethod
     def _delete_disabled_from_status(status):
         # pylint: disable=multiple-statements
-        d_regex = ':%s$' % ovn_const.DISABLED_RESOURCE_SUFFIX
+        d_regex = f':{ovn_const.DISABLED_RESOURCE_SUFFIX}$'
         return {
             k: [{c: re.sub(d_regex, '', d) for c, d in i.items()}
                 for i in v]
@@ -591,7 +591,7 @@ class OvnProviderHelper():
             # Multiple routers in lr_rf are separated with ','
             if lr_rf:
                 lr_rf = {ovn_const.LB_EXT_IDS_LR_REF_KEY:
-                         "%s,%s" % (lr_rf, ovn_lr.name)}
+                         f"{lr_rf},{ovn_lr.name}"}
             else:
                 lr_rf = {ovn_const.LB_EXT_IDS_LR_REF_KEY: ovn_lr.name}
             commands.append(
@@ -674,20 +674,15 @@ class OvnProviderHelper():
         member_info = ''
         if isinstance(member, dict):
             subnet_id = member.get(constants.SUBNET_ID, '')
-            member_info = '%s%s_%s:%s_%s' % (
-                ovn_const.LB_EXT_IDS_MEMBER_PREFIX,
-                member[constants.ID],
-                member[constants.ADDRESS],
-                member[constants.PROTOCOL_PORT],
-                subnet_id)
+            member_info = (
+                f'{ovn_const.LB_EXT_IDS_MEMBER_PREFIX}{member[constants.ID]}_'
+                f'{member[constants.ADDRESS]}:'
+                f'{member[constants.PROTOCOL_PORT]}_{subnet_id}')
         elif isinstance(member, o_datamodels.Member):
             subnet_id = member.subnet_id or ''
-            member_info = '%s%s_%s:%s_%s' % (
-                ovn_const.LB_EXT_IDS_MEMBER_PREFIX,
-                member.member_id,
-                member.address,
-                member.protocol_port,
-                subnet_id)
+            member_info = (
+                f'{ovn_const.LB_EXT_IDS_MEMBER_PREFIX}{member.member_id}_'
+                f'{member.address}:{member.protocol_port}_{subnet_id}')
         return member_info
 
     def _make_listener_key_value(self, listener_port, pool_id):
@@ -752,17 +747,17 @@ class OvnProviderHelper():
             for member_ip, member_port, subnet in self._extract_member_info(
                     lb_external_ids[pool_id]):
                 if netaddr.IPNetwork(member_ip).version == 6:
-                    ips.append('[%s]:%s' % (member_ip, member_port))
+                    ips.append(f'[{member_ip}]:{member_port}')
                 else:
-                    ips.append('%s:%s' % (member_ip, member_port))
+                    ips.append(f'{member_ip}:{member_port}')
 
             if netaddr.IPNetwork(lb_vip).version == 6:
-                lb_vip = '[%s]' % lb_vip
+                lb_vip = f'[{lb_vip}]'
             vip_ips[lb_vip + ':' + vip_port] = ','.join(ips)
 
             if vip_fip:
                 if netaddr.IPNetwork(vip_fip).version == 6:
-                    vip_fip = '[%s]' % vip_fip
+                    vip_fip = f'[{vip_fip}]'
                 vip_ips[vip_fip + ':' + vip_port] = ','.join(ips)
 
         return vip_ips
@@ -1593,7 +1588,7 @@ class OvnProviderHelper():
             self._execute_commands(commands)
             return pool_status
         else:
-            msg = "Member %s not found in the pool" % member[constants.ID]
+            msg = f"Member {member[constants.ID]} not found in the pool"
             raise driver_exceptions.DriverError(
                 user_fault_string=msg,
                 operator_fault_string=msg)
@@ -1757,7 +1752,7 @@ class OvnProviderHelper():
             # Lets get the it from Neutron API.
             ports = neutron_client.list_ports(
                 network_id=vip_d[constants.VIP_NETWORK_ID],
-                name='%s%s' % (ovn_const.LB_VIP_PORT_PREFIX, lb_id))
+                name=f'{ovn_const.LB_VIP_PORT_PREFIX}{lb_id}')
             if not ports['ports']:
                 LOG.error('Cannot create/get LoadBalancer VIP port with '
                           'fixed IP: %s', vip_d[constants.VIP_ADDRESS])
@@ -2034,14 +2029,14 @@ class OvnProviderHelper():
             # ip_port_mappings: {"10.0.0.10"="ID:10.0.0.2"}
             # ip_port_mappings: {"MEMBER_IP"="LSP_NAME_MEMBER:HEALTH_SRC"}
             # OVN does not support IPv6 Health Checks, but we check anyways
-            member_src = '%s:' % member_lsp.name
+            member_src = f'{member_lsp.name}:'
             if netaddr.IPNetwork(hm_source_ip).version == 6:
-                member_src += '[%s]' % hm_source_ip
+                member_src += f'[{hm_source_ip}]'
             else:
-                member_src += '%s' % hm_source_ip
+                member_src += f'i{hm_source_ip}'
 
             if netaddr.IPNetwork(member_ip).version == 6:
-                member_ip = '[%s]' % member_ip
+                member_ip = f'[{member_ip}]'
             mappings[member_ip] = member_src
 
         commands = []
@@ -2257,13 +2252,13 @@ class OvnProviderHelper():
         mappings = {}
         hm_source_ip = str(row.src_ip)
         member_ip = str(row.ip)
-        member_src = '%s:' % row.logical_port
+        member_src = f'{row.logical_port}:'
         if netaddr.IPNetwork(hm_source_ip).version == 6:
-            member_src += '[%s]' % hm_source_ip
+            member_src += f'[{hm_source_ip}]'
         else:
-            member_src += '%s' % hm_source_ip
+            member_src += f'{hm_source_ip}'
         if netaddr.IPNetwork(member_ip).version == 6:
-            member_ip = '[%s]' % member_ip
+            member_ip = f'[{member_ip}]'
         mappings[member_ip] = member_src
         lbs = self.ovn_nbdb_api.db_find_rows(
             'Load_Balancer', (('ip_port_mappings', '=', mappings),
