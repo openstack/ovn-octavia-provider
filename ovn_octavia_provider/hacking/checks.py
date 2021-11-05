@@ -110,7 +110,7 @@ def check_assertempty(logical_line, filename):
                "assertEqual(observed, *empty*). *empty* contains "
                "{}, [], (), set(), '', \"\"")
         empties = r"(\[\s*\]|\{\s*\}|\(\s*\)|set\(\s*\)|'\s*'|\"\s*\")"
-        reg = r"assertEqual\(([^,]*,\s*)+?%s\)\s*$" % empties
+        reg = fr"assertEqual\(([^,]*,\s*)+?{empties}\)\s*$"
         if re.search(reg, logical_line):
             yield (0, msg)
 

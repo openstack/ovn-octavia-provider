@@ -1,5 +1,5 @@
 alabaster==0.7.10
-alembic==0.9.6
+alembic==1.6.5
 amqp==5.0.2
 appdirs==1.4.3
 astroid==2.4.0
@@ -48,7 +48,7 @@ keystonemiddleware==5.1.0
 kombu==5.0.2
 linecache2==1.0.0
 logutils==0.3.5
-Mako==0.4.0
+Mako==1.0.7
 MarkupSafe==1.1.1
 mccabe==0.6.1
 mock==4.0.2
@@ -60,7 +60,7 @@ munch==2.1.0
 netaddr==0.7.18
 netifaces==0.10.4
 neutron==18.0.0
-neutron-lib==2.10.1
+neutron-lib==2.16.0
 octavia-lib==2.2.0
 openstacksdk==0.31.2
 os-client-config==1.28.0
@@ -126,7 +126,7 @@ rfc3986==1.2.0
 Routes==2.3.1
 simplejson==3.5.1
 snowballstemmer==1.2.1
-SQLAlchemy==1.2.19
+SQLAlchemy==1.4.23
 sqlalchemy-migrate==0.11.0
 sqlparse==0.2.2
 statsd==3.2.1

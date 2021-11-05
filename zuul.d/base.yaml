@@ -44,7 +44,7 @@
     parent: ovn-octavia-provider-functional-base
     description: Run OVN Octavia provider functional tests - OVN master
     vars:
-      OVN_BRANCH: master
+      OVN_BRANCH: main
       OVS_BRANCH: master
 
 - job:
@@ -172,5 +172,5 @@
     vars:
       devstack_localrc:
         OVN_BUILD_FROM_SOURCE: True
-        OVN_BRANCH: master
+        OVN_BRANCH: main
         OVS_BRANCH: master
