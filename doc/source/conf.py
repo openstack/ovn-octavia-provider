@@ -79,8 +79,8 @@ htmlhelp_basename = 'ovn-octavia-providerdoc'
 latex_documents = [
     ('pdf-index',
      'doc-ovn-octavia-provider.tex',
-     u'OVN Octavia Provider Documentation',
-     u'OpenStack Foundation', 'manual'),
+     'OVN Octavia Provider Documentation',
+     'OpenStack Foundation', 'manual'),
 ]
 
 # Example configuration for intersphinx: refer to the Python standard library.
