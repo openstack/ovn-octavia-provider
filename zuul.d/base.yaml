@@ -36,6 +36,8 @@
     parent: ovn-octavia-provider-functional-base
     description: Run OVN Octavia provider functional tests
     vars:
+      Q_BUILD_OVS_FROM_GIT: True
+      INSTALL_OVN: True
       OVN_BRANCH: v20.06.0
       OVS_BRANCH: v2.13.0
 
@@ -44,6 +46,8 @@
     parent: ovn-octavia-provider-functional-base
     description: Run OVN Octavia provider functional tests - OVN master
     vars:
+      Q_BUILD_OVS_FROM_GIT: True
+      INSTALL_OVN: True
       OVN_BRANCH: main
       OVS_BRANCH: master
 
