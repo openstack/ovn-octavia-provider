@@ -1439,7 +1439,9 @@ class OvnProviderHelper(object):
         pool_key = self._get_pool_key(pool['id'])
         commands = []
         external_ids = copy.deepcopy(ovn_lb.external_ids)
+        pool_listeners = []
         try:
+            pool_listeners = self._get_pool_listeners(ovn_lb, pool_key)
             if pool_key in ovn_lb.external_ids:
                 commands.append(
                     self.ovn_nbdb_api.db_remove('Load_Balancer', ovn_lb.uuid,
@@ -1449,7 +1451,6 @@ class OvnProviderHelper(object):
                 commands.extend(
                     self._refresh_lb_vips(ovn_lb.uuid, external_ids))
             # Remove Pool from Listener if it is associated
-            listener_id = None
             for key, value in ovn_lb.external_ids.items():
                 if (key.startswith(ovn_const.LB_EXT_IDS_LISTENER_PREFIX) and
                         pool_key in value):
@@ -1458,7 +1459,6 @@ class OvnProviderHelper(object):
                         self.ovn_nbdb_api.db_set(
                             'Load_Balancer', ovn_lb.uuid,
                             ('external_ids', external_ids)))
-                    listener_id = key.split('_')[1]
 
             pool_key_when_disabled = self._get_pool_key(pool['id'],
                                                         is_enabled=False)
@@ -1473,11 +1473,6 @@ class OvnProviderHelper(object):
                 self._clean_lb_if_empty(
                     ovn_lb, pool['loadbalancer_id'], external_ids)[0])
             self._execute_commands(commands)
-
-            if listener_id:
-                status['listeners'] = [{
-                    'id': listener_id,
-                    'provisioning_status': constants.ACTIVE}]
         except Exception:
             LOG.exception(EXCEPTION_MSG, "deletion of pool")
             status = {
@@ -1485,7 +1480,12 @@ class OvnProviderHelper(object):
                            "provisioning_status": constants.ERROR}],
                 'loadbalancers': [{"id": pool['loadbalancer_id'],
                                    "provisioning_status": constants.ACTIVE}]}
-
+        listener_status = []
+        for listener in pool_listeners:
+            listener_status.append(
+                {'id': listener,
+                 'provisioning_status': constants.ACTIVE})
+        status['listeners'] = listener_status
         return status
 
     def pool_update(self, pool):
@@ -1514,7 +1514,9 @@ class OvnProviderHelper(object):
         p_key_to_remove = None
         p_key_to_add = {}
 
+        pool_listeners = []
         try:
+            pool_listeners = self._get_pool_listeners(ovn_lb, pool_key)
             if pool['admin_state_up']:
                 if p_key_when_disabled in external_ids:
                     p_key_to_add[pool_key] = external_ids[p_key_when_disabled]
@@ -1550,15 +1552,6 @@ class OvnProviderHelper(object):
             else:
                 operating_status = constants.OFFLINE
             pool_status['operating_status'] = operating_status
-
-            pool_listeners = self._get_pool_listeners(ovn_lb,
-                                                      pool_key)
-            listener_status = []
-            for listener in pool_listeners:
-                listener_status.append(
-                    {'id': listener,
-                     'provisioning_status': constants.ACTIVE})
-            status['listeners'] = listener_status
         except Exception:
             LOG.exception(EXCEPTION_MSG, "update of pool")
             status = {
@@ -1567,6 +1560,12 @@ class OvnProviderHelper(object):
                 'loadbalancers': [{"id": pool['loadbalancer_id'],
                                    'provisioning_status': constants.ACTIVE}]}
 
+        listener_status = []
+        for listener in pool_listeners:
+            listener_status.append(
+                {'id': listener,
+                 'provisioning_status': constants.ACTIVE})
+        status['listeners'] = listener_status
         return status
 
     def _add_member(self, member, ovn_lb, pool_key):
@@ -1627,9 +1626,11 @@ class OvnProviderHelper(object):
         self._execute_commands(commands)
 
     def member_create(self, member):
+        pool_listeners = []
         try:
             pool_key, ovn_lb = self._find_ovn_lb_by_pool_id(
                 member['pool_id'])
+            pool_listeners = self._get_pool_listeners(ovn_lb, pool_key)
             self._add_member(member, ovn_lb, pool_key)
             pool = {"id": member['pool_id'],
                     "provisioning_status": constants.ACTIVE,
@@ -1640,13 +1641,6 @@ class OvnProviderHelper(object):
                              "provisioning_status": constants.ACTIVE}],
                 'loadbalancers': [{"id": ovn_lb.name,
                                    "provisioning_status": constants.ACTIVE}]}
-            pool_listeners = self._get_pool_listeners(ovn_lb, pool_key)
-            listener_status = []
-            for listener in pool_listeners:
-                listener_status.append(
-                    {'id': listener,
-                     'provisioning_status': constants.ACTIVE})
-            status['listeners'] = listener_status
         except Exception:
             LOG.exception(EXCEPTION_MSG, "creation of member")
             status = {
@@ -1657,6 +1651,12 @@ class OvnProviderHelper(object):
                 'loadbalancers': [{"id": ovn_lb.name,
                                    "provisioning_status": constants.ACTIVE}]}
 
+        listener_status = []
+        for listener in pool_listeners:
+            listener_status.append(
+                {'id': listener,
+                 'provisioning_status': constants.ACTIVE})
+        status['listeners'] = listener_status
         return status
 
     def _remove_member(self, member, ovn_lb, pool_key):
@@ -1698,9 +1698,11 @@ class OvnProviderHelper(object):
                 operator_fault_string=msg)
 
     def member_delete(self, member):
+        pool_listeners = []
         try:
             pool_key, ovn_lb = self._find_ovn_lb_by_pool_id(
                 member['pool_id'])
+            pool_listeners = self._get_pool_listeners(ovn_lb, pool_key)
             pool_status = self._remove_member(member, ovn_lb, pool_key)
             pool = {"id": member['pool_id'],
                     "provisioning_status": constants.ACTIVE,
@@ -1711,13 +1713,6 @@ class OvnProviderHelper(object):
                              "provisioning_status": constants.DELETED}],
                 'loadbalancers': [{"id": ovn_lb.name,
                                    "provisioning_status": constants.ACTIVE}]}
-            pool_listeners = self._get_pool_listeners(ovn_lb, pool_key)
-            listener_status = []
-            for listener in pool_listeners:
-                listener_status.append(
-                    {'id': listener,
-                     'provisioning_status': constants.ACTIVE})
-            status['listeners'] = listener_status
         except Exception:
             LOG.exception(EXCEPTION_MSG, "deletion of member")
             status = {
@@ -1728,6 +1723,12 @@ class OvnProviderHelper(object):
                 'loadbalancers': [{"id": ovn_lb.name,
                                    "provisioning_status": constants.ACTIVE}]}
 
+        listener_status = []
+        for listener in pool_listeners:
+            listener_status.append(
+                {'id': listener,
+                 'provisioning_status': constants.ACTIVE})
+        status['listeners'] = listener_status
         return status
 
     def _update_member(self, member, ovn_lb, pool_key):
@@ -1752,6 +1753,7 @@ class OvnProviderHelper(object):
                 self._execute_commands(commands)
 
     def member_update(self, member):
+        pool_listeners = []
         try:
             pool_key, ovn_lb = self._find_ovn_lb_by_pool_id(
                 member['pool_id'])
@@ -1762,6 +1764,7 @@ class OvnProviderHelper(object):
                              'provisioning_status': constants.ACTIVE}],
                 'loadbalancers': [{'id': ovn_lb.name,
                                    'provisioning_status': constants.ACTIVE}]}
+            pool_listeners = self._get_pool_listeners(ovn_lb, pool_key)
             self._update_member(member, ovn_lb, pool_key)
             if 'admin_state_up' in member:
                 if member['admin_state_up']:
@@ -1769,14 +1772,6 @@ class OvnProviderHelper(object):
                 else:
                     status['members'][0][
                         'operating_status'] = constants.OFFLINE
-
-            pool_listeners = self._get_pool_listeners(ovn_lb, pool_key)
-            listener_status = []
-            for listener in pool_listeners:
-                listener_status.append(
-                    {'id': listener,
-                     'provisioning_status': constants.ACTIVE})
-            status['listeners'] = listener_status
         except Exception:
             LOG.exception(EXCEPTION_MSG, "update of member")
             status = {
@@ -1786,6 +1781,13 @@ class OvnProviderHelper(object):
                              'provisioning_status': constants.ERROR}],
                 'loadbalancers': [{'id': ovn_lb.name,
                                    'provisioning_status': constants.ACTIVE}]}
+
+        listener_status = []
+        for listener in pool_listeners:
+            listener_status.append(
+                {'id': listener,
+                 'provisioning_status': constants.ACTIVE})
+        status['listeners'] = listener_status
         return status
 
     def _get_existing_pool_members(self, pool_id):
