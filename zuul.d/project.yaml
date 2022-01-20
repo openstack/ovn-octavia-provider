@@ -4,18 +4,15 @@
       - release-notes-jobs-python3
       - check-requirements
       - openstack-python3-victoria-jobs-neutron
-      - openstack-lower-constraints-jobs-neutron
     check:
       jobs:
         - openstack-tox-cover:
             required-projects:
               - openstack/neutron
         - ovn-octavia-provider-functional-release
-        - ovn-octavia-provider-functional-master
         - ovn-octavia-provider-v2-dsvm-scenario
     gate:
       fail-fast: true
       jobs:
         - ovn-octavia-provider-functional-release
-        - ovn-octavia-provider-functional-master
         - ovn-octavia-provider-v2-dsvm-scenario
