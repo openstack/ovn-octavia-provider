@@ -15,7 +15,9 @@ import contextlib
 from neutron_lib import exceptions as n_exc
 from oslo_log import log
 from ovsdbapp.backend import ovs_idl
+from ovsdbapp.backend.ovs_idl import command
 from ovsdbapp.backend.ovs_idl import idlutils
+from ovsdbapp.backend.ovs_idl import rowview
 from ovsdbapp.backend.ovs_idl import transaction as idl_trans
 from ovsdbapp.schema.ovn_northbound import impl_idl as nb_impl_idl
 import tenacity
@@ -108,6 +110,26 @@ class OvsdbConnectionUnavailable(n_exc.ServiceUnavailable):
                 "'ovn_sb_connection' configuration options are correct.")
 
 
+class FindLbInTableCommand(command.ReadOnlyCommand):
+    def __init__(self, api, lb, table):
+        super().__init__(api)
+        self.lb = lb
+        self.table = table
+
+    def run_idl(self, txn):
+        self.result = [
+            rowview.RowView(item) for item in
+            self.api.tables[self.table].rows.values()
+            if self.lb in item.load_balancer]
+
+
+class GetLrsCommand(command.ReadOnlyCommand):
+    def run_idl(self, txn):
+        self.result = [
+            rowview.RowView(item) for item in
+            self.api.tables['Logical_Router'].rows.values()]
+
+
 class OvsdbNbOvnIdl(nb_impl_idl.OvnNbApiIdlImpl, Backend):
     def __init__(self, connection):
         super(OvsdbNbOvnIdl, self).__init__(connection)
@@ -136,3 +158,9 @@ class OvsdbNbOvnIdl(nb_impl_idl.OvnNbApiIdlImpl, Backend):
                 yield t
         except ovn_exc.RevisionConflict as e:
             LOG.info('Transaction aborted. Reason: %s', e)
+
+    def find_lb_in_table(self, lb, table):
+        return FindLbInTableCommand(self, lb, table)
+
+    def get_lrs(self):
+        return GetLrsCommand(self)
