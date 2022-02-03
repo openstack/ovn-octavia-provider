@@ -634,10 +634,14 @@ class OvnProviderHelper():
     def _find_lr_of_ls(self, ovn_ls, subnet_gateway_ip=None):
         lsp_router_port = None
         for port in ovn_ls.ports or []:
-            if port.type == 'router':
+            if (port.type == 'router' and
+                    port.external_ids.get(
+                        ovn_const.OVN_DEVICE_OWNER_EXT_ID_KEY) ==
+                    n_const.DEVICE_OWNER_ROUTER_INTF):
                 if subnet_gateway_ip:
                     port_cidr = netaddr.IPNetwork(
-                        port.external_ids['neutron:cidrs']).ip
+                        port.external_ids[
+                            ovn_const.OVN_PORT_CIDR_EXT_ID_KEY]).ip
                     if netaddr.IPAddress(subnet_gateway_ip) != port_cidr:
                         continue
                 lsp_router_port = port
@@ -1533,9 +1537,8 @@ class OvnProviderHelper():
             ovn_lr = self._find_lr_of_ls(
                 ovn_ls, subnet['subnet'].get('gateway_ip'))
             if ovn_lr:
-                for net in self._find_ls_for_lr(ovn_lr):
-                    commands.append(self.ovn_nbdb_api.ls_lb_add(
-                        net, ovn_lb.uuid, may_exist=True))
+                commands.extend(self._update_lb_to_lr_association(
+                    ovn_lb, ovn_lr))
         except n_exc.NotFound:
             pass
         except idlutils.RowNotFound:
