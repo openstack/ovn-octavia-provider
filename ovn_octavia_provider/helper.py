@@ -302,8 +302,8 @@ class OvnProviderHelper():
                     [])}
 
     def _find_lb_in_table(self, lb, table):
-        return [item for item in self.ovn_nbdb_api.tables[table].rows.values()
-                if lb in item.load_balancer]
+        return self.ovn_nbdb_api.find_lb_in_table(
+            lb, table).execute(check_error=True)
 
     def request_handler(self):
         while True:
@@ -644,7 +644,8 @@ class OvnProviderHelper():
         if not lrp_name:
             return
 
-        for lr in self.ovn_nbdb_api.tables['Logical_Router'].rows.values():
+        lrs = self.ovn_nbdb_api.get_lrs().execute(check_error=True)
+        for lr in lrs:
             for lrp in lr.ports:
                 if lrp.name == lrp_name:
                     return lr
@@ -999,12 +1000,12 @@ class OvnProviderHelper():
                                             if_exists=True))
         lr_ref = ovn_lb.external_ids.get(ovn_const.LB_EXT_IDS_LR_REF_KEY, {})
         if lr_ref:
-            for lr in self.ovn_nbdb_api.tables[
-                    'Logical_Router'].rows.values():
-                if lr.name == lr_ref:
-                    commands.append(self.ovn_nbdb_api.lr_lb_del(
-                        lr.uuid, ovn_lb.uuid))
-                    break
+            try:
+                lr = self.ovn_nbdb_api.lookup('Logical_Router', lr_ref)
+                commands.append(self.ovn_nbdb_api.lr_lb_del(
+                    lr.uuid, ovn_lb.uuid))
+            except idlutils.RowNotFound:
+                pass
         # Delete LB from all Routers the LB is indirectly associated
         for lr in self._find_lb_in_table(ovn_lb, 'Logical_Router'):
             commands.append(
