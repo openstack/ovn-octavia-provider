@@ -143,11 +143,27 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
             '_update_lb_to_ls_association',
             return_value=[])
         self._update_lb_to_ls_association.start()
+        self._get_lb_to_ls_association_commands = mock.patch.object(
+            self.helper,
+            '_get_lb_to_ls_association_commands',
+            return_value=[])
+        self._get_lb_to_ls_association_commands.start()
         self._update_lb_to_lr_association = mock.patch.object(
             self.helper,
             '_update_lb_to_lr_association',
             return_value=[])
         self._update_lb_to_lr_association.start()
+        self._get_lb_to_lr_association_commands = mock.patch.object(
+            self.helper,
+            '_get_lb_to_lr_association_commands',
+            return_value=[])
+        self._get_lb_to_lr_association_commands.start()
+        self._update_lb_to_lr_association_by_step = \
+            mock.patch.object(
+                self.helper,
+                '_update_lb_to_lr_association_by_step',
+                return_value=[])
+        self._update_lb_to_lr_association_by_step.start()
 
         # NOTE(mjozefcz): Create foo router and network.
         net_id = uuidutils.generate_uuid()
@@ -491,8 +507,10 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
             selection_fields=['ip_src', 'ip_dst', 'tp_src', 'tp_dst'])
         self.helper._update_lb_to_ls_association.assert_has_calls([
             mock.call(self.ovn_lb, associate=True,
-                      network_id=self.lb['vip_network_id']),
-            mock.call(self.ovn_lb, associate=True, network_id='foo')])
+                      network_id=self.lb['vip_network_id'],
+                      update_ls_ref=True),
+            mock.call(self.ovn_lb, associate=True, network_id='foo',
+                      update_ls_ref=True)])
 
     def test_lb_create_on_multi_protocol_UDP(self):
         self._test_lb_create_on_multi_protocol('UDP')
@@ -1579,22 +1597,21 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         self.helper._update_lb_to_lr_association.assert_not_called()
         mock_execute.assert_not_called()
 
-    @mock.patch.object(ovn_helper.OvnProviderHelper, '_execute_commands')
-    def test_lb_delete_lrp_assoc_no_net_lb_r_lb(self, mock_execute):
+    def test_lb_delete_lrp_assoc_no_net_lb_r_lb(self):
         info = {
             'network': self.network,
             'router': self.router,
         }
         self.network.load_balancer = []
         self.helper.lb_delete_lrp_assoc(info)
-        expected = [
-            self.helper.ovn_nbdb_api.ls_lb_del(
-                self.network.uuid,
-                self.router.load_balancer[0].uuid
-            ),
-        ]
+
         self.helper._update_lb_to_lr_association.assert_not_called()
-        mock_execute.assert_called_once_with(expected)
+        self.helper._update_lb_to_ls_association.assert_called_once_with(
+            self.router.load_balancer[0],
+            network_id=info['network'].uuid,
+            associate=False,
+            update_ls_ref=False
+        )
 
     @mock.patch.object(ovn_helper.OvnProviderHelper, '_execute_commands')
     def test_lb_delete_lrp_assoc_net_lb_no_r_lb(self, mock_execute):
@@ -1609,8 +1626,23 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
             self.network.load_balancer[0], self.router, delete=True
         )
 
-    @mock.patch.object(ovn_helper.OvnProviderHelper, '_execute_commands')
-    def test_lb_delete_lrp_assoc(self, mock_execute):
+    def test_lb_delete_lrp_assoc_r_lb_exception(self):
+        info = {
+            'network': self.network,
+            'router': self.router,
+        }
+        self.helper._update_lb_to_ls_association.side_effect = [
+            idlutils.RowNotFound]
+        with self.assertLogs(level='WARN') as cm:
+            self.helper.lb_delete_lrp_assoc(info)
+            self.assertEqual(
+                cm.output,
+                ['WARNING:ovn_octavia_provider.helper:'
+                 'The disassociation of loadbalancer '
+                 '%s to the logical switch %s failed, just keep going on'
+                 % (self.router.load_balancer[0].uuid, self.network.uuid)])
+
+    def test_lb_delete_lrp_assoc(self):
         info = {
             'network': self.network,
             'router': self.router,
@@ -1619,13 +1651,28 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         self.helper._update_lb_to_lr_association.assert_called_once_with(
             self.network.load_balancer[0], self.router, delete=True
         )
-        expected = [
-            self.helper.ovn_nbdb_api.ls_lb_del(
-                self.network.uuid,
-                self.router.load_balancer[0].uuid
-            ),
-        ]
-        mock_execute.assert_called_once_with(expected)
+        self.helper._update_lb_to_ls_association.assert_called_once_with(
+            self.router.load_balancer[0],
+            network_id=self.network.uuid,
+            associate=False, update_ls_ref=False
+        )
+
+    def test_lb_delete_lrp_assoc_ls_by_step(self):
+        self._update_lb_to_ls_association.stop()
+        info = {
+            'network': self.network,
+            'router': self.router,
+        }
+        self.helper._update_lb_to_lr_association.side_effect = [
+            idlutils.RowNotFound]
+        self.helper.lb_delete_lrp_assoc(info)
+        self.helper._update_lb_to_lr_association.assert_called_once_with(
+            self.network.load_balancer[0], self.router, delete=True
+        )
+        self.helper._update_lb_to_lr_association_by_step \
+            .assert_called_once_with(
+                self.network.load_balancer[0],
+                self.router, delete=True)
 
     def test_lb_create_lrp_assoc_handler(self):
         lrp = fakes.FakeOvsdbRow.create_one_ovsdb_row()
@@ -1648,8 +1695,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         self.helper.lb_create_lrp_assoc_handler(lrp)
         self.mock_add_request.assert_not_called()
 
-    @mock.patch.object(ovn_helper.OvnProviderHelper, '_execute_commands')
-    def test_lb_create_lrp_assoc(self, mock_execute):
+    def test_lb_create_lrp_assoc(self):
         info = {
             'network': self.network,
             'router': self.router,
@@ -1658,16 +1704,41 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         self.helper._update_lb_to_lr_association.assert_called_once_with(
             self.network.load_balancer[0], self.router
         )
-        expected = [
-            self.helper.ovn_nbdb_api.ls_lb_add(
-                self.network.uuid,
-                self.router.load_balancer[0].uuid
-            ),
-        ]
-        mock_execute.assert_called_once_with(expected)
 
-    @mock.patch.object(ovn_helper.OvnProviderHelper, '_execute_commands')
-    def test_lb_create_lrp_assoc_uniq_lb(self, mock_execute):
+    def test_lb_create_lrp_assoc_r_lb_exception(self):
+        info = {
+            'network': self.network,
+            'router': self.router,
+        }
+        self.helper._update_lb_to_ls_association.side_effect = [
+            idlutils.RowNotFound]
+        with self.assertLogs(level='WARN') as cm:
+            self.helper.lb_create_lrp_assoc(info)
+            self.assertEqual(
+                cm.output,
+                ['WARNING:ovn_octavia_provider.helper:'
+                 'The association of loadbalancer '
+                 '%s to the logical switch %s failed, just keep going on'
+                 % (self.router.load_balancer[0].uuid, self.network.uuid)])
+
+    def test_lb_create_lrp_assoc_ls_by_step(self):
+        self._update_lb_to_ls_association.stop()
+        info = {
+            'network': self.network,
+            'router': self.router,
+        }
+        self.helper._update_lb_to_lr_association.side_effect = [
+            idlutils.RowNotFound]
+        self.helper.lb_create_lrp_assoc(info)
+        self.helper._update_lb_to_lr_association.assert_called_once_with(
+            self.network.load_balancer[0], self.router
+        )
+        self.helper._update_lb_to_lr_association_by_step \
+            .assert_called_once_with(
+                self.network.load_balancer[0],
+                self.router)
+
+    def test_lb_create_lrp_assoc_uniq_lb(self):
         info = {
             'network': self.network,
             'router': self.router,
@@ -1676,7 +1747,6 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         self.network.load_balancer = self.router.load_balancer
         self.helper.lb_create_lrp_assoc(info)
         self.helper._update_lb_to_lr_association.assert_not_called()
-        mock_execute.assert_not_called()
 
     def test__find_lb_in_ls(self):
         net_lb = self.helper._find_lb_in_ls(self.network)
@@ -1744,9 +1814,10 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         ovn_helper.OvnProviderHelper, '_del_lb_to_lr_association')
     @mock.patch.object(
         ovn_helper.OvnProviderHelper, '_add_lb_to_lr_association')
-    def test__update_lb_to_lr_association(self, add, delete):
-        self._update_lb_to_lr_association.stop()
-        self.helper._update_lb_to_lr_association(self.ref_lb1, self.router)
+    def test__get_lb_to_lr_association_commands(self, add, delete):
+        self._get_lb_to_lr_association_commands.stop()
+        self.helper._get_lb_to_lr_association_commands(
+            self.ref_lb1, self.router)
         lr_ref = self.ref_lb1.external_ids.get(
             ovn_const.LB_EXT_IDS_LR_REF_KEY)
         add.assert_called_once_with(self.ref_lb1, self.router, lr_ref)
@@ -1756,9 +1827,39 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         ovn_helper.OvnProviderHelper, '_del_lb_to_lr_association')
     @mock.patch.object(
         ovn_helper.OvnProviderHelper, '_add_lb_to_lr_association')
-    def test__update_lb_to_lr_association_delete(self, add, delete):
-        self._update_lb_to_lr_association.stop()
-        self.helper._update_lb_to_lr_association(
+    def test__get_lb_to_lr_association_commands_delete(self, add, delete):
+        self._get_lb_to_lr_association_commands.stop()
+        self.helper._get_lb_to_lr_association_commands(
+            self.ref_lb1, self.router, delete=True)
+        lr_ref = self.ref_lb1.external_ids.get(
+            ovn_const.LB_EXT_IDS_LR_REF_KEY)
+        add.assert_not_called()
+        delete.assert_called_once_with(self.ref_lb1, self.router, lr_ref)
+
+    @mock.patch.object(
+        ovn_helper.OvnProviderHelper, '_del_lb_to_lr_association')
+    @mock.patch.object(
+        ovn_helper.OvnProviderHelper, '_add_lb_to_lr_association')
+    def test__get_lb_to_lr_association_commands_by_step(
+            self, add, delete):
+        self._update_lb_to_lr_association_by_step.stop()
+        self._get_lb_to_lr_association_commands.stop()
+        self.helper._update_lb_to_lr_association_by_step(
+            self.ref_lb1, self.router)
+        lr_ref = self.ref_lb1.external_ids.get(
+            ovn_const.LB_EXT_IDS_LR_REF_KEY)
+        add.assert_called_once_with(self.ref_lb1, self.router, lr_ref)
+        delete.assert_not_called()
+
+    @mock.patch.object(
+        ovn_helper.OvnProviderHelper, '_del_lb_to_lr_association')
+    @mock.patch.object(
+        ovn_helper.OvnProviderHelper, '_add_lb_to_lr_association')
+    def test__get_lb_to_lr_association_commands_by_step_delete(
+            self, add, delete):
+        self._update_lb_to_lr_association_by_step.stop()
+        self._get_lb_to_lr_association_commands.stop()
+        self.helper._update_lb_to_lr_association_by_step(
             self.ref_lb1, self.router, delete=True)
         lr_ref = self.ref_lb1.external_ids.get(
             ovn_const.LB_EXT_IDS_LR_REF_KEY)
@@ -1916,17 +2017,19 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
             values.assert_not_called())
         self.assertIsNone(returned_lr)
 
-    def test__update_lb_to_ls_association_empty_network_and_subnet(self):
-        self._update_lb_to_ls_association.stop()
-        returned_commands = self.helper._update_lb_to_ls_association(
-            self.ref_lb1, associate=True)
+    def test__get_lb_to_ls_association_command_empty_network_and_subnet(self):
+        self._get_lb_to_ls_association_commands.stop()
+        returned_commands = self.helper._get_lb_to_ls_association_commands(
+            self.ref_lb1, associate=True, update_ls_ref=True)
         self.assertListEqual(returned_commands, [])
 
     def test__update_lb_to_ls_association_network(self):
         self._update_lb_to_ls_association.stop()
+        self._get_lb_to_ls_association_commands.stop()
 
         self.helper._update_lb_to_ls_association(
-            self.ref_lb1, network_id=self.network.uuid, associate=True)
+            self.ref_lb1, network_id=self.network.uuid,
+            associate=True, update_ls_ref=True)
 
         self.helper.ovn_nbdb_api.ls_get.assert_called_once_with(
             self.network.name)
@@ -1934,9 +2037,22 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         self.helper.ovn_nbdb_api.db_set.assert_called_once_with(
             'Load_Balancer', self.ref_lb1.uuid, ('external_ids', ls_refs))
 
+    def test__update_lb_to_ls_association_network_no_update_ls_ref(self):
+        self._update_lb_to_ls_association.stop()
+        self._get_lb_to_ls_association_commands.stop()
+
+        self.helper._update_lb_to_ls_association(
+            self.ref_lb1, network_id=self.network.uuid,
+            associate=True, update_ls_ref=False)
+
+        self.helper.ovn_nbdb_api.ls_get.assert_called_once_with(
+            self.network.name)
+        self.helper.ovn_nbdb_api.db_set.assert_not_called()
+
     @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
     def test__update_lb_to_ls_association_subnet(self, net_cli):
         self._update_lb_to_ls_association.stop()
+        self._get_lb_to_ls_association_commands.stop()
         subnet = fakes.FakeSubnet.create_one_subnet(
             attrs={'id': 'foo_subnet_id',
                    'name': 'foo_subnet_name',
@@ -1944,18 +2060,21 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         net_cli.return_value.show_subnet.return_value = {
             'subnet': subnet}
         self.helper._update_lb_to_ls_association(
-            self.ref_lb1, subnet_id=subnet.id, associate=True)
+            self.ref_lb1, subnet_id=subnet.id,
+            associate=True, update_ls_ref=True)
         self.helper.ovn_nbdb_api.ls_get.assert_called_once_with(
             'neutron-foo_network_id')
 
     def test__update_lb_to_ls_association_empty_ls_refs(self):
         self._update_lb_to_ls_association.stop()
+        self._get_lb_to_ls_association_commands.stop()
         (self.helper.ovn_nbdb_api.ls_get.return_value.execute.
             return_value) = self.network
         self.ref_lb1.external_ids.pop('ls_refs')
 
         self.helper._update_lb_to_ls_association(
-            self.ref_lb1, network_id=self.network.uuid)
+            self.ref_lb1, network_id=self.network.uuid,
+            update_ls_ref=True)
 
         self.helper.ovn_nbdb_api.ls_lb_add.assert_called_once_with(
             self.network.uuid, self.ref_lb1.uuid, may_exist=True)
@@ -1965,11 +2084,13 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
 
     def test__update_lb_to_ls_association_no_ls(self):
         self._update_lb_to_ls_association.stop()
+        self._get_lb_to_ls_association_commands.stop()
         (self.helper.ovn_nbdb_api.ls_get.return_value.execute.
             side_effect) = [idlutils.RowNotFound]
 
-        returned_commands = self.helper._update_lb_to_ls_association(
-            self.ref_lb1, network_id=self.network.uuid)
+        returned_commands = self.helper._get_lb_to_ls_association_commands(
+            self.ref_lb1, network_id=self.network.uuid,
+            update_ls_ref=True)
 
         self.helper.ovn_nbdb_api.ls_get.assert_called_once_with(
             self.network.name)
@@ -1977,11 +2098,13 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
 
     def test__update_lb_to_ls_association_network_disassociate(self):
         self._update_lb_to_ls_association.stop()
+        self._get_lb_to_ls_association_commands.stop()
         (self.helper.ovn_nbdb_api.ls_get.return_value.execute.
             return_value) = self.network
 
         self.helper._update_lb_to_ls_association(
-            self.ref_lb1, network_id=self.network.uuid, associate=False)
+            self.ref_lb1, network_id=self.network.uuid,
+            associate=False, update_ls_ref=True)
 
         self.helper.ovn_nbdb_api.ls_get.assert_called_once_with(
             self.network.name)
@@ -1991,13 +2114,65 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         self.helper.ovn_nbdb_api.ls_lb_del.assert_called_once_with(
             self.network.uuid, self.ref_lb1.uuid, if_exists=True)
 
+    def test__update_lb_to_ls_association_net_disassoc_no_update_ls_ref(self):
+        self._update_lb_to_ls_association.stop()
+        self._get_lb_to_ls_association_commands.stop()
+        (self.helper.ovn_nbdb_api.ls_get.return_value.execute.
+            return_value) = self.network
+
+        self.helper._update_lb_to_ls_association(
+            self.ref_lb1, network_id=self.network.uuid,
+            associate=False, update_ls_ref=False)
+
+        self.helper.ovn_nbdb_api.ls_get.assert_called_once_with(
+            self.network.name)
+        self.helper.ovn_nbdb_api.db_set.assert_not_called()
+        self.helper.ovn_nbdb_api.ls_lb_del.assert_called_once_with(
+            self.network.uuid, self.ref_lb1.uuid, if_exists=True)
+
+    def test__update_lb_to_ls_association_dissasoc_net_not_assoc(self):
+        self._update_lb_to_ls_association.stop()
+        self._get_lb_to_ls_association_commands.stop()
+        (self.helper.ovn_nbdb_api.ls_get.return_value.execute.
+            return_value) = self.network
+
+        self.helper._update_lb_to_ls_association(
+            self.ref_lb1, network_id='foo',
+            associate=False, update_ls_ref=False)
+
+        self.helper.ovn_nbdb_api.ls_get.assert_called_once_with(
+            'neutron-foo')
+        self.helper.ovn_nbdb_api.db_set.assert_not_called()
+        self.helper.ovn_nbdb_api.ls_lb_del.assert_not_called()
+
+    def test__update_lb_to_ls_association_net_ls_ref_wrong_format(self):
+        self._update_lb_to_ls_association.stop()
+        self._get_lb_to_ls_association_commands.stop()
+
+        (self.helper.ovn_nbdb_api.ls_get.return_value.execute.
+            return_value) = self.network
+
+        self.ref_lb1.external_ids.update({
+            ovn_const.LB_EXT_IDS_LS_REFS_KEY:
+                '{\"neutron-%s\"}'})
+
+        self.helper._update_lb_to_ls_association(
+            self.ref_lb1, network_id=self.network.uuid,
+            associate=False, update_ls_ref=False)
+
+        self.helper.ovn_nbdb_api.ls_get.assert_called_once_with(
+            self.network.name)
+        self.helper.ovn_nbdb_api.db_set.assert_not_called()
+
     def test__update_lb_to_ls_association_network_dis_ls_not_found(self):
         self._update_lb_to_ls_association.stop()
+        self._get_lb_to_ls_association_commands.stop()
         (self.helper.ovn_nbdb_api.ls_get.return_value.execute.
             side_effect) = [idlutils.RowNotFound]
 
         self.helper._update_lb_to_ls_association(
-            self.ref_lb1, network_id=self.network.uuid, associate=False)
+            self.ref_lb1, network_id=self.network.uuid,
+            associate=False, update_ls_ref=True)
 
         self.helper.ovn_nbdb_api.ls_get.assert_called_once_with(
             self.network.name)
@@ -2011,10 +2186,12 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
             self, net_cli):
         net_cli.return_value.show_subnet.side_effect = n_exc.NotFound
         self._update_lb_to_ls_association.stop()
+        self._get_lb_to_ls_association_commands.stop()
         (self.helper.ovn_nbdb_api.ls_get.return_value.execute.
             return_value) = self.network
         self.helper._update_lb_to_ls_association(
-            self.ref_lb1, subnet_id='foo', associate=False)
+            self.ref_lb1, subnet_id='foo',
+            associate=False, update_ls_ref=True)
         self.helper.ovn_nbdb_api.ls_get.assert_not_called()
         self.helper.ovn_nbdb_api.db_set.assert_not_called()
         self.helper.ovn_nbdb_api.ls_lb_del.assert_not_called()
@@ -2026,13 +2203,15 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         self.ref_lb1.external_ids.pop('ls_refs')
 
         self.helper._update_lb_to_ls_association(
-            self.ref_lb1, network_id=self.network.uuid, associate=False)
+            self.ref_lb1, network_id=self.network.uuid,
+            associate=False, update_ls_ref=True)
 
         self.helper.ovn_nbdb_api.ls_lb_del.assert_not_called()
         self.helper.ovn_nbdb_api.db_set.assert_not_called()
 
     def test__update_lb_to_ls_association_disassoc_multiple_refs(self):
         self._update_lb_to_ls_association.stop()
+        self._get_lb_to_ls_association_commands.stop()
         (self.helper.ovn_nbdb_api.ls_get.return_value.execute.
             return_value) = self.network
         # multiple refs
@@ -2040,13 +2219,34 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         self.ref_lb1.external_ids.update(ls_refs)
 
         self.helper._update_lb_to_ls_association(
-            self.ref_lb1, network_id=self.network.uuid, associate=False)
+            self.ref_lb1, network_id=self.network.uuid,
+            associate=False, update_ls_ref=True)
 
         self.helper.ovn_nbdb_api.ls_get.assert_called_once_with(
             self.network.name)
         exp_ls_refs = {'ls_refs': '{"%s": 1}' % self.network.name}
         self.helper.ovn_nbdb_api.db_set.assert_called_once_with(
             'Load_Balancer', self.ref_lb1.uuid, ('external_ids', exp_ls_refs))
+
+    @mock.patch.object(ovn_helper.OvnProviderHelper, '_execute_commands')
+    def test__update_lb_to_ls_association_retry(self, execute):
+        self._update_lb_to_ls_association.stop()
+        self._get_lb_to_ls_association_commands.stop()
+        self.helper._update_lb_to_ls_association(
+            self.ref_lb1, network_id=self.network.uuid)
+        expected = self.helper._get_lb_to_ls_association_commands(
+            self.ref_lb1, network_id=self.network.uuid)
+        execute.assert_called_once_with(expected)
+
+    @mock.patch.object(ovn_helper.OvnProviderHelper, '_execute_commands')
+    def test__update_lb_to_ls_association_retry_failed(self, execute):
+        execute.side_effect = [idlutils.RowNotFound for _ in range(4)]
+        self._update_lb_to_ls_association.stop()
+        self.assertRaises(
+            idlutils.RowNotFound,
+            self.helper._update_lb_to_ls_association,
+            self.ref_lb1,
+            network_id=self.network.uuid)
 
     def test_logical_switch_port_update_event_vip_port(self):
         self.switch_port_event = ovn_event.LogicalSwitchPortUpdateEvent(
@@ -2116,6 +2316,46 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
             attrs=attrs)
         self.switch_port_event.run(mock.ANY, row, mock.ANY)
         self.mock_add_request.assert_not_called()
+
+    @mock.patch.object(ovn_helper.OvnProviderHelper, '_execute_commands')
+    def test__update_lb_to_lr_association_retry(self, execute):
+        self._update_lb_to_lr_association.stop()
+        self._get_lb_to_lr_association_commands.stop()
+        self.helper._update_lb_to_lr_association(self.ref_lb1, self.router)
+        expected = self.helper._get_lb_to_lr_association_commands(
+            self.ref_lb1, self.router)
+        execute.assert_called_once_with(expected)
+
+    @mock.patch.object(ovn_helper.OvnProviderHelper, '_execute_commands')
+    def test__update_lb_to_lr_association_retry_failed(self, execute):
+        execute.side_effect = [idlutils.RowNotFound for _ in range(4)]
+        self._update_lb_to_lr_association.stop()
+        self.assertRaises(
+            idlutils.RowNotFound,
+            self.helper._update_lb_to_lr_association,
+            self.ref_lb1,
+            self.router)
+
+    def test__update_lb_to_lr_association_by_step(self):
+        self._get_lb_to_lr_association_commands.stop()
+        self._update_lb_to_lr_association_by_step.stop()
+        self.helper._update_lb_to_lr_association_by_step(
+            self.network.load_balancer[0],
+            self.router)
+        self.helper.ovn_nbdb_api.db_set.assert_called()
+        self.helper.ovn_nbdb_api.lr_lb_add.assert_called()
+
+    def test__update_lb_to_lr_association_by_step_exception_raise(
+            self):
+        self._get_lb_to_lr_association_commands.stop()
+        self._update_lb_to_lr_association_by_step.stop()
+        (self.helper.ovn_nbdb_api.db_set.return_value.execute.
+            side_effect) = [idlutils.RowNotFound]
+        self.assertRaises(
+            idlutils.RowNotFound,
+            self.helper._update_lb_to_lr_association_by_step,
+            self.network.load_balancer[0],
+            self.router)
 
     @mock.patch('ovn_octavia_provider.helper.OvnProviderHelper.'
                 '_find_ovn_lbs')
