@@ -28,6 +28,7 @@ OVN_DEVICE_OWNER_EXT_ID_KEY = 'neutron:device_owner'
 OVN_FIP_EXT_ID_KEY = 'neutron:fip_id'
 OVN_FIP_PORT_EXT_ID_KEY = 'neutron:fip_port_id'
 OVN_GW_PORT_EXT_ID_KEY = 'neutron:gw_port_id'
+OVN_PORT_CIDR_EXT_ID_KEY = 'neutron:cidrs'
 
 LB_EXT_IDS_LS_REFS_KEY = 'ls_refs'
 LB_EXT_IDS_LR_REF_KEY = 'lr_ref'
