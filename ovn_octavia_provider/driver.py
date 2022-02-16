@@ -772,10 +772,15 @@ class OvnProviderHelper(object):
                                   'fetch its data.', sid)
         return ls
 
-    def _find_lr_of_ls(self, ovn_ls):
+    def _find_lr_of_ls(self, ovn_ls, subnet_gateway_ip=None):
         lsp_router_port = None
         for port in ovn_ls.ports or []:
             if port.type == 'router':
+                if subnet_gateway_ip:
+                    port_cidr = netaddr.IPNetwork(
+                        port.external_ids['neutron:cidrs']).ip
+                    if netaddr.IPAddress(subnet_gateway_ip) != port_cidr:
+                        continue
                 lsp_router_port = port
                 break
         else:
@@ -934,11 +939,17 @@ class OvnProviderHelper(object):
 
     def lb_create(self, loadbalancer, protocol=None):
         port = None
+        subnet = {}
         neutron_client = get_neutron_client()
         if loadbalancer.get('vip_port_id'):
             # In case we don't have vip_network_id
             port = neutron_client.show_port(
                 loadbalancer['vip_port_id'])['port']
+            for ip in port['fixed_ips']:
+                if ip['ip_address'] == loadbalancer[constants.VIP_ADDRESS]:
+                    subnet = neutron_client.show_subnet(
+                        ip['subnet_id'])['subnet']
+                    break
         elif (loadbalancer.get('vip_network_id') and
               loadbalancer.get('vip_address')):
             ports = neutron_client.list_ports(
@@ -947,6 +958,8 @@ class OvnProviderHelper(object):
                 for ip in p['fixed_ips']:
                     if ip['ip_address'] == loadbalancer['vip_address']:
                         port = p
+                        subnet = neutron_client.show_subnet(
+                            ip['subnet_id'])['subnet']
                         break
 
         # If protocol set make sure its lowercase
@@ -988,7 +1001,7 @@ class OvnProviderHelper(object):
             ls_name = utils.ovn_name(port['network_id'])
             ovn_ls = self.ovn_nbdb_api.ls_get(ls_name).execute(
                 check_error=True)
-            ovn_lr = self._find_lr_of_ls(ovn_ls)
+            ovn_lr = self._find_lr_of_ls(ovn_ls, subnet.get('gateway_ip'))
             if ovn_lr:
                 commands.extend(self._update_lb_to_lr_association(
                     ovn_lb, ovn_lr))
@@ -1621,7 +1634,8 @@ class OvnProviderHelper(object):
             ls_name = utils.ovn_name(subnet['subnet']['network_id'])
             ovn_ls = self.ovn_nbdb_api.ls_get(ls_name).execute(
                 check_error=True)
-            ovn_lr = self._find_lr_of_ls(ovn_ls)
+            ovn_lr = self._find_lr_of_ls(
+                ovn_ls, subnet['subnet'].get('gateway_ip'))
             if ovn_lr:
                 for net in self._find_ls_for_lr(ovn_lr):
                     commands.append(self.ovn_nbdb_api.ls_lb_add(
