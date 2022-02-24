@@ -552,11 +552,9 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
         self.mock_add_request.assert_called_once_with(expected_dict)
 
     def test_loadbalancer_failover(self):
-        info = {'id': self.ref_lb0.loadbalancer_id}
-        expected_dict = {'type': ovn_const.REQ_TYPE_LB_FAILOVER,
-                         'info': info}
-        self.driver.loadbalancer_failover(info['id'])
-        self.mock_add_request.assert_called_once_with(expected_dict)
+        self.assertRaises(exceptions.UnsupportedOptionError,
+                          self.driver.loadbalancer_failover,
+                          self.ref_lb0.loadbalancer_id)
 
     def test_pool_create_unsupported_protocol(self):
         self.ref_pool.protocol = 'HTTP'

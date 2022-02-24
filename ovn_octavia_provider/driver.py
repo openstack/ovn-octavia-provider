@@ -101,10 +101,10 @@ class OvnProviderDriver(driver_base.ProviderDriver):
         self._ovn_helper.add_request(request)
 
     def loadbalancer_failover(self, loadbalancer_id):
-        request_info = {'id': loadbalancer_id}
-        request = {'type': ovn_const.REQ_TYPE_LB_FAILOVER,
-                   'info': request_info}
-        self._ovn_helper.add_request(request)
+        msg = _('OVN provider does not support loadbalancer failover')
+        raise driver_exceptions.UnsupportedOptionError(
+            user_fault_string=msg,
+            operator_fault_string=msg)
 
     def loadbalancer_update(self, old_loadbalancer, new_loadbalancer):
         request_info = {'id': new_loadbalancer.loadbalancer_id}
