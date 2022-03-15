@@ -36,8 +36,11 @@
     parent: ovn-octavia-provider-functional-base
     description: Run OVN Octavia provider functional tests
     vars:
-      OVN_BRANCH: v20.06.0
-      OVS_BRANCH: v2.13.0
+      OVN_BUILD_FROM_SOURCE: True
+      Q_BUILD_OVS_FROM_GIT: True
+      INSTALL_OVN: True
+      OVN_BRANCH: v21.06.0
+      OVS_BRANCH: v2.16.0
 
 - job:
     name: ovn-octavia-provider-tempest-base
@@ -155,5 +158,7 @@
     vars:
       devstack_localrc:
         OVN_BUILD_FROM_SOURCE: True
-        OVN_BRANCH: v20.06.0
-        OVS_BRANCH: v2.13.0
+        Q_BUILD_OVS_FROM_GIT: True
+        INSTALL_OVN: True
+        OVN_BRANCH: v21.06.0
+        OVS_BRANCH: v2.16.0
