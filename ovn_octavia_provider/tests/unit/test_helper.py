@@ -492,9 +492,12 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
             self.ovn_lb.uuid)
         del_port.assert_called_once_with('foo_port')
 
+    @mock.patch.object(ovn_helper.OvnProviderHelper,
+                       '_get_vip_port_from_loadbalancer_id')
     @mock.patch.object(ovn_helper.OvnProviderHelper, 'delete_vip_port')
-    def test_lb_delete_row_not_found(self, del_port):
+    def test_lb_delete_row_not_found(self, del_port, get_vip_port):
         self.helper._find_ovn_lbs.side_effect = [idlutils.RowNotFound]
+        get_vip_port.return_value = None
         status = self.helper.lb_delete(self.lb)
         self.assertEqual(status['loadbalancers'][0]['provisioning_status'],
                          constants.DELETED)
@@ -502,6 +505,22 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
                          constants.OFFLINE)
         self.helper.ovn_nbdb_api.lb_del.assert_not_called()
         del_port.assert_not_called()
+        get_vip_port.assert_called_once_with(self.lb['id'])
+
+    @mock.patch.object(ovn_helper.OvnProviderHelper,
+                       '_get_vip_port_from_loadbalancer_id')
+    @mock.patch.object(ovn_helper.OvnProviderHelper, 'delete_vip_port')
+    def test_lb_delete_row_not_found_vip_leak(self, del_port, get_vip_port):
+        self.helper._find_ovn_lbs.side_effect = [idlutils.RowNotFound]
+        get_vip_port.return_value = 'foo_port'
+        status = self.helper.lb_delete(self.lb)
+        self.assertEqual(status['loadbalancers'][0]['provisioning_status'],
+                         constants.DELETED)
+        self.assertEqual(status['loadbalancers'][0]['operating_status'],
+                         constants.OFFLINE)
+        self.helper.ovn_nbdb_api.lb_del.assert_not_called()
+        del_port.assert_called_once_with('foo_port')
+        get_vip_port.assert_called_once_with(self.lb['id'])
 
     @mock.patch.object(ovn_helper.OvnProviderHelper, 'delete_vip_port')
     def test_lb_delete_exception(self, del_port):
@@ -513,7 +532,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
                          constants.ERROR)
         self.helper.ovn_nbdb_api.lb_del.assert_called_once_with(
             self.ovn_lb.uuid)
-        del_port.assert_called_once_with('foo_port')
+        del_port.assert_not_called()
 
     @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
     @mock.patch.object(ovn_helper.OvnProviderHelper, 'delete_vip_port')
@@ -525,6 +544,18 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
                          constants.DELETED)
         self.assertEqual(status['loadbalancers'][0]['operating_status'],
                          constants.OFFLINE)
+        self.helper.ovn_nbdb_api.lb_del.assert_called_once_with(
+            self.ovn_lb.uuid)
+        del_port.assert_called_once_with('foo_port')
+
+    @mock.patch.object(ovn_helper.OvnProviderHelper, 'delete_vip_port')
+    def test_lb_delete_port_exception(self, del_port):
+        del_port.side_effect = [Exception]
+        status = self.helper.lb_delete(self.ovn_lb)
+        self.assertEqual(status['loadbalancers'][0]['provisioning_status'],
+                         constants.ERROR)
+        self.assertEqual(status['loadbalancers'][0]['operating_status'],
+                         constants.ERROR)
         self.helper.ovn_nbdb_api.lb_del.assert_called_once_with(
             self.ovn_lb.uuid)
         del_port.assert_called_once_with('foo_port')
