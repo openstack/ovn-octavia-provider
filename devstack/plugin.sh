@@ -16,6 +16,7 @@ function _configure_provider_driver {
     iniset ${OCTAVIA_CONF} api_settings enabled_provider_drivers "${OCTAVIA_PROVIDER_DRIVERS}"
     iniset ${OCTAVIA_CONF} driver_agent enabled_provider_agents ${OCTAVIA_PROVIDER_AGENTS}
     iniset ${OCTAVIA_CONF} ovn ovn_nb_connection "$OVN_NB_REMOTE"
+    iniset ${OCTAVIA_CONF} ovn ovn_sb_connection "$OVN_SB_REMOTE"
 
     if is_service_enabled tls-proxy; then
         iniset ${OCTAVIA_CONF} ovn ovn_nb_connection "$OVN_NB_REMOTE"
