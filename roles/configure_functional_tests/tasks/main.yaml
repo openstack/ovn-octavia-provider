@@ -4,7 +4,6 @@
         set -x
         GATE_STACK_USER={{ ansible_user }}
         IS_GATE=True
-
         BASE_DIR={{ base_dir }}
         GATE_DEST={{ gate_dest_dir }}
         PROJECT_NAME={{ project_name }}
@@ -15,11 +14,12 @@
         STACK_USER=stack
         OVS_BRANCH={{ OVS_BRANCH }}
         OVN_BRANCH={{ OVN_BRANCH }}
-
+        Q_BUILD_OVS_FROM_GIT={{ Q_BUILD_OVS_FROM_GIT }}
+        # This is DB USER used in e.g. pgsql db
+        DATABASE_USER=openstack_citest
         source $DEVSTACK_PATH/functions
         source $NEUTRON_DIR/devstack/lib/ovs
         source $DEVSTACK_PATH/lib/neutron_plugins/ovn_agent
         source $NEUTRON_DIR/tools/configure_for_func_testing.sh
-
         configure_host_for_func_testing
     executable: /bin/bash
