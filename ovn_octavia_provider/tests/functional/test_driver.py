@@ -34,6 +34,16 @@ class TestOvnOctaviaProviderDriver(ovn_base.TestOvnOctaviaBase):
              'cidr': '10.0.0.0/24'}, admin_state_up=False)
         self._delete_load_balancer_and_validate(lb_data)
 
+    def test_create_lb_custom_network(self):
+        self._create_load_balancer_custom_lr_ls_and_validate(
+            admin_state_up=True, create_router=True,
+            force_retry_ls_to_lr_assoc=False)
+
+    def test_create_lb_custom_network_retry(self):
+        self._create_load_balancer_custom_lr_ls_and_validate(
+            admin_state_up=True, create_router=True,
+            force_retry_ls_to_lr_assoc=True)
+
     def test_delete_lb_on_nonexisting_lb(self):
         # LoadBalancer doesnt exist anymore, so just create a model and delete
         lb_data = self._create_load_balancer_and_validate(
