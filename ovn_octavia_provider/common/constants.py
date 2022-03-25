@@ -15,6 +15,7 @@ from octavia_lib.common import constants
 
 # TODO(mjozefcz): Use those variables from neutron-lib once released.
 LRP_PREFIX = "lrp-"
+OVN_NAME_PREFIX = "neutron-"
 LB_VIP_PORT_PREFIX = "ovn-lb-vip-"
 OVN_PORT_NAME_EXT_ID_KEY = 'neutron:port_name'
 OVN_ROUTER_NAME_EXT_ID_KEY = 'neutron:router_name'
