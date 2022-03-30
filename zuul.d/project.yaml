@@ -4,14 +4,12 @@
       - release-notes-jobs-python3
       - check-requirements
       - openstack-python3-yoga-jobs-neutron
-      - openstack-lower-constraints-jobs-neutron
     check:
       jobs:
         - openstack-tox-cover:
             required-projects:
               - openstack/neutron
         - ovn-octavia-provider-functional-release
-        - ovn-octavia-provider-functional-master
         - ovn-octavia-provider-tempest-release
         - ovn-octavia-provider-tempest-master:
             voting: false
@@ -21,5 +19,4 @@
       fail-fast: true
       jobs:
         - ovn-octavia-provider-functional-release
-        - ovn-octavia-provider-functional-master
         - ovn-octavia-provider-tempest-release
