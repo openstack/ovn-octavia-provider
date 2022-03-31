@@ -3,6 +3,7 @@
       - publish-openstack-docs-pti
       - release-notes-jobs-python3
       - check-requirements
+      - openstack-cover-jobs
       - openstack-python3-zed-jobs-neutron
       - openstack-lower-constraints-jobs-neutron
     check:
