@@ -4,6 +4,7 @@
       - release-notes-jobs-python3
       - check-requirements
       - openstack-python3-victoria-jobs-neutron
+      - openstack-cover-jobs
     check:
       jobs:
         - openstack-tox-cover:

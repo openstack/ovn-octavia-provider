@@ -191,6 +191,10 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
             '_get_subnet_from_pool',
             return_value=None).start()
 
+    def test_check_for_allowed_cidrs_exception(self):
+        self.assertRaises(exceptions.UnsupportedOptionError,
+                          self.driver._check_for_allowed_cidrs, '10.0.0.1')
+
     def test__ip_version_differs(self):
         self.assertFalse(self.driver._ip_version_differs(self.ref_member))
         self.ref_member.address = 'fc00::1'
@@ -313,6 +317,23 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
                 'protocol_port': self.ref_member.protocol_port,
                 'pool_id': self.ref_member.pool_id,
                 'admin_state_up': self.update_member.admin_state_up,
+                'old_admin_state_up': self.ref_member.admin_state_up,
+                'subnet_id': self.ref_member.subnet_id}
+        expected_dict = {'type': ovn_const.REQ_TYPE_MEMBER_UPDATE,
+                         'info': info}
+        member = copy.copy(self.ref_member)
+        member.subnet_id = data_models.UnsetType()
+        self.driver.member_update(member, self.update_member)
+        self.mock_add_request.assert_called_once_with(expected_dict)
+
+    def test_member_update_unset_admin_state_up(self):
+        self.driver._ovn_helper._get_subnet_from_pool.return_value = (
+            self.ref_member.subnet_id)
+        self.update_member.admin_state_up = data_models.UnsetType()
+        info = {'id': self.update_member.member_id,
+                'address': self.ref_member.address,
+                'protocol_port': self.ref_member.protocol_port,
+                'pool_id': self.ref_member.pool_id,
                 'old_admin_state_up': self.ref_member.admin_state_up,
                 'subnet_id': self.ref_member.subnet_id}
         expected_dict = {'type': ovn_const.REQ_TYPE_MEMBER_UPDATE,
@@ -495,6 +516,31 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
         self.driver.listener_update(self.ref_listener, self.ref_listener)
         self.mock_add_request.assert_called_once_with(expected_dict)
 
+    def test_listener_update_unset_admin_state_up(self):
+        self.ref_listener.admin_state_up = data_models.UnsetType()
+        info = {'id': self.ref_listener.listener_id,
+                'protocol_port': self.ref_listener.protocol_port,
+                'protocol': self.ref_pool.protocol,
+                'loadbalancer_id': self.ref_listener.loadbalancer_id}
+        if self.ref_listener.default_pool_id:
+            info['default_pool_id'] = self.ref_listener.default_pool_id
+        expected_dict = {'type': ovn_const.REQ_TYPE_LISTENER_UPDATE,
+                         'info': info}
+        self.driver.listener_update(self.ref_listener, self.ref_listener)
+        self.mock_add_request.assert_called_once_with(expected_dict)
+
+    def test_listener_update_unset_default_pool_id(self):
+        self.ref_listener.default_pool_id = data_models.UnsetType()
+        info = {'id': self.ref_listener.listener_id,
+                'protocol_port': self.ref_listener.protocol_port,
+                'protocol': self.ref_pool.protocol,
+                'admin_state_up': self.ref_listener.admin_state_up,
+                'loadbalancer_id': self.ref_listener.loadbalancer_id}
+        expected_dict = {'type': ovn_const.REQ_TYPE_LISTENER_UPDATE,
+                         'info': info}
+        self.driver.listener_update(self.ref_listener, self.ref_listener)
+        self.mock_add_request.assert_called_once_with(expected_dict)
+
     def test_listener_delete(self):
         info = {'id': self.ref_listener.listener_id,
                 'protocol_port': self.ref_listener.protocol_port,
@@ -573,6 +619,76 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
         self.driver.loadbalancer_create(self.ref_lb0)
         self.mock_add_request.assert_has_calls(calls)
 
+    def test_loadbalancer_create_member_without_subnet_id(self):
+        self.ref_member.subnet_id = data_models.UnsetType()
+        info = {
+            'id': self.ref_lb_fully_populated.loadbalancer_id,
+            'vip_address': self.ref_lb_fully_populated.vip_address,
+            'vip_network_id': self.ref_lb_fully_populated.vip_network_id,
+            'admin_state_up': self.ref_lb_fully_populated.admin_state_up}
+        info_listener = {
+            'id': self.ref_listener.listener_id,
+            'protocol': self.ref_listener.protocol,
+            'protocol_port': self.ref_listener.protocol_port,
+            'default_pool_id': self.ref_listener.default_pool_id,
+            'admin_state_up': self.ref_listener.admin_state_up,
+            'loadbalancer_id': self.ref_listener.loadbalancer_id}
+        info_pool = {
+            'id': self.ref_pool.pool_id,
+            'loadbalancer_id': self.ref_pool.loadbalancer_id,
+            'listener_id': self.ref_pool.listener_id,
+            'protocol': self.ref_pool.protocol,
+            'lb_algorithm': constants.LB_ALGORITHM_SOURCE_IP_PORT,
+            'admin_state_up': self.ref_pool.admin_state_up}
+        info_member = {
+            'id': self.ref_member.member_id,
+            'address': self.ref_member.address,
+            'protocol_port': self.ref_member.protocol_port,
+            'pool_id': self.ref_member.pool_id,
+            'subnet_id': self.ref_lb_fully_populated.vip_network_id,
+            'admin_state_up': self.ref_member.admin_state_up}
+        info_dvr = {
+            'id': self.ref_member.member_id,
+            'address': self.ref_member.address,
+            'pool_id': self.ref_member.pool_id,
+            'subnet_id': self.ref_lb_fully_populated.vip_network_id,
+            'action': ovn_const.REQ_INFO_MEMBER_ADDED}
+        expected_lb_dict = {
+            'type': ovn_const.REQ_TYPE_LB_CREATE,
+            'info': info}
+        expected_listener_dict = {
+            'type': ovn_const.REQ_TYPE_LISTENER_CREATE,
+            'info': info_listener}
+        expected_pool_dict = {
+            'type': ovn_const.REQ_TYPE_POOL_CREATE,
+            'info': info_pool}
+        expected_member_dict = {
+            'type': ovn_const.REQ_TYPE_MEMBER_CREATE,
+            'info': info_member}
+        expected_dict_dvr = {
+            'type': ovn_const.REQ_TYPE_HANDLE_MEMBER_DVR,
+            'info': info_dvr}
+        calls = [mock.call(expected_lb_dict),
+                 mock.call(expected_listener_dict),
+                 mock.call(expected_pool_dict),
+                 mock.call(expected_member_dict),
+                 mock.call(expected_dict_dvr)]
+        self.driver.loadbalancer_create(self.ref_lb_fully_populated)
+        self.mock_add_request.assert_has_calls(calls)
+
+    def test_loadbalancer_create_unset_listeners(self):
+        self.ref_lb0.listeners = data_models.UnsetType()
+        info = {'id': self.ref_lb0.loadbalancer_id,
+                'vip_address': self.ref_lb0.vip_address,
+                'vip_network_id': self.ref_lb0.vip_network_id,
+                'admin_state_up': False}
+        expected_dict = {
+            'type': ovn_const.REQ_TYPE_LB_CREATE,
+            'info': info}
+        calls = [mock.call(expected_dict)]
+        self.driver.loadbalancer_create(self.ref_lb0)
+        self.mock_add_request.assert_has_calls(calls)
+
     def test_loadbalancer_create_unset_admin_state_up(self):
         self.ref_lb0.admin_state_up = data_models.UnsetType()
         info = {'id': self.ref_lb0.loadbalancer_id,
@@ -589,6 +705,14 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
     def test_loadbalancer_update(self):
         info = {'id': self.ref_lb1.loadbalancer_id,
                 'admin_state_up': self.ref_lb1.admin_state_up}
+        expected_dict = {'type': ovn_const.REQ_TYPE_LB_UPDATE,
+                         'info': info}
+        self.driver.loadbalancer_update(self.ref_lb0, self.ref_lb1)
+        self.mock_add_request.assert_called_once_with(expected_dict)
+
+    def test_loadbalancer_update_unset_admin_state_up(self):
+        self.ref_lb1.admin_state_up = data_models.UnsetType()
+        info = {'id': self.ref_lb1.loadbalancer_id}
         expected_dict = {'type': ovn_const.REQ_TYPE_LB_UPDATE,
                          'info': info}
         self.driver.loadbalancer_update(self.ref_lb0, self.ref_lb1)
@@ -681,6 +805,38 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
                 'loadbalancer_id': self.ref_update_pool.loadbalancer_id,
                 'protocol': self.ref_pool.protocol,
                 'admin_state_up': self.ref_update_pool.admin_state_up}
+        expected_dict = {'type': ovn_const.REQ_TYPE_POOL_UPDATE,
+                         'info': info}
+        self.driver.pool_update(self.ref_pool, self.ref_update_pool)
+        self.mock_add_request.assert_called_once_with(expected_dict)
+
+    def test_pool_update_unset_new_protocol(self):
+        self.ref_update_pool.protocol = data_models.UnsetType()
+        info = {'id': self.ref_update_pool.pool_id,
+                'loadbalancer_id': self.ref_update_pool.loadbalancer_id,
+                'protocol': self.ref_pool.protocol,
+                'admin_state_up': self.ref_update_pool.admin_state_up}
+        expected_dict = {'type': ovn_const.REQ_TYPE_POOL_UPDATE,
+                         'info': info}
+        self.driver.pool_update(self.ref_pool, self.ref_update_pool)
+        self.mock_add_request.assert_called_once_with(expected_dict)
+
+    def test_pool_update_unset_new_lb_algorithm(self):
+        self.ref_update_pool.lb_algorithm = data_models.UnsetType()
+        info = {'id': self.ref_update_pool.pool_id,
+                'loadbalancer_id': self.ref_update_pool.loadbalancer_id,
+                'protocol': self.ref_pool.protocol,
+                'admin_state_up': self.ref_update_pool.admin_state_up}
+        expected_dict = {'type': ovn_const.REQ_TYPE_POOL_UPDATE,
+                         'info': info}
+        self.driver.pool_update(self.ref_pool, self.ref_update_pool)
+        self.mock_add_request.assert_called_once_with(expected_dict)
+
+    def test_pool_update_unset_new_admin_state_up(self):
+        self.ref_update_pool.admin_state_up = data_models.UnsetType()
+        info = {'id': self.ref_update_pool.pool_id,
+                'loadbalancer_id': self.ref_update_pool.loadbalancer_id,
+                'protocol': self.ref_pool.protocol}
         expected_dict = {'type': ovn_const.REQ_TYPE_POOL_UPDATE,
                          'info': info}
         self.driver.pool_update(self.ref_pool, self.ref_update_pool)
