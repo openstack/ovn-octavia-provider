@@ -75,6 +75,17 @@ class TestOvnNbIdlForLb(base.BaseTestCase):
         mock_notify.assert_called_once_with()
         mock_close.assert_called_once_with()
 
+    @mock.patch('ovsdbapp.backend.ovs_idl.connection.Connection')
+    def test_stop_no_connection(self, mock_conn):
+        mock_conn.stop.return_value = False
+        with (
+            mock.patch.object(
+                self.idl.notify_handler, 'shutdown')) as mock_notify, (
+                mock.patch.object(self.idl, 'close')) as mock_close:
+            self.idl.stop()
+        mock_notify.assert_called_once_with()
+        mock_close.assert_called_once_with()
+
     def test_setlock(self):
         with mock.patch.object(impl_idl_ovn.OvnNbIdlForLb,
                                'set_lock') as set_lock:
@@ -118,6 +129,17 @@ class TestOvnSbIdlForLb(base.BaseTestCase):
                 self.idl.notify_handler, 'shutdown')) as mock_notify, (
                 mock.patch.object(self.idl, 'close')) as mock_close:
             self.idl.start()
+            self.idl.stop()
+        mock_notify.assert_called_once_with()
+        mock_close.assert_called_once_with()
+
+    @mock.patch('ovsdbapp.backend.ovs_idl.connection.Connection')
+    def test_stop_no_connection(self, mock_conn):
+        mock_conn.stop.return_value = False
+        with (
+            mock.patch.object(
+                self.idl.notify_handler, 'shutdown')) as mock_notify, (
+                mock.patch.object(self.idl, 'close')) as mock_close:
             self.idl.stop()
         mock_notify.assert_called_once_with()
         mock_close.assert_called_once_with()
