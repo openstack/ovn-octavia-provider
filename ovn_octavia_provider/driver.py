@@ -29,7 +29,6 @@ from ovn_octavia_provider.common import exceptions as ovn_exc
 from ovn_octavia_provider import helper as ovn_helper
 from ovn_octavia_provider.i18n import _
 
-ovn_conf.register_opts()
 
 LOG = logging.getLogger(__name__)
 
@@ -38,6 +37,14 @@ class OvnProviderDriver(driver_base.ProviderDriver):
 
     def __init__(self):
         super().__init__()
+
+        # NOTE (froyo): Move inside init method in order to
+        # avoid the issues on test scope colliding with Neutron
+        # already registered options when this register was
+        # called from outside of the class a soon this module
+        # was imported, also to cover requirement from
+        # OvnProviderHelper and intra references modules
+        ovn_conf.register_opts()
         self._ovn_helper = ovn_helper.OvnProviderHelper()
 
     def __del__(self):

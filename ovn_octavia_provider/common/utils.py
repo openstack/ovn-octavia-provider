@@ -11,7 +11,9 @@
 #    under the License.
 
 from oslo_utils import netutils
+import tenacity
 
+from ovn_octavia_provider.common import config
 from ovn_octavia_provider.common import constants
 
 
@@ -58,3 +60,14 @@ def remove_macs_from_lsp_addresses(addresses):
                        (netutils.is_valid_ipv4(x) or
                         netutils.is_valid_ipv6(x))])
     return ip_list
+
+
+def retry(max_=None):
+    def inner(func):
+        def wrapper(*args, **kwargs):
+            local_max = max_ or config.get_ovn_ovsdb_retry_max_interval()
+            return tenacity.retry(
+                wait=tenacity.wait_exponential(max=local_max),
+                reraise=True)(func)(*args, **kwargs)
+        return wrapper
+    return inner

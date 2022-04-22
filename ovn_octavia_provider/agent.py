@@ -19,7 +19,6 @@ from ovn_octavia_provider import event as ovn_event
 from ovn_octavia_provider import helper as ovn_helper
 from ovn_octavia_provider.ovsdb import impl_idl_ovn
 
-ovn_conf.register_opts()
 
 LOG = logging.getLogger(__name__)
 
@@ -28,6 +27,13 @@ OVN_EVENT_LOCK_NAME = "neutron_ovn_octavia_event_lock"
 
 def OvnProviderAgent(exit_event):
 
+    # NOTE (froyo): Move inside class in order to avoid
+    # the issues on test scope colliding with Neutron
+    # already registered options when this register was
+    # called from outside of the class a soon this module
+    # was imported, also to cover requirement from
+    # OvnProviderHelper and intra references modules
+    ovn_conf.register_opts()
     helper = ovn_helper.OvnProviderHelper()
     events = [ovn_event.LogicalRouterPortEvent(helper),
               ovn_event.LogicalSwitchPortUpdateEvent(helper)]

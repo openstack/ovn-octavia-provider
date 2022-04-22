@@ -43,7 +43,6 @@ from ovn_octavia_provider.i18n import _
 from ovn_octavia_provider.ovsdb import impl_idl_ovn
 
 CONF = cfg.CONF  # Gets Octavia Conf as it runs under o-api domain
-ovn_conf.register_opts()
 
 LOG = logging.getLogger(__name__)
 

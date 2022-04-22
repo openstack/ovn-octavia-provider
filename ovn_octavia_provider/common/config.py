@@ -98,7 +98,17 @@ neutron_opts = [
 
 
 def register_opts():
-    cfg.CONF.register_opts(ovn_opts, group='ovn')
+    # NOTE (froyo): just to not try to re-register options already done
+    # by Neutron, specially in test scope, that will get a DuplicateOptError
+    missing_opts = ovn_opts
+    try:
+        neutron_registered_opts = [opt for opt in cfg.CONF.ovn]
+        missing_opts = [opt for opt in ovn_opts
+                        if opt.name not in neutron_registered_opts]
+    except cfg.NoSuchOptError:
+        LOG.info('Not found any opts under group ovn registered by Neutron')
+
+    cfg.CONF.register_opts(missing_opts, group='ovn')
     cfg.CONF.register_opts(neutron_opts, group='neutron')
     ks_loading.register_auth_conf_options(cfg.CONF, 'service_auth')
     ks_loading.register_session_conf_options(cfg.CONF, 'service_auth')

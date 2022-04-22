@@ -27,11 +27,11 @@ import tenacity
 
 from ovn_octavia_provider.common import config
 from ovn_octavia_provider.common import exceptions as ovn_exc
+from ovn_octavia_provider.common import utils
 from ovn_octavia_provider.i18n import _
 from ovn_octavia_provider.ovsdb import impl_idl_ovn
 from ovn_octavia_provider.ovsdb import ovsdb_monitor
 
-config.register_opts()
 
 LOG = log.getLogger(__name__)
 
@@ -199,10 +199,7 @@ class OvnNbIdlForLb(ovsdb_monitor.OvnIdl):
             self.set_lock(self.event_lock_name)
         atexit.register(self.stop)
 
-    @tenacity.retry(
-        wait=tenacity.wait_exponential(
-            max=config.get_ovn_ovsdb_retry_max_interval()),
-        reraise=True)
+    @utils.retry()
     def _get_ovsdb_helper(self, connection_string):
         return idlutils.get_schema_helper(connection_string, self.SCHEMA)
 
@@ -241,10 +238,7 @@ class OvnSbIdlForLb(ovsdb_monitor.OvnIdl):
             self.set_lock(self.event_lock_name)
         atexit.register(self.stop)
 
-    @tenacity.retry(
-        wait=tenacity.wait_exponential(
-            max=config.get_ovn_ovsdb_retry_max_interval()),
-        reraise=True)
+    @utils.retry()
     def _get_ovsdb_helper(self, connection_string):
         return idlutils.get_schema_helper(connection_string, self.SCHEMA)
 

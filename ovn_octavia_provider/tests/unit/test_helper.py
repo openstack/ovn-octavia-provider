@@ -23,6 +23,7 @@ from oslo_utils import uuidutils
 from ovsdbapp.backend.ovs_idl import idlutils
 
 from ovn_octavia_provider.common import clients
+from ovn_octavia_provider.common import config as ovn_conf
 from ovn_octavia_provider.common import constants as ovn_const
 from ovn_octavia_provider import event as ovn_event
 from ovn_octavia_provider import helper as ovn_helper
@@ -34,6 +35,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
 
     def setUp(self):
         super().setUp()
+        ovn_conf.register_opts()
         self.helper = ovn_helper.OvnProviderHelper()
         self.real_helper_find_ovn_lb_with_pool_key = (
             self.helper._find_ovn_lb_with_pool_key)

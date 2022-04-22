@@ -19,6 +19,7 @@ import multiprocessing as mp
 from neutron.common import utils as n_utils
 
 from ovn_octavia_provider import agent as ovn_agent
+from ovn_octavia_provider.common import config as ovn_config
 from ovn_octavia_provider.common import constants as ovn_const
 from ovn_octavia_provider import event as ovn_event
 from ovn_octavia_provider import helper as ovn_helper
@@ -37,6 +38,7 @@ class TestOvnOctaviaProviderAgent(ovn_base.TestOvnOctaviaBase):
         # with IDL running, but to make it easier for now
         # we can initialize this IDL here instead spawning
         # another process.
+        ovn_config.register_opts()
         da_helper = ovn_helper.OvnProviderHelper()
         events = [ovn_event.LogicalRouterPortEvent(da_helper),
                   ovn_event.LogicalSwitchPortUpdateEvent(da_helper)]

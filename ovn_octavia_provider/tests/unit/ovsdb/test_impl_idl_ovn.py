@@ -20,6 +20,7 @@ from ovs.db import idl as ovs_idl
 from ovsdbapp.backend import ovs_idl as real_ovs_idl
 from ovsdbapp.backend.ovs_idl import idlutils
 
+from ovn_octavia_provider.common import config as ovn_config
 from ovn_octavia_provider.ovsdb import impl_idl_ovn
 
 basedir = os.path.dirname(os.path.abspath(__file__))
@@ -34,6 +35,7 @@ class TestOvnNbIdlForLb(base.BaseTestCase):
 
     def setUp(self):
         super().setUp()
+        ovn_config.register_opts()
         # TODO(haleyb) - figure out why every test in this class generates
         # this warning, think it's in relation to reading this schema file:
         # sys:1: ResourceWarning: unclosed file <_io.FileIO name=1 mode='wb'
@@ -97,6 +99,7 @@ class TestOvnSbIdlForLb(base.BaseTestCase):
 
     def setUp(self):
         super().setUp()
+        ovn_config.register_opts()
         # TODO(haleyb) - figure out why every test in this class generates
         # this warning, think it's in relation to reading this schema file:
         # sys:1: ResourceWarning: unclosed file <_io.FileIO name=1 mode='wb'
