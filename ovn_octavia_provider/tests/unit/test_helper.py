@@ -3068,6 +3068,31 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         net_cli.assert_has_calls(expected_call)
         self.helper._update_status_to_octavia.assert_not_called()
 
+    @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
+    @mock.patch.object(ovn_helper.OvnProviderHelper, 'delete_vip_port')
+    def test_create_vip_port_vip_neutron_client_other_exception(
+            self, del_port, net_cli):
+        net_cli.return_value.create_port.side_effect = [
+            n_exc.NeutronClientException]
+        net_cli.return_value.list_ports.return_value = {
+            'ports': [
+                {'name': 'ovn-lb-vip-' + self.loadbalancer_id,
+                 'id': self.loadbalancer_id}]}
+        self.assertRaises(
+            n_exc.NeutronClientException,
+            self.helper.create_vip_port,
+            self.project_id,
+            self.loadbalancer_id,
+            self.vip_dict)
+        expected_call = [
+            mock.call().list_ports(
+                network_id='%s' % self.vip_dict['vip_network_id'],
+                name='%s%s' % (ovn_const.LB_VIP_PORT_PREFIX,
+                               self.loadbalancer_id))]
+        net_cli.assert_has_calls(expected_call)
+        del_port.assert_called_once_with(self.loadbalancer_id)
+        self.helper._update_status_to_octavia.assert_not_called()
+
     def test_get_pool_member_id(self):
         ret = self.helper.get_pool_member_id(
             self.pool_id, mem_addr_port='192.168.2.149:1010')
