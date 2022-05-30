@@ -2430,8 +2430,8 @@ class OvnProviderHelper():
             member_ip = f'[{member_ip}]'
         mappings[member_ip] = member_src
         lbs = self.ovn_nbdb_api.db_find_rows(
-            'Load_Balancer', (('ip_port_mappings', '=', mappings),
-                              ('protocol', '=', row.protocol))).execute()
+            'Load_Balancer', ('ip_port_mappings', '=', mappings),
+            ('protocol', '=', row.protocol[0])).execute()
         return lbs[0] if lbs else None
 
     def hm_update_event_handler(self, row):
