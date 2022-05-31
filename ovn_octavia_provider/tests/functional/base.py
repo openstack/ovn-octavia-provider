@@ -180,6 +180,11 @@ class TestOvnOctaviaBase(base.TestOVNFunctionalBase,
                 external_ids[
                     ovn_const.LB_EXT_IDS_LS_REFS_KEY] = jsonutils.loads(
                         ls_refs)
+            member_status = external_ids.get(ovn_const.OVN_MEMBER_STATUS_KEY)
+            if member_status:
+                external_ids[
+                    ovn_const.OVN_MEMBER_STATUS_KEY] = jsonutils.loads(
+                        member_status)
             lb_dict = {'name': lb.name, 'protocol': lb.protocol,
                        'vips': lb.vips, 'external_ids': external_ids}
             try:
@@ -574,6 +579,7 @@ class TestOvnOctaviaBase(base.TestOVNFunctionalBase,
 
         pool_info = {}
         for p in lb_data.get('pools', []):
+            member_status = {}
             external_ids = _get_lb_field_by_protocol(
                 p.protocol.lower(),
                 field='external_ids')
@@ -600,11 +606,14 @@ class TestOvnOctaviaBase(base.TestOVNFunctionalBase,
                                     'neutron-%s' % port['network_id'], 0)
                                 ex['neutron-%s' % port['network_id']] = act + 1
                                 break
+                member_status[m.member_id] = o_constants.NO_MONITOR
             pool_key = 'pool_' + p.pool_id
             if not p.admin_state_up:
                 pool_key += ':D'
             external_ids[pool_key] = p_members
             pool_info[p.pool_id] = p_members
+            if member_status:
+                external_ids[ovn_const.OVN_MEMBER_STATUS_KEY] = member_status
 
         for listener in lb_data['listeners']:
             expected_vips = _get_lb_field_by_protocol(
@@ -833,7 +842,8 @@ class TestOvnOctaviaBase(base.TestOVNFunctionalBase,
             'listeners': []
         }
         if getattr(member, 'admin_state_up', None):
-            expected_status['members'][0]['operating_status'] = "ONLINE"
+            expected_status['members'][0][
+                'operating_status'] = o_constants.NO_MONITOR
         else:
             expected_status['members'][0]['operating_status'] = "OFFLINE"
         self._wait_for_status_and_validate(lb_data, [expected_status])

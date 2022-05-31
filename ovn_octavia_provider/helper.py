@@ -1637,6 +1637,56 @@ class OvnProviderHelper():
 
         return status
 
+    def _find_member_status(self, ovn_lb, member_id):
+        # NOTE (froyo): Search on lb.external_ids under tag
+        # neutron:member_status, if member not found we will return
+        # NO_MONITOR
+        try:
+            existing_members = ovn_lb.external_ids.get(
+                ovn_const.OVN_MEMBER_STATUS_KEY)
+            existing_members = jsonutils.loads(existing_members)
+            return existing_members[member_id]
+        except TypeError:
+            LOG.debug("no member status on external_ids: %s",
+                      str(existing_members))
+        except KeyError:
+            LOG.debug("Error member_id %s not found on member_status",
+                      str(member_id))
+        return constants.NO_MONITOR
+
+    def _update_member_status(self, ovn_lb, member, status=None, delete=False):
+        existing_members = ovn_lb.external_ids.get(
+            ovn_const.OVN_MEMBER_STATUS_KEY)
+        try:
+            existing_members = jsonutils.loads(existing_members)
+        except TypeError:
+            LOG.debug("no member status on external_ids: %s",
+                      str(existing_members))
+            existing_members = {}
+
+        if delete:
+            if member in existing_members:
+                del existing_members[member]
+        else:
+            existing_members[member] = status
+
+        try:
+            if existing_members:
+                member_status = {
+                    ovn_const.OVN_MEMBER_STATUS_KEY:
+                        jsonutils.dumps(existing_members)}
+                self.ovn_nbdb_api.db_set(
+                    'Load_Balancer', ovn_lb.uuid,
+                    ('external_ids', member_status)).execute()
+            else:
+                self.ovn_nbdb_api.db_remove(
+                    'Load_Balancer', ovn_lb.uuid, 'external_ids',
+                    (ovn_const.OVN_MEMBER_STATUS_KEY)).execute()
+        except Exception:
+            LOG.exception("Error storing member status on external_ids member:"
+                          " %s delete: %s status: %s", str(member),
+                          str(delete), str(status))
+
     def _add_member(self, member, ovn_lb, pool_key):
         external_ids = copy.deepcopy(ovn_lb.external_ids)
         existing_members = external_ids[pool_key]
@@ -1738,11 +1788,18 @@ class OvnProviderHelper():
                  constants.PROVISIONING_STATUS: constants.ACTIVE})
         status[constants.LISTENERS] = listener_status
 
+        operating_status = constants.NO_MONITOR
         if new_member and ovn_lb.health_check:
             operating_status = constants.ONLINE
             if not self._update_hm_members(ovn_lb, pool_key):
                 operating_status = constants.ERROR
             member_status[constants.OPERATING_STATUS] = operating_status
+
+        self._update_member_status(
+            ovn_lb,
+            member[constants.ID],
+            operating_status)
+
         return status
 
     def _remove_member(self, member, ovn_lb, pool_key):
@@ -1808,6 +1865,9 @@ class OvnProviderHelper():
                     {constants.ID: ovn_lb.name,
                      constants.PROVISIONING_STATUS: constants.ACTIVE}]}
 
+        self._update_member_status(
+            ovn_lb, member[constants.ID], None, delete=True)
+
         listener_status = []
         for listener in pool_listeners:
             listener_status.append(
@@ -1855,17 +1915,14 @@ class OvnProviderHelper():
             self._update_member(member, ovn_lb, pool_key)
             if constants.ADMIN_STATE_UP in member:
                 if member[constants.ADMIN_STATE_UP]:
-                    old_admin_state_up = member.get('old_admin_state_up')
-                    if old_admin_state_up is None:
-                        exist_member = self._octavia_driver_lib.get_member(
-                            member[constants.ID])
-                        if exist_member:
-                            old_admin_state_up = exist_member.admin_state_up
-                    if old_admin_state_up:
-                        member_status[constants.OPERATING_STATUS] = (
-                            constants.ONLINE)
+                    # if HM exists trust on neutron:member_status
+                    # as the last status valid for the member
+                    if ovn_lb.health_check:
+                        # search status of member_uuid
+                        last_status = self._find_member_status(
+                            ovn_lb, member[constants.ID])
+                        member_status[constants.OPERATING_STATUS] = last_status
                     else:
-                        # going from down to up should reflect NO_MONITOR state
                         member_status[constants.OPERATING_STATUS] = (
                             constants.NO_MONITOR)
                 else:
@@ -1883,6 +1940,12 @@ class OvnProviderHelper():
                 constants.LOADBALANCERS: [
                     {constants.ID: ovn_lb.name,
                      constants.PROVISIONING_STATUS: constants.ACTIVE}]}
+
+        if constants.OPERATING_STATUS in member_status:
+            self._update_member_status(
+                ovn_lb,
+                member[constants.ID],
+                member_status[constants.OPERATING_STATUS])
 
         listener_status = []
         for listener in pool_listeners:
@@ -2306,6 +2369,13 @@ class OvnProviderHelper():
                     constants.ID: mem_info.split('_')[1],
                     constants.PROVISIONING_STATUS: constants.ACTIVE,
                     constants.OPERATING_STATUS: constants.ONLINE})
+                # NOTE (froyo): to sync local info with the HM initial one for
+                # previously created members, in case HM detects any change we
+                # will be event triggered about the change one.
+                self._update_member_status(
+                    ovn_lb,
+                    mem_info.split('_')[1],
+                    constants.ONLINE)
         status[constants.MEMBERS] = member_status
 
         # MONITOR_PRT = 80
@@ -2479,86 +2549,122 @@ class OvnProviderHelper():
         self.add_request({'type': ovn_const.REQ_TYPE_HM_UPDATE_EVENT,
                           'info': request_info})
 
-    def _get_new_operating_statuses(self, ovn_lb, pool_id, member_id,
-                                    member_status):
-        # When a member's operating status changes, we have to determine
-        # the correct operating_status to report back to Octavia.
-        # For example:
-        #
-        #   LB with Pool and 2 members
-        #
-        #   member-1 goes offline
-        #     member-1 operating_status is ERROR
-        #     if Pool operating_status is ONLINE
-        #         Pool operating_status is DEGRADED
-        #         if LB operating_status is ONLINE
-        #             LB operating_status is DEGRADED
-        #
-        #   member-2 then goes offline
-        #     member-2 operating_status is ERROR
-        #     Pool operating_status is ERROR
-        #     LB operating_status is ERROR
-        #
-        # The opposite would also have to happen.
-        #
-        # If there is only one member, the Pool and LB will reflect
-        # the same status
-        operating_status = member_status
+    def _get_current_operating_statuses(self, ovn_lb):
+        # NOTE (froyo) We would base all logic in the external_ids field
+        # 'neutron:member_status' that should include all LB member status
+        # in order to calculate the global LB status (listeners, pools, members
+        # included)
+        status = {
+            constants.LOADBALANCERS: [],
+            constants.LISTENERS: [],
+            constants.POOLS: [],
+            constants.MEMBERS: []
+        }
 
-        # Assume the best
-        pool_status = constants.ONLINE
-        lb_status = constants.ONLINE
+        listeners = {}
+        pools = {}
+        member_statuses = ovn_lb.external_ids.get(
+            ovn_const.OVN_MEMBER_STATUS_KEY)
 
-        pool = self._octavia_driver_lib.get_pool(pool_id)
-        if pool:
-            pool_status = pool.operating_status
-
-        lb = self._octavia_driver_lib.get_loadbalancer(ovn_lb.name)
-        if lb:
-            lb_status = lb.operating_status
+        try:
+            member_statuses = jsonutils.loads(member_statuses)
+        except TypeError:
+            LOG.debug("no member status on external_ids: %s",
+                      str(member_statuses))
+            member_statuses = {}
 
         for k, v in ovn_lb.external_ids.items():
-            if ovn_const.LB_EXT_IDS_POOL_PREFIX not in k:
+            if ovn_const.LB_EXT_IDS_LISTENER_PREFIX in k:
+                listeners[k.split('_')[1]] = [
+                    x.split('_')[1] for x in v.split(',')]
                 continue
-            lb_pool_id = k.split('_')[1]
-            if lb_pool_id != pool_id:
+            if ovn_const.LB_EXT_IDS_POOL_PREFIX in k:
+                pools[k.split('_')[1]] = [
+                    x.split('_')[1] for x in v.split(',')]
                 continue
-            existing_members = v.split(",")
-            for mem in existing_members:
-                # Ignore the passed member ID, we already know it's status
-                mem_id = mem.split('_')[1]
-                if mem_id != member_id:
-                    member = self._octavia_driver_lib.get_member(mem_id)
-                    # If the statuses are different it is degraded
-                    if member and member.operating_status != member_status:
-                        operating_status = constants.DEGRADED
-                        break
 
-        # operating_status will either be ONLINE, ERROR or DEGRADED
-        if operating_status == constants.ONLINE:
-            if pool_status != constants.ONLINE:
-                pool_status = constants.ONLINE
-                if lb_status != constants.ONLINE:
-                    lb_status = constants.ONLINE
-        elif operating_status == constants.ERROR:
-            if pool_status == constants.ONLINE:
-                pool_status = constants.ERROR
-                if lb_status == constants.ONLINE:
-                    lb_status = constants.ERROR
-        else:
-            if pool_status == constants.ONLINE:
-                pool_status = constants.DEGRADED
-                if lb_status == constants.ONLINE:
-                    lb_status = constants.DEGRADED
+        for member_id, member_status in member_statuses.items():
+            status[constants.MEMBERS].append({
+                constants.ID: member_id,
+                constants.PROVISIONING_STATUS: constants.ACTIVE,
+                constants.OPERATING_STATUS: member_status})
 
-        return lb_status, pool_status
+        # get pool statuses
+        for pool_id, members in pools.items():
+            for i, member in enumerate(members):
+                if member in member_statuses:
+                    members[i] = member_statuses[member]
+                else:
+                    # if we don't have local info we assume best option
+                    members[i] = constants.ONLINE
+
+            _pool = self._octavia_driver_lib.get_pool(pool_id)
+            if not _pool.admin_state_up:
+                pools[pool_id] = constants.OFFLINE
+            elif all(constants.ERROR == member_status
+                     for member_status in pools[pool_id]):
+                pools[pool_id] = constants.ERROR
+            elif any(constants.ERROR == member_status
+                     for member_status in pools[pool_id]):
+                pools[pool_id] = constants.DEGRADED
+            else:
+                pools[pool_id] = constants.ONLINE
+
+            status[constants.POOLS].append(
+                {constants.ID: pool_id,
+                 constants.PROVISIONING_STATUS: constants.ACTIVE,
+                 constants.OPERATING_STATUS: pools[pool_id]})
+
+        # get listener statuses
+        for listener_id, listener_pools in listeners.items():
+            for i, pool in enumerate(listener_pools):
+                if pool in pools:
+                    listener_pools[i] = pools[pool]
+                else:
+                    # if we don't have local info we assume best option
+                    listener_pools[i] = constants.ONLINE
+
+            _listener = self._octavia_driver_lib.get_listener(listener_id)
+            if not _listener.admin_state_up:
+                listeners[listener_id] = constants.OFFLINE
+            elif any(constants.ERROR == pool_status
+                     for pool_status in listeners[listener_id]):
+                listeners[listener_id] = constants.ERROR
+            elif any(constants.DEGRADED == pool_status
+                     for pool_status in listeners[listener_id]):
+                listeners[listener_id] = constants.DEGRADED
+            else:
+                listeners[listener_id] = constants.ONLINE
+
+            status[constants.LISTENERS].append(
+                {constants.ID: listener_id,
+                 constants.PROVISIONING_STATUS: constants.ACTIVE,
+                 constants.OPERATING_STATUS: listeners[listener_id]})
+
+        # get LB status
+        lb_status = constants.ONLINE
+        _lb = self._octavia_driver_lib.get_loadbalancer(ovn_lb.name)
+        if not _lb.admin_state_up:
+            lb_status = constants.OFFLINE
+        elif any(constants.ERROR == status
+                 for status in listeners.values()):
+            lb_status = constants.ERROR
+        elif any(constants.DEGRADED == status
+                 for status in listeners.values()):
+            lb_status = constants.DEGRADED
+        status[constants.LOADBALANCERS].append({
+            constants.ID: ovn_lb.name,
+            constants.PROVISIONING_STATUS: constants.ACTIVE,
+            constants.OPERATING_STATUS: lb_status})
+
+        return status
 
     def hm_update_event(self, info):
         ovn_lb = info['ovn_lb']
 
-        # Lookup pool and member
-        pool_id = None
+        # Lookup member
         member_id = None
+
         for k, v in ovn_lb.external_ids.items():
             if ovn_const.LB_EXT_IDS_POOL_PREFIX not in k:
                 continue
@@ -2568,8 +2674,9 @@ class OvnProviderHelper():
                 if info['port'] != member_port:
                     continue
                 # match
-                pool_id = k.split('_')[1]
-                member_id = v.split('_')[1]
+
+                member_id = [mb.split('_')[1] for mb in v.split(',')
+                             if member_ip in mb and member_port in mb][0]
                 break
 
             # found it in inner loop
@@ -2583,20 +2690,7 @@ class OvnProviderHelper():
         member_status = constants.ONLINE
         if info['status'] == ['offline']:
             member_status = constants.ERROR
-        lb_status, pool_status = self._get_new_operating_statuses(
-            ovn_lb, pool_id, member_id, member_status)
 
-        status = {
-            constants.POOLS: [
-                {constants.ID: pool_id,
-                 constants.PROVISIONING_STATUS: constants.ACTIVE,
-                 constants.OPERATING_STATUS: pool_status}],
-            constants.MEMBERS: [
-                {constants.ID: member_id,
-                 constants.PROVISIONING_STATUS: constants.ACTIVE,
-                 constants.OPERATING_STATUS: member_status}],
-            constants.LOADBALANCERS: [
-                {constants.ID: ovn_lb.name,
-                 constants.PROVISIONING_STATUS: constants.ACTIVE,
-                 constants.OPERATING_STATUS: lb_status}]}
+        self._update_member_status(ovn_lb, member_id, member_status)
+        status = self._get_current_operating_statuses(ovn_lb)
         return status
