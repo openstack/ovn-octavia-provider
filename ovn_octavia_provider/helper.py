@@ -2498,14 +2498,17 @@ class OvnProviderHelper():
                         'update will have incomplete data', ovn_lb.name)
         return status
 
-    def _get_lb_on_hm_event(self, row):
+    def _get_lbs_on_hm_event(self, row):
         """Get the Load Balancer information on a health_monitor event
 
         This function is called when the status of a member has
-        been updated.
+        been updated. As no duplicate entries are created on a same
+        member for different LBs we will search all LBs affected by
+        the member reported in the health check event
+
         Input: Service Monitor row which is coming from
                ServiceMonitorUpdateEvent.
-        Output: A row from load_balancer table table matching the member
+        Output: Rows from load_balancer table table matching the member
                 for which the event was generated.
         Exception: RowNotFound exception can be generated.
         """
@@ -2525,22 +2528,17 @@ class OvnProviderHelper():
         lbs = self.ovn_nbdb_api.db_find_rows(
             'Load_Balancer', ('ip_port_mappings', '=', mappings),
             ('protocol', '=', row.protocol[0])).execute()
-        return lbs[0] if lbs else None
+        return lbs if lbs else None
 
     def hm_update_event_handler(self, row):
         try:
-            ovn_lb = self._get_lb_on_hm_event(row)
+            ovn_lb = self._get_lbs_on_hm_event(row)
         except idlutils.RowNotFound:
             LOG.debug("Load balancer information not found")
             return
 
         if not ovn_lb:
             LOG.debug("Load balancer not found")
-            return
-
-        if row.protocol != ovn_lb.protocol:
-            LOG.debug('Row protocol (%s) does not match LB protocol (%s)',
-                      row.protocol, ovn_lb.protocol)
             return
 
         request_info = {'ovn_lb': ovn_lb,
@@ -2661,37 +2659,50 @@ class OvnProviderHelper():
         return status
 
     def hm_update_event(self, info):
-        ovn_lb = info['ovn_lb']
-
+        ovn_lbs = info['ovn_lb']
+        statuses = []
         # Lookup member
         member_id = None
-
-        for k, v in ovn_lb.external_ids.items():
-            if ovn_const.LB_EXT_IDS_POOL_PREFIX not in k:
-                continue
-            for member_ip, member_port, subnet in self._extract_member_info(v):
-                if info['ip'] != member_ip:
+        for ovn_lb in ovn_lbs:
+            for k, v in ovn_lb.external_ids.items():
+                if ovn_const.LB_EXT_IDS_POOL_PREFIX not in k:
                     continue
-                if info['port'] != member_port:
-                    continue
-                # match
+                for (
+                    member_ip,
+                    member_port,
+                    subnet,
+                ) in self._extract_member_info(v):
+                    if info['ip'] != member_ip:
+                        continue
+                    if info['port'] != member_port:
+                        continue
+                    # match
 
-                member_id = [mb.split('_')[1] for mb in v.split(',')
-                             if member_ip in mb and member_port in mb][0]
-                break
+                    member_id = [mb.split('_')[1] for mb in v.split(',')
+                                 if member_ip in mb and member_port in mb][0]
+                    break
 
-            # found it in inner loop
-            if member_id:
-                break
+                # found it in inner loop
+                if member_id:
+                    break
 
-        if not member_id:
-            LOG.warning('Member for event not found, info: %s', info)
-            return
+            if not member_id:
+                LOG.warning('Member for event not found, info: %s', info)
+                return
 
-        member_status = constants.ONLINE
-        if info['status'] == ['offline']:
-            member_status = constants.ERROR
+            member_status = constants.ONLINE
+            if info['status'] == ['offline']:
+                member_status = constants.ERROR
 
-        self._update_member_status(ovn_lb, member_id, member_status)
-        status = self._get_current_operating_statuses(ovn_lb)
+            self._update_member_status(ovn_lb, member_id, member_status)
+            statuses.append(self._get_current_operating_statuses(ovn_lb))
+
+        status = {}
+
+        for status_lb in statuses:
+            for k in status_lb.keys():
+                if k not in status:
+                    status[k] = []
+                status[k].extend(status_lb[k])
+
         return status
