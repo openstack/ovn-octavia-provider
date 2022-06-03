@@ -3622,9 +3622,9 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         self.mock_add_request.assert_called_once_with(expected)
         self.helper.ovn_nbdb_api.db_find_rows.assert_called_once_with(
             'Load_Balancer',
-            (('ip_port_mappings', '=',
-              {self.member_address: 'a-logical-port:' + src_ip}),
-             ('protocol', '=', self.ovn_hm_lb.protocol)))
+            ('ip_port_mappings', '=',
+             {self.member_address: 'a-logical-port:' + src_ip}),
+            ('protocol', '=', self.ovn_hm_lb.protocol[0]))
 
     def test_hm_update_event_lb_not_found(self):
         self.helper.ovn_nbdb_api.db_find_rows.return_value.\
