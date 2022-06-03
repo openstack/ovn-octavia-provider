@@ -673,6 +673,16 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         self._test_lb_create_on_multi_protocol('SCTP')
 
     @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
+    def test_lb_create_neutron_client_exception(self, net_cli):
+        net_cli.return_value.list_ports.return_value = self.ports
+        net_cli.return_value.show_subnet.side_effect = [n_exc.NotFound]
+        status = self.helper.lb_create(self.lb)
+        self.assertEqual(status['loadbalancers'][0]['provisioning_status'],
+                         constants.ERROR)
+        self.assertEqual(status['loadbalancers'][0]['operating_status'],
+                         constants.ERROR)
+
+    @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
     @mock.patch.object(ovn_helper.OvnProviderHelper, 'delete_vip_port')
     def test_lb_create_exception(self, del_port, net_cli):
         self.helper._find_ovn_lbs.side_effect = [RuntimeError]
