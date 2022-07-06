@@ -2300,7 +2300,7 @@ class OvnProviderHelper():
             if netaddr.IPNetwork(hm_source_ip).version == 6:
                 member_src += f'[{hm_source_ip}]'
             else:
-                member_src += f'i{hm_source_ip}'
+                member_src += f'{hm_source_ip}'
 
             if netaddr.IPNetwork(member_ip).version == 6:
                 member_ip = f'[{member_ip}]'
