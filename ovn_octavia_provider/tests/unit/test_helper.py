@@ -374,7 +374,11 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         found = f(self.ovn_lb.id, protocol='tcp')
         self.assertEqual(found, self.ovn_lb)
 
-    def test__get_subnet_from_pool(self):
+    @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
+    def test__get_subnet_from_pool(self, net_cli):
+        net_cli.return_value.show_subnet.return_value = {
+            'subnet': {'cidr': '10.22.33.0/24'}}
+
         f = self.helper._get_subnet_from_pool
 
         lb = data_models.LoadBalancer(
@@ -393,12 +397,12 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         with mock.patch.object(self.helper, '_octavia_driver_lib') as dlib:
             dlib.get_pool.return_value = None
             found = f('not_found')
-            self.assertIsNone(found)
+            self.assertEqual((None, None), found)
 
             dlib.get_pool.return_value = lb_pool
             dlib.get_loadbalancer.return_value = lb
             found = f(self.pool_id)
-            self.assertEqual(found, lb.vip_subnet_id)
+            self.assertEqual(found, (lb.vip_subnet_id, '10.22.33.0/24'))
 
     def test__get_subnet_from_pool_lb_no_vip_subnet_id(self):
         f = self.helper._get_subnet_from_pool
@@ -418,12 +422,12 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         with mock.patch.object(self.helper, '_octavia_driver_lib') as dlib:
             dlib.get_pool.return_value = None
             found = f('not_found')
-            self.assertIsNone(found)
+            self.assertEqual((None, None), found)
 
             dlib.get_pool.return_value = lb_pool
             dlib.get_loadbalancer.return_value = lb
             found = f(self.pool_id)
-            self.assertIsNone(found)
+            self.assertEqual((None, None), found)
 
     def test__get_or_create_ovn_lb_no_lb_found(self):
         self.mock_find_ovn_lbs.stop()
