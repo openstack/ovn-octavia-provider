@@ -477,13 +477,25 @@ class OvnProviderHelper(object):
             ovn_lb = self._find_ovn_lb_with_pool_key(pool_key)
         return pool_key, ovn_lb
 
+    def _check_ip_in_subnet(self, ip, subnet):
+        return (netaddr.IPAddress(ip) in netaddr.IPNetwork(subnet))
+
     def _get_subnet_from_pool(self, pool_id):
         pool = self._octavia_driver_lib.get_pool(pool_id)
         if not pool:
-            return
+            return None, None
         lb = self._octavia_driver_lib.get_loadbalancer(pool.loadbalancer_id)
         if lb and lb.vip_subnet_id:
-            return lb.vip_subnet_id
+            neutron_client = clients.get_neutron_client()
+            try:
+                subnet = neutron_client.show_subnet(lb.vip_subnet_id)
+                vip_subnet_cidr = subnet['subnet']['cidr']
+            except n_exc.NotFound:
+                LOG.warning('Subnet %s not found while trying to '
+                            'fetch its data.', lb.vip_subnet_id)
+                return None, None
+            return lb.vip_subnet_id, vip_subnet_cidr
+        return None, None
 
     def _execute_commands(self, commands):
         with self.ovn_nbdb_api.transaction(check_error=True) as txn:
