@@ -227,7 +227,11 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
         self.mock_get_subnet_from_pool = mock.patch.object(
             ovn_helper.OvnProviderHelper,
             '_get_subnet_from_pool',
-            return_value=None).start()
+            return_value=(None, None)).start()
+        self.mock_check_ip_in_subnet = mock.patch.object(
+            ovn_helper.OvnProviderHelper,
+            '_check_ip_in_subnet',
+            return_value=True).start()
 
     def test_check_for_allowed_cidrs_exception(self):
         self.assertRaises(exceptions.UnsupportedOptionError,
@@ -301,7 +305,18 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
 
     def test_member_create_no_subnet_provided_get_from_pool(self):
         self.driver._ovn_helper._get_subnet_from_pool.return_value = (
-            self.ref_member.subnet_id)
+            self.ref_member.subnet_id, '198.52.100.0/24')
+        self.driver._ovn_helper._check_ip_in_subnet.return_value = False
+        self.ref_member.subnet_id = data_models.UnsetType()
+        self.assertRaises(exceptions.UnsupportedOptionError,
+                          self.driver.member_create, self.ref_member)
+        self.ref_member.subnet_id = None
+        self.assertRaises(exceptions.UnsupportedOptionError,
+                          self.driver.member_create, self.ref_member)
+
+    def test_member_create_no_subnet_provided_get_from_pool_failed(self):
+        self.driver._ovn_helper._get_subnet_from_pool.return_value = (
+            self.ref_member.subnet_id, '198.52.100.0/24')
         member = copy.copy(self.ref_member)
         member.subnet_id = data_models.UnsetType()
         self._test_member_create(member)
@@ -349,7 +364,7 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
 
     def test_member_update_missing_subnet_id(self):
         self.driver._ovn_helper._get_subnet_from_pool.return_value = (
-            self.ref_member.subnet_id)
+            self.ref_member.subnet_id, '198.52.100.0/24')
         info = {'id': self.update_member.member_id,
                 'address': self.ref_member.address,
                 'protocol_port': self.ref_member.protocol_port,
@@ -366,7 +381,7 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
 
     def test_member_update_unset_admin_state_up(self):
         self.driver._ovn_helper._get_subnet_from_pool.return_value = (
-            self.ref_member.subnet_id)
+            self.ref_member.subnet_id, '198.52.100.0/24')
         self.update_member.admin_state_up = data_models.UnsetType()
         info = {'id': self.update_member.member_id,
                 'address': self.ref_member.address,
@@ -428,9 +443,18 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
 
     def test_member_batch_update_missing_subnet_id_get_from_pool(self):
         self.driver._ovn_helper._get_subnet_from_pool.return_value = (
-            self.ref_member.subnet_id)
+            self.ref_member.subnet_id, '198.52.100.0/24')
         self.ref_member.subnet_id = None
         self.driver.member_batch_update(self.pool_id, [self.ref_member])
+
+    def test_member_batch_update_missing_subnet_id_get_from_pool_fail(self):
+        self.driver._ovn_helper._get_subnet_from_pool.return_value = (
+            self.ref_member.subnet_id, '198.52.100.0/24')
+        self.driver._ovn_helper._check_ip_in_subnet.return_value = False
+        self.ref_member.subnet_id = None
+        self.assertRaises(exceptions.UnsupportedOptionError,
+                          self.driver.member_batch_update,
+                          self.pool_id, [self.ref_member])
 
     def test_member_update_failure(self):
         self.assertRaises(exceptions.UnsupportedOptionError,
@@ -468,7 +492,7 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
 
     def test_member_delete_missing_subnet_id(self):
         self.driver._ovn_helper._get_subnet_from_pool.return_value = (
-            self.ref_member.subnet_id)
+            self.ref_member.subnet_id, '198.52.100.0/24')
         info = {'id': self.ref_member.member_id,
                 'address': self.ref_member.address,
                 'protocol_port': self.ref_member.protocol_port,
