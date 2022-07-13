@@ -391,12 +391,14 @@ class OvnProviderDriver(driver_base.ProviderDriver):
 
         for member in members_to_delete:
             member_info = member.split('_')
+            member_ip, member_port, subnet_id = (
+                self._ovn_helper._extract_member_info(member)[0])
             request_info = {'id': member_info[1],
-                            'address': member_info[2].split(':')[0],
-                            'protocol_port': member_info[2].split(':')[1],
+                            'address': member_ip,
+                            'protocol_port': member_port,
                             'pool_id': pool_id}
             if len(member_info) == 4:
-                request_info['subnet_id'] = member_info[3]
+                request_info['subnet_id'] = subnet_id
             request = {'type': ovn_const.REQ_TYPE_MEMBER_DELETE,
                        'info': request_info}
             request_list.append(request)
