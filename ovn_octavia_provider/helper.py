@@ -2684,9 +2684,10 @@ class OvnProviderHelper():
     def hm_update_event(self, info):
         ovn_lbs = info['ovn_lb']
         statuses = []
-        # Lookup member
-        member_id = None
+
         for ovn_lb in ovn_lbs:
+            # Lookup member
+            member_id = None
             for k, v in ovn_lb.external_ids.items():
                 if ovn_const.LB_EXT_IDS_POOL_PREFIX not in k:
                     continue
@@ -2700,7 +2701,6 @@ class OvnProviderHelper():
                     if info['port'] != member_port:
                         continue
                     # match
-
                     member_id = [mb.split('_')[1] for mb in v.split(',')
                                  if member_ip in mb and member_port in mb][0]
                     break
@@ -2711,14 +2711,16 @@ class OvnProviderHelper():
 
             if not member_id:
                 LOG.warning('Member for event not found, info: %s', info)
-                return
+            else:
+                member_status = constants.ONLINE
+                if info['status'] == ['offline']:
+                    member_status = constants.ERROR
 
-            member_status = constants.ONLINE
-            if info['status'] == ['offline']:
-                member_status = constants.ERROR
+                self._update_member_status(ovn_lb, member_id, member_status)
+                statuses.append(self._get_current_operating_statuses(ovn_lb))
 
-            self._update_member_status(ovn_lb, member_id, member_status)
-            statuses.append(self._get_current_operating_statuses(ovn_lb))
+        if not statuses:
+            return
 
         status = {}
 

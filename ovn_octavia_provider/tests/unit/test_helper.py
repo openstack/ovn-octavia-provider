@@ -3779,14 +3779,15 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
     def test_hm_update_event_member_port_not_found(self):
         self._test_hm_update_no_member(False, True)
 
-    def _test_hm_update_status(self, member_id, ip, port, member_status):
+    def _test_hm_update_status(self, ovn_lbs, member_id, ip, port,
+                               member_status):
         info = {
-            'ovn_lb': [self.ovn_hm_lb],
+            'ovn_lb': ovn_lbs,
             'ip': ip,
             'logical_port': 'a-logical-port',
             'src_ip': '10.22.33.4',
             'port': port,
-            'protocol': self.ovn_hm_lb.protocol,
+            'protocol': ovn_lbs[0].protocol,
             'status': [member_status]}
         self._update_member_status(self.ovn_hm_lb, member_id, member_status)
         status = self.helper.hm_update_event(info)
@@ -3808,7 +3809,10 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
             ovn_const.OVN_MEMBER_STATUS_KEY] = jsonutils.dumps(
                 member_statuses)
 
-    def _add_member(self, lb, subnet, port, ip=None):
+    def _add_member(self, lb, subnet, port, pool_id=None, ip=None):
+        if not pool_id:
+            pool_id = self.pool_id
+
         if not ip:
             fake_port = fakes.FakePort.create_one_port(
                 attrs={'allowed_address_pairs': ''})
@@ -3818,14 +3822,14 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
                   'address': ip,
                   'protocol_port': port,
                   'subnet_id': subnet['id'],
-                  'pool_id': self.pool_id,
+                  'pool_id': pool_id,
                   'admin_state_up': True,
                   'old_admin_state_up': True}
         member_line = (
             'member_%s_%s:%s_%s' %
             (member['id'], member['address'],
              member['protocol_port'], member['subnet_id']))
-        pool_key = 'pool_%s' % self.pool_id
+        pool_key = 'pool_%s' % pool_id
 
         existing_members = lb.external_ids[pool_key]
         existing_member_status = lb.external_ids[
@@ -3855,7 +3859,8 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         fake_subnet = fakes.FakeSubnet.create_one_subnet()
         member = self._add_member(self.ovn_hm_lb, fake_subnet, 8080)
         status = self._test_hm_update_status(
-            member['id'], member['address'], '8080', 'offline')
+            [self.ovn_hm_lb], member['id'], member['address'], '8080',
+            'offline')
 
         self.assertEqual(status['pools'][0]['provisioning_status'],
                          constants.ACTIVE)
@@ -3919,7 +3924,8 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         fake_subnet = fakes.FakeSubnet.create_one_subnet()
         member = self._add_member(self.ovn_hm_lb, fake_subnet, 8080)
         status = self._test_hm_update_status(
-            member['id'], member['address'], '8080', 'offline')
+            [self.ovn_hm_lb], member['id'], member['address'], '8080',
+            'offline')
 
         self.assertEqual(status['pools'][0]['provisioning_status'],
                          constants.ACTIVE)
@@ -3938,7 +3944,8 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         fake_subnet = fakes.FakeSubnet.create_one_subnet()
         member = self._add_member(self.ovn_hm_lb, fake_subnet, 8080)
         status = self._test_hm_update_status(
-            member['id'], member['address'], '8080', 'online')
+            [self.ovn_hm_lb], member['id'], member['address'], '8080',
+            'online')
 
         self.assertEqual(status['pools'][0]['provisioning_status'],
                          constants.ACTIVE)
@@ -3957,7 +3964,8 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         fake_subnet = fakes.FakeSubnet.create_one_subnet()
         member = self._add_member(self.ovn_hm_lb, fake_subnet, 8080)
         status = self._test_hm_update_status(
-            member['id'], member['address'], '8080', 'online')
+            [self.ovn_hm_lb], member['id'], member['address'], '8080',
+            'online')
 
         self.assertEqual(status['pools'][0]['provisioning_status'],
                          constants.ACTIVE)
@@ -3971,6 +3979,49 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
                          constants.ACTIVE)
         self.assertEqual(status['loadbalancers'][0]['operating_status'],
                          constants.ONLINE)
+
+    def test_hm_update_status_offline_two_members_diff_lbs_port(self):
+        fake_subnet = fakes.FakeSubnet.create_one_subnet()
+        ovn_hm_lb2 = mock.MagicMock()
+        ovn_hm_lb2.uuid = uuidutils.generate_uuid()
+        listener_id_2 = uuidutils.generate_uuid()
+        pool_id_2 = uuidutils.generate_uuid()
+        ovn_hm_lb2.external_ids = {
+            ovn_const.LB_EXT_IDS_VIP_KEY: '10.22.33.98',
+            ovn_const.LB_EXT_IDS_VIP_FIP_KEY: '123.123.123.98',
+            ovn_const.LB_EXT_IDS_VIP_PORT_ID_KEY: 'foo_hm_port_2',
+            'enabled': True,
+            'pool_%s' % pool_id_2: [],
+            'listener_%s' % listener_id_2: '8081:pool_%s' % pool_id_2,
+            ovn_const.OVN_MEMBER_STATUS_KEY: '{}'}
+
+        member_lb1 = self._add_member(self.ovn_hm_lb, fake_subnet, 8080)
+        ip_member = member_lb1['address']
+        member_lb2 = self._add_member(ovn_hm_lb2, fake_subnet, 8081,
+                                      pool_id=pool_id_2, ip=ip_member)
+
+        # member lb2 OFFLINE, so lb2 operating_status should be ERROR
+        # for Pool and Loadbalancer, but lb1 should keep ONLINE
+        self._update_member_status(ovn_hm_lb2, member_lb2['id'], 'offline')
+
+        info = {
+            'ovn_lb': [self.ovn_hm_lb, ovn_hm_lb2],
+            'ip': ip_member,
+            'logical_port': 'a-logical-port',
+            'src_ip': '10.22.33.4',
+            'port': '8081',
+            'protocol': ovn_hm_lb2.protocol,
+            'status': ['offline']}
+
+        status = self.helper.hm_update_event(info)
+
+        self.assertEqual(status['members'][0]['operating_status'],
+                         constants.ERROR)
+        self.assertEqual(status['pools'][0]['operating_status'],
+                         constants.ERROR)
+        self.assertEqual(status['loadbalancers'][0]['operating_status'],
+                         constants.ERROR)
+        self.assertEqual(status['members'][0]['id'], member_lb2['id'])
 
     def test_hm_update_status_offline_two_members(self):
         fake_subnet = fakes.FakeSubnet.create_one_subnet()
@@ -3993,7 +4044,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         self.octavia_driver_lib.get_member.return_value = fake_member
 
         status = self._test_hm_update_status(
-            member_1['id'], ip_1, '8080', 'offline')
+            [self.ovn_hm_lb], member_1['id'], ip_1, '8080', 'offline')
 
         self.assertEqual(status['members'][0]['operating_status'],
                          constants.ERROR)
@@ -4007,7 +4058,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         fake_member.operating_status = constants.ERROR
         self.octavia_driver_lib.get_member.return_value = fake_member
         status = self._test_hm_update_status(
-            member_2['id'], ip_2, '8081', 'offline')
+            [self.ovn_hm_lb], member_2['id'], ip_2, '8081', 'offline')
         self.assertEqual(status['members'][0]['operating_status'],
                          constants.ERROR)
         self.assertEqual(status['pools'][0]['operating_status'],
@@ -4032,7 +4083,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         # Second member ERROR, operating_status should be DEGRADED
         # for Pool and Loadbalancer
         status = self._test_hm_update_status(
-            member_2['id'], ip_2, '8081', 'offline')
+            [self.ovn_hm_lb], member_2['id'], ip_2, '8081', 'offline')
         member_status = {
             ovn_const.OVN_MEMBER_STATUS_KEY: '{"%s": "%s", "%s": "%s"}'
             % (member_1['id'],
@@ -4055,7 +4106,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         fake_member.operating_status = constants.ONLINE
         self.octavia_driver_lib.get_member.return_value = fake_member
         status = self._test_hm_update_status(
-            member_2['id'], ip_2, '8081', 'online')
+            [self.ovn_hm_lb], member_2['id'], ip_2, '8081', 'online')
         self.assertEqual(status['members'][0]['operating_status'],
                          constants.ONLINE)
         self.assertEqual(status['pools'][0]['operating_status'],
