@@ -440,7 +440,22 @@ class OvnProviderDriver(driver_base.ProviderDriver):
                 user_fault_string=msg,
                 operator_fault_string=msg)
 
-    def create_vip_port(self, lb_id, project_id, vip_dict):
+    def create_vip_port(self, lb_id, project_id, vip_dict,
+                        additional_vip_dicts=None):
+        """Create the VIP port of a load balancer
+
+        :param lb_id: The ID of the load balancer
+        :param project_id: The ID of the project that owns the load balancer
+        :param vip_dict: A dict that contains the provider VIP information
+               ('network_id', 'port_id', 'subnet_id' and/or 'ip_address')
+        :param additional_vip_dicts: An optional list of dicts of additional
+               VIP. An additional VIP dict might contain the 'ip_address',
+               'network_id', 'port_id' and/or 'subnet_id' of the secondary
+               VIPs.
+        :return: a tuple that contains the VIP provider dictionary and a list
+                 of additional VIP dictionaries
+        """
+        # TODO(gthiemonge): implement additional_vip_dicts
         try:
             port = self._ovn_helper.create_vip_port(
                 project_id, lb_id, vip_dict)['port']
@@ -454,7 +469,7 @@ class OvnProviderDriver(driver_base.ProviderDriver):
                           'operator_fault_string': e.message}
             raise driver_exceptions.DriverError(
                 **kwargs)
-        return vip_dict
+        return vip_dict, []
 
     def _validate_hm_support(self, hm, action='create'):
         if not self._is_health_check_supported():
