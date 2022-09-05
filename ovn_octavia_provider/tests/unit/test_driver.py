@@ -911,11 +911,13 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
 
     def test_create_vip_port(self):
         with mock.patch.object(clients, 'get_neutron_client'):
-            port_dict = self.driver.create_vip_port(self.loadbalancer_id,
-                                                    self.project_id,
-                                                    self.vip_dict)
+            port_dict, add_vip_dicts = (
+                self.driver.create_vip_port(self.loadbalancer_id,
+                                            self.project_id,
+                                            self.vip_dict, []))
             self.assertIsNotNone(port_dict.pop('vip_address', None))
             self.assertIsNotNone(port_dict.pop('vip_port_id', None))
+            self.assertEqual(len(add_vip_dicts), 0)
             # The network_driver function is mocked, therefore the
             # created port vip_address and vip_port_id are also mocked.
             # Check if it exists and move on.
@@ -932,7 +934,8 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
                 self.driver.create_vip_port,
                 self.loadbalancer_id,
                 self.project_id,
-                self.vip_dict)
+                self.vip_dict,
+                [])
 
     def test_health_monitor_create(self):
         info = {'id': self.ref_health_monitor.healthmonitor_id,
