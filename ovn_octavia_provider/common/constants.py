@@ -103,3 +103,7 @@ LB_SELECTION_FIELDS_MAP = {
     constants.LB_ALGORITHM_SOURCE_IP: ["ip_src", "ip_dst"],
     None: ["ip_src", "ip_dst", "tp_src", "tp_dst"],
 }
+
+# HM events status
+HM_EVENT_MEMBER_PORT_ONLINE = ['online']
+HM_EVENT_MEMBER_PORT_OFFLINE = ['offline']

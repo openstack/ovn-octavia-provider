@@ -2559,7 +2559,12 @@ class OvnProviderHelper():
             ('protocol', '=', row.protocol[0])).execute()
         return lbs if lbs else None
 
-    def hm_update_event_handler(self, row):
+    def hm_update_event_handler(self, row, sm_delete_event=False):
+        # NOTE(froyo): When a delete event is triggered, the Service_Monitor
+        # deleted row will include the last valid information, e.g. when the
+        # port is directly removed from the VM, the status will be 'online',
+        # in order to protect from this behaviour, we will set manually the
+        # status to 'offline' if sm_delete_event is reported as True.
         try:
             ovn_lb = self._get_lbs_on_hm_event(row)
         except idlutils.RowNotFound:
@@ -2570,10 +2575,14 @@ class OvnProviderHelper():
             LOG.debug("Load balancer not found")
             return
 
-        request_info = {'ovn_lb': ovn_lb,
-                        'ip': row.ip,
-                        'port': str(row.port),
-                        'status': row.status}
+        request_info = {
+            "ovn_lb": ovn_lb,
+            "ip": row.ip,
+            "port": str(row.port),
+            "status": row.status
+            if not sm_delete_event
+            else ovn_const.HM_EVENT_MEMBER_PORT_OFFLINE,
+        }
         self.add_request({'type': ovn_const.REQ_TYPE_HM_UPDATE_EVENT,
                           'info': request_info})
 
@@ -2719,7 +2728,7 @@ class OvnProviderHelper():
                 LOG.warning('Member for event not found, info: %s', info)
             else:
                 member_status = constants.ONLINE
-                if info['status'] == ['offline']:
+                if info['status'] == ovn_const.HM_EVENT_MEMBER_PORT_OFFLINE:
                     member_status = constants.ERROR
 
                 self._update_member_status(ovn_lb, member_id, member_status)
