@@ -3691,14 +3691,42 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
                    'src_ip': src_ip,
                    'port': self.member_port,
                    'protocol': self.ovn_hm_lb.protocol,
-                   'status': ['offline']})
+                   'status': ovn_const.HM_EVENT_MEMBER_PORT_OFFLINE})
         self.hm_update_event.run('update', row, mock.ANY)
         expected = {
             'info':
                 {'ovn_lb': [self.ovn_hm_lb],
                  'ip': self.member_address,
                  'port': self.member_port,
-                 'status': ['offline']},
+                 'status': ovn_const.HM_EVENT_MEMBER_PORT_OFFLINE},
+            'type': 'hm_update_event'}
+        self.mock_add_request.assert_called_once_with(expected)
+        self.helper.ovn_nbdb_api.db_find_rows.assert_called_once_with(
+            'Load_Balancer',
+            ('ip_port_mappings', '=',
+             {self.member_address: 'a-logical-port:' + src_ip}),
+            ('protocol', '=', self.ovn_hm_lb.protocol[0]))
+
+    def test_hm_update_event_offline_by_delete(self):
+        self.helper.ovn_nbdb_api.db_find_rows.return_value.\
+            execute.return_value = [self.ovn_hm_lb]
+        self.hm_update_event = ovn_event.ServiceMonitorUpdateEvent(
+            self.helper)
+        src_ip = '10.22.33.4'
+        row = fakes.FakeOvsdbRow.create_one_ovsdb_row(
+            attrs={'ip': self.member_address,
+                   'logical_port': 'a-logical-port',
+                   'src_ip': src_ip,
+                   'port': self.member_port,
+                   'protocol': self.ovn_hm_lb.protocol,
+                   'status': ovn_const.HM_EVENT_MEMBER_PORT_ONLINE})
+        self.hm_update_event.run('delete', row, mock.ANY)
+        expected = {
+            'info':
+                {'ovn_lb': [self.ovn_hm_lb],
+                 'ip': self.member_address,
+                 'port': self.member_port,
+                 'status': ovn_const.HM_EVENT_MEMBER_PORT_OFFLINE},
             'type': 'hm_update_event'}
         self.mock_add_request.assert_called_once_with(expected)
         self.helper.ovn_nbdb_api.db_find_rows.assert_called_once_with(
@@ -3718,7 +3746,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
                    'src_ip': '10.22.33.4',
                    'port': self.member_port,
                    'protocol': self.ovn_hm_lb.protocol,
-                   'status': ['offline']})
+                   'status': ovn_const.HM_EVENT_MEMBER_PORT_OFFLINE})
         self.hm_update_event.run('update', row, mock.ANY)
         self.mock_add_request.assert_not_called()
 
@@ -3733,7 +3761,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
                    'src_ip': '10.22.33.4',
                    'port': self.member_port,
                    'protocol': self.ovn_hm_lb.protocol,
-                   'status': ['offline']})
+                   'status': ovn_const.HM_EVENT_MEMBER_PORT_OFFLINE})
         self.hm_update_event.run('update', row, mock.ANY)
         self.mock_add_request.assert_not_called()
 
@@ -3768,7 +3796,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
             'src_ip': '10.22.33.4',
             'port': port,
             'protocol': self.ovn_hm_lb.protocol,
-            'status': ['offline']}
+            'status': ovn_const.HM_EVENT_MEMBER_PORT_OFFLINE}
 
         status = self.helper.hm_update_event(info)
         self.assertIsNone(status)
@@ -3890,7 +3918,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
             'src_ip': '10.22.33.4',
             'port': '8080',
             'protocol': self.ovn_hm_lb.protocol,
-            'status': ['offline']}
+            'status': ovn_const.HM_EVENT_MEMBER_PORT_OFFLINE}
         self._update_member_status(self.ovn_hm_lb, member['id'], 'offline')
         self._update_member_status(ovn_hm_lb_2, member_2['id'], 'offline')
         status = self.helper.hm_update_event(info)
@@ -4011,7 +4039,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
             'src_ip': '10.22.33.4',
             'port': '8081',
             'protocol': ovn_hm_lb2.protocol,
-            'status': ['offline']}
+            'status': ovn_const.HM_EVENT_MEMBER_PORT_OFFLINE}
 
         status = self.helper.hm_update_event(info)
 
