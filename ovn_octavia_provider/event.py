@@ -72,7 +72,7 @@ class ServiceMonitorUpdateEvent(row_event.RowEvent):
 
     def __init__(self, driver):
         table = 'Service_Monitor'
-        events = (self.ROW_UPDATE,)
+        events = (self.ROW_UPDATE, self.ROW_DELETE)
         super().__init__(events, table, None)
         self.event_name = 'ServiceMonitorUpdateEvent'
         self.driver = driver
@@ -82,4 +82,7 @@ class ServiceMonitorUpdateEvent(row_event.RowEvent):
                   '%(event)s, %(row)s',
                   {'event': event,
                    'row': row})
-        self.driver.hm_update_event_handler(row)
+        if event == self.ROW_DELETE:
+            self.driver.hm_update_event_handler(row, sm_delete_event=True)
+        elif event == self.ROW_UPDATE:
+            self.driver.hm_update_event_handler(row)
