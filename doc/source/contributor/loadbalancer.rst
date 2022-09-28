@@ -286,10 +286,13 @@ The Following actions are not supported by the OVN Provider Driver:
 - Currently only one algorithm is supported for pool management
   (Source IP Port)
 
-The following issue exists with OVN's integration with Octavia:
-
-- If creation/deletion of a LoadBalancer, Listener, Pool or Member fails, then
-  the corresponding object will remain in the DB in a PENDING_* state.
+- Due to nature of OVN octavia driver (flows distributed in all the nodes)
+  there is no need for some of the amphora specific functionality that is
+  specific to the fact that a VM is created for the load balancing actions. As
+  an example, there is no need for flavors (no VM is created), failovers (no
+  need to recover a VM), or HA (no need to create extra VMs as in the
+  ovn-octavia case the flows are injected in all the nodes, i.e., it is HA by
+  default).
 
 Support Matrix
 --------------

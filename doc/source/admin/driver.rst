@@ -44,7 +44,13 @@ These include:
 * Only the SOURCE_IP_PORT load balancing algorithm is supported, others
   like ROUND_ROBIN and LEAST_CONNECTIONS are not currently supported.
 
-* Octavia flavors are not supported.
+* Due to nature of OVN octavia driver (flows distributed in all the nodes)
+  there is no need for some of the amphora specific functionality that is
+  specific to the fact that a VM is created for the load balancing actions. As
+  an example, there is no need for flavors (no VM is created), failovers (no
+  need to recover a VM), or HA (no need to create extra VMs as in the
+  ovn-octavia case the flows are injected in all the nodes, i.e., it is HA by
+  default).
 
 Creating an OVN based Load Balancer
 -----------------------------------
