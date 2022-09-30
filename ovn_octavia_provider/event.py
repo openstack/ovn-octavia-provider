@@ -36,8 +36,6 @@ class LogicalRouterPortEvent(row_event.RowEvent):
                   '%(event)s, %(row)s',
                   {'event': event,
                    'row': row})
-        if row.gateway_chassis:
-            return
         if event == self.ROW_CREATE:
             self.driver.lb_create_lrp_assoc_handler(row)
         elif event == self.ROW_DELETE:
