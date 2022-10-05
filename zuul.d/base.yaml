@@ -51,7 +51,7 @@
       Q_BUILD_OVS_FROM_GIT: True
       INSTALL_OVN: True
       OVN_BRANCH: main
-      OVS_BRANCH: "6f24c2bc769afde0a390ce344de1a7d9c592e5a6"
+      OVS_BRANCH: "5a686267d36c5c4229ec801a9616ceb60740fbe3"
 
 - job:
     name: ovn-octavia-provider-tempest-base
@@ -183,4 +183,4 @@
         Q_BUILD_OVS_FROM_GIT: True
         INSTALL_OVN: True
         OVN_BRANCH: main
-        OVS_BRANCH: "6f24c2bc769afde0a390ce344de1a7d9c592e5a6"
+        OVS_BRANCH: "5a686267d36c5c4229ec801a9616ceb60740fbe3"
