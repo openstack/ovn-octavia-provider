@@ -2187,51 +2187,38 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         for lb in self.network.load_balancer:
             self.assertNotIn(lb, net_lb)
 
-    @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
-    def test__find_ls_for_lr(self, net_cli):
-        fake_subnet1 = fakes.FakeSubnet.create_one_subnet()
-        fake_subnet1['network_id'] = 'foo1'
-        fake_subnet2 = fakes.FakeSubnet.create_one_subnet()
-        fake_subnet2['network_id'] = 'foo2'
-        net_cli.return_value.show_subnet.side_effect = [
-            {'subnet': fake_subnet1},
-            {'subnet': fake_subnet2}]
+    def test__find_ls_for_lr(self):
         p1 = fakes.FakeOVNPort.create_one_port(attrs={
             'gateway_chassis': [],
             'external_ids': {
-                ovn_const.OVN_SUBNET_EXT_IDS_KEY:
-                '%s %s' % (fake_subnet1.id,
-                           fake_subnet2.id)}})
+                ovn_const.OVN_NETWORK_NAME_EXT_ID_KEY: 'foo1'}})
+        p2 = fakes.FakeOVNPort.create_one_port(attrs={
+            'gateway_chassis': [],
+            'external_ids': {
+                ovn_const.OVN_NETWORK_NAME_EXT_ID_KEY: 'foo2'}})
         self.router.ports.append(p1)
+        self.router.ports.append(p2)
         res = self.helper._find_ls_for_lr(self.router)
-        self.assertListEqual(['neutron-foo1', 'neutron-foo2'],
-                             res)
+        self.assertListEqual(['neutron-foo1', 'neutron-foo2'], res)
 
-    @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
-    def test__find_ls_for_lr_subnet_not_found(self, net_cli):
-        fake_subnet1 = fakes.FakeSubnet.create_one_subnet()
-        fake_subnet1['network_id'] = 'foo1'
-        fake_subnet2 = fakes.FakeSubnet.create_one_subnet()
-        fake_subnet2['network_id'] = 'foo2'
-        net_cli.return_value.show_subnet.side_effect = [
-            {'subnet': fake_subnet1},
-            n_exc.NotFound]
+    def test__find_ls_for_lr_net_not_found(self):
         p1 = fakes.FakeOVNPort.create_one_port(attrs={
             'gateway_chassis': [],
             'external_ids': {
-                ovn_const.OVN_SUBNET_EXT_IDS_KEY:
-                '%s %s' % (fake_subnet1.id,
-                           fake_subnet2.id)}})
+                ovn_const.OVN_NETWORK_NAME_EXT_ID_KEY: 'foo1'}})
+        p2 = fakes.FakeOVNPort.create_one_port(attrs={
+            'gateway_chassis': [],
+            'external_ids': {}})
+        self.router.ports.append(p2)
         self.router.ports.append(p1)
         res = self.helper._find_ls_for_lr(self.router)
         self.assertListEqual(['neutron-foo1'], res)
 
-    @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
-    def test__find_ls_for_lr_gw_port(self, net_cli):
+    def test__find_ls_for_lr_gw_port(self):
         p1 = fakes.FakeOVNPort.create_one_port(attrs={
             'gateway_chassis': ['foo-gw-chassis'],
             'external_ids': {
-                ovn_const.OVN_SUBNET_EXT_IDS_KEY: self.member_subnet_id}})
+                ovn_const.OVN_NETWORK_NAME_EXT_ID_KEY: 'foo1'}})
         self.router.ports.append(p1)
         result = self.helper._find_ls_for_lr(self.router)
         self.assertListEqual([], result)
