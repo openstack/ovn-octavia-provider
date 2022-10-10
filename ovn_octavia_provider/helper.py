@@ -703,20 +703,14 @@ class OvnProviderHelper(object):
         return self._add_lb_to_lr_association(ovn_lb, ovn_lr, lr_ref)
 
     def _find_ls_for_lr(self, router):
-        neutron_client = clients.get_neutron_client()
         ls = []
         for port in router.ports:
             if port.gateway_chassis:
                 continue
-            sids = port.external_ids.get(
-                ovn_const.OVN_SUBNET_EXT_IDS_KEY, '').split(' ')
-            for sid in sids:
-                try:
-                    subnet = neutron_client.show_subnet(sid)
-                    ls.append(utils.ovn_name(subnet['subnet']['network_id']))
-                except n_exc.NotFound:
-                    LOG.exception('Subnet %s not found while trying to '
-                                  'fetch its data.', sid)
+            port_network_name = port.external_ids.get(
+                ovn_const.OVN_NETWORK_NAME_EXT_ID_KEY)
+            if port_network_name:
+                ls.append(utils.ovn_name(port_network_name))
         return ls
 
     def _find_lr_of_ls(self, ovn_ls, subnet_gateway_ip=None):
