@@ -19,7 +19,6 @@ OVN_NAME_PREFIX = "neutron-"
 LB_VIP_PORT_PREFIX = "ovn-lb-vip-"
 OVN_PORT_NAME_EXT_ID_KEY = 'neutron:port_name'
 OVN_ROUTER_NAME_EXT_ID_KEY = 'neutron:router_name'
-OVN_PORT_NAME_EXT_ID_KEY = 'neutron:port_name'
 OVN_PORT_FIP_EXT_ID_KEY = 'neutron:port_fip'
 OVN_SUBNET_EXT_ID_KEY = 'neutron:subnet_id'
 OVN_SUBNET_EXT_IDS_KEY = 'neutron:subnet_ids'
