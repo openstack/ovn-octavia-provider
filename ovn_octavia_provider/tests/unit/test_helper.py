@@ -2703,7 +2703,8 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         self.helper.ovn_nbdb_api.ls_get.assert_called_once_with(
             'neutron-foo')
         self.helper.ovn_nbdb_api.db_set.assert_not_called()
-        self.helper.ovn_nbdb_api.ls_lb_del.assert_not_called()
+        self.helper.ovn_nbdb_api.ls_lb_del.assert_called_once_with(
+            self.network.uuid, self.ref_lb1.uuid, if_exists=True)
 
     def test__update_lb_to_ls_association_net_ls_ref_wrong_format(self):
         self._update_lb_to_ls_association.stop()
