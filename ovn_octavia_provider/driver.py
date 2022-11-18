@@ -141,6 +141,9 @@ class OvnProviderDriver(driver_base.ProviderDriver):
         request = {'type': ovn_const.REQ_TYPE_POOL_CREATE,
                    'info': request_info}
         self._ovn_helper.add_request(request)
+        if pool.healthmonitor is not None and not isinstance(
+                pool.healthmonitor, o_datamodels.UnsetType):
+            self.health_monitor_create(pool.healthmonitor)
 
     def pool_delete(self, pool):
         for member in pool.members:
