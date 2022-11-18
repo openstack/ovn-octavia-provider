@@ -848,6 +848,32 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
         self.driver.pool_create(self.ref_pool)
         self.mock_add_request.assert_called_once_with(expected_dict)
 
+    def test_pool_create_with_health_monitor(self):
+        self.ref_pool.healthmonitor = self.ref_health_monitor
+        info = {'id': self.ref_pool.pool_id,
+                'loadbalancer_id': self.ref_pool.loadbalancer_id,
+                'listener_id': self.ref_pool.listener_id,
+                'protocol': self.ref_pool.protocol,
+                'lb_algorithm': constants.LB_ALGORITHM_SOURCE_IP_PORT,
+                'admin_state_up': self.ref_pool.admin_state_up}
+        info_hm = {'id': self.ref_health_monitor.healthmonitor_id,
+                   'pool_id': self.ref_health_monitor.pool_id,
+                   'type': self.ref_health_monitor.type,
+                   'interval': self.ref_health_monitor.delay,
+                   'timeout': self.ref_health_monitor.timeout,
+                   'failure_count': self.ref_health_monitor.max_retries_down,
+                   'success_count': self.ref_health_monitor.max_retries,
+                   'admin_state_up': self.ref_health_monitor.admin_state_up}
+
+        expected_pool_dict = {'type': ovn_const.REQ_TYPE_POOL_CREATE,
+                              'info': info}
+        expected_hm_dict = {'type': ovn_const.REQ_TYPE_HM_CREATE,
+                            'info': info_hm}
+        calls = [mock.call(expected_pool_dict),
+                 mock.call(expected_hm_dict)]
+        self.driver.pool_create(self.ref_pool)
+        self.mock_add_request.assert_has_calls(calls)
+
     def test_pool_create_unset_admin_state_up(self):
         self.ref_pool.admin_state_up = data_models.UnsetType()
         info = {'id': self.ref_pool.pool_id,
