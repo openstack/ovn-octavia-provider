@@ -98,11 +98,11 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         self.ovn_hm_lb = mock.MagicMock()
         self.ovn_hm_lb.protocol = ['tcp']
         self.ovn_hm_lb.uuid = uuidutils.generate_uuid()
-        self.ovn_hm_lb.health_check = []
         self.ovn_hm = mock.MagicMock()
         self.ovn_hm.uuid = self.healthmonitor_id
         self.ovn_hm.external_ids = {
             ovn_const.LB_EXT_IDS_HM_KEY: self.ovn_hm.uuid}
+        self.ovn_hm_lb.health_check = [self.ovn_hm.uuid]
         self.member_line = (
             'member_%s_%s:%s_%s' %
             (self.member_id, self.member_address,
@@ -120,6 +120,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
             ovn_const.LB_EXT_IDS_VIP_KEY: '10.22.33.99',
             ovn_const.LB_EXT_IDS_VIP_FIP_KEY: '123.123.123.99',
             ovn_const.LB_EXT_IDS_VIP_PORT_ID_KEY: 'foo_hm_port',
+            ovn_const.LB_EXT_IDS_HMS_KEY: '["%s"]' % (self.ovn_hm.uuid),
             'enabled': True,
             'pool_%s' % self.pool_id: [],
             'listener_%s' % self.listener_id: '80:pool_%s' % self.pool_id,
@@ -3578,7 +3579,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         self.assertEqual(status['healthmonitors'][0]['operating_status'],
                          constants.ERROR)
 
-    @mock.patch.object(ovn_helper.OvnProviderHelper, '_lookup_hm_by_id')
+    @mock.patch.object(ovn_helper.OvnProviderHelper, '_lookup_lbhc_by_hm_id')
     @mock.patch.object(ovn_helper.OvnProviderHelper, '_get_or_create_ovn_lb')
     def test_hm_create_then_listener_create(self, get_ovn_lb, lookup_hm):
         get_ovn_lb.return_value = self.ovn_hm_lb
@@ -3595,7 +3596,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         self.assertEqual(status['listeners'][0]['operating_status'],
                          constants.ONLINE)
 
-    @mock.patch.object(ovn_helper.OvnProviderHelper, '_lookup_hm_by_id')
+    @mock.patch.object(ovn_helper.OvnProviderHelper, '_lookup_lbhc_by_hm_id')
     @mock.patch.object(ovn_helper.OvnProviderHelper, '_get_or_create_ovn_lb')
     def test_hm_create_then_listener_create_no_hm(self, get_ovn_lb, lookup_hm):
         get_ovn_lb.return_value = self.ovn_hm_lb
@@ -3609,7 +3610,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
                          constants.ERROR)
 
     @mock.patch.object(ovn_helper.OvnProviderHelper, '_refresh_lb_vips')
-    @mock.patch.object(ovn_helper.OvnProviderHelper, '_lookup_hm_by_id')
+    @mock.patch.object(ovn_helper.OvnProviderHelper, '_lookup_lbhc_by_hm_id')
     @mock.patch.object(ovn_helper.OvnProviderHelper, '_get_or_create_ovn_lb')
     def test_hm_create_then_listener_create_no_vip(self, get_ovn_lb,
                                                    lookup_hm, refresh_vips):
@@ -3690,9 +3691,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
 
     def test_hm_delete(self):
         self.helper.ovn_nbdb_api.db_list_rows.return_value.\
-            execute.return_value = [self.ovn_hm]
-        self.helper.ovn_nbdb_api.db_find_rows.return_value.\
-            execute.return_value = [self.ovn_hm_lb]
+            execute.side_effect = [[self.ovn_hm_lb], [self.ovn_hm]]
         status = self.helper.hm_delete(self.health_monitor)
         self.assertEqual(status['healthmonitors'][0]['provisioning_status'],
                          constants.DELETED)
@@ -3758,7 +3757,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         self.hm_update_event.run('update', row, mock.ANY)
         expected = {
             'info':
-                {'ovn_lb': [self.ovn_hm_lb],
+                {'ovn_lbs': [self.ovn_hm_lb],
                  'ip': self.member_address,
                  'port': self.member_port,
                  'status': ovn_const.HM_EVENT_MEMBER_PORT_OFFLINE},
@@ -3786,7 +3785,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         self.hm_update_event.run('delete', row, mock.ANY)
         expected = {
             'info':
-                {'ovn_lb': [self.ovn_hm_lb],
+                {'ovn_lbs': [self.ovn_hm_lb],
                  'ip': self.member_address,
                  'port': self.member_port,
                  'status': ovn_const.HM_EVENT_MEMBER_PORT_OFFLINE},
@@ -3853,7 +3852,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         if bad_port:
             port = 'bad-port'
         info = {
-            'ovn_lb': [self.ovn_hm_lb],
+            'ovn_lbs': [self.ovn_hm_lb],
             'ip': ip,
             'logical_port': 'a-logical-port',
             'src_ip': '10.22.33.4',
@@ -3873,7 +3872,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
     def _test_hm_update_status(self, ovn_lbs, member_id, ip, port,
                                member_status):
         info = {
-            'ovn_lb': ovn_lbs,
+            'ovn_lbs': ovn_lbs,
             'ip': ip,
             'logical_port': 'a-logical-port',
             'src_ip': '10.22.33.4',
@@ -3975,7 +3974,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
             ovn_hm_lb_2, fake_subnet, 8080, ip=member['address'])
 
         info = {
-            'ovn_lb': [self.ovn_hm_lb, ovn_hm_lb_2],
+            'ovn_lbs': [self.ovn_hm_lb, ovn_hm_lb_2],
             'ip': member['address'],
             'logical_port': 'a-logical-port',
             'src_ip': '10.22.33.4',
@@ -4096,7 +4095,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         self._update_member_status(ovn_hm_lb2, member_lb2['id'], 'offline')
 
         info = {
-            'ovn_lb': [self.ovn_hm_lb, ovn_hm_lb2],
+            'ovn_lbs': [self.ovn_hm_lb, ovn_hm_lb2],
             'ip': ip_member,
             'logical_port': 'a-logical-port',
             'src_ip': '10.22.33.4',

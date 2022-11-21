@@ -1305,8 +1305,8 @@ class OvnProviderHelper():
             operating_status = constants.OFFLINE
 
         if (ovn_lb.health_check and
-                not self._update_hm_vip(ovn_lb,
-                                        listener[constants.PROTOCOL_PORT])):
+                not self._update_lbhc_vip(ovn_lb,
+                                          listener[constants.PROTOCOL_PORT])):
             operating_status = constants.ERROR
 
         status = {
@@ -2215,7 +2215,7 @@ class OvnProviderHelper():
                 # We found particular port
                 return port
 
-    def _add_hm(self, ovn_lb, pool_key, info):
+    def _add_lbhc(self, ovn_lb, pool_key, info):
         hm_id = info[constants.ID]
         status = {constants.ID: hm_id,
                   constants.PROVISIONING_STATUS: constants.ERROR,
@@ -2262,6 +2262,10 @@ class OvnProviderHelper():
         operating_status = constants.ONLINE
         if not info['admin_state_up']:
             operating_status = constants.OFFLINE
+
+        hms_key = ovn_lb.external_ids.get(ovn_const.LB_EXT_IDS_HMS_KEY, [])
+        if hms_key:
+            hms_key = jsonutils.loads(hms_key)
         try:
             with self.ovn_nbdb_api.transaction(check_error=True) as txn:
                 health_check = txn.add(
@@ -2271,6 +2275,11 @@ class OvnProviderHelper():
                 txn.add(self.ovn_nbdb_api.db_add(
                     'Load_Balancer', ovn_lb.uuid,
                     'health_check', health_check))
+                hms_key.append(hm_id)
+                txn.add(self.ovn_nbdb_api.db_set(
+                    'Load_Balancer', ovn_lb.uuid,
+                    ('external_ids', {ovn_const.LB_EXT_IDS_HMS_KEY:
+                                      jsonutils.dumps(hms_key)})))
             status = {constants.ID: hm_id,
                       constants.PROVISIONING_STATUS: constants.ACTIVE,
                       constants.OPERATING_STATUS: operating_status}
@@ -2279,23 +2288,23 @@ class OvnProviderHelper():
             LOG.exception(ovn_const.EXCEPTION_MSG, "set of health check")
         return status
 
-    def _update_hm_vip(self, ovn_lb, vip_port):
-        hm = self._lookup_hm_by_id(ovn_lb.health_check)
-        if not hm:
-            LOG.error("Could not find HM with key: %s", ovn_lb.health_check)
+    def _update_lbhc_vip(self, ovn_lb, vip_port):
+        lbhc = self._lookup_lbhc_by_hm_id(ovn_lb.health_check)
+        if not lbhc:
+            LOG.error("Could not find HC with key: %s", ovn_lb.health_check)
             return False
 
         vip = ovn_lb.external_ids.get(ovn_const.LB_EXT_IDS_VIP_KEY)
         if not vip:
-            LOG.error("Could not find VIP for HM %s, LB external_ids: %s",
-                      hm.uuid, ovn_lb.external_ids)
+            LOG.error("Could not find VIP for HC %s, LB external_ids: %s",
+                      lbhc.uuid, ovn_lb.external_ids)
             return False
 
         vip = vip + ':' + str(vip_port)
         commands = []
         commands.append(
             self.ovn_nbdb_api.db_set(
-                'Load_Balancer_Health_Check', hm.uuid,
+                'Load_Balancer_Health_Check', lbhc.uuid,
                 ('vip', vip)))
         self._execute_commands(commands)
         return True
@@ -2365,35 +2374,33 @@ class OvnProviderHelper():
         self._execute_commands(commands)
         return True
 
-    def _lookup_hm_by_id(self, hm_id):
-        hms = self.ovn_nbdb_api.db_list_rows(
+    def _lookup_lbhc_by_hm_id(self, hm_id):
+        lbhcs = self.ovn_nbdb_api.db_list_rows(
             'Load_Balancer_Health_Check').execute(check_error=True)
-        for hm in hms:
-            if (ovn_const.LB_EXT_IDS_HM_KEY in hm.external_ids and
-                    hm.external_ids[ovn_const.LB_EXT_IDS_HM_KEY] == hm_id):
-                return hm
+        for lbhc in lbhcs:
+            if (ovn_const.LB_EXT_IDS_HM_KEY in lbhc.external_ids and
+                    lbhc.external_ids[ovn_const.LB_EXT_IDS_HM_KEY] == hm_id):
+                return lbhc
         raise idlutils.RowNotFound(table='Load_Balancer_Health_Check',
                                    col='external_ids', match=hm_id)
 
-    def _lookup_lb_by_hm_id(self, hm_id):
-        lbs = self.ovn_nbdb_api.db_find_rows(
-            'Load_Balancer', ('health_check', '=', [hm_id])).execute()
-        return lbs[0] if lbs else None
-
     def _find_ovn_lb_from_hm_id(self, hm_id):
-        try:
-            hm = self._lookup_hm_by_id(hm_id)
-        except idlutils.RowNotFound:
-            LOG.debug("Loadbalancer health monitor %s not found!", hm_id)
-            return None, None
+        lbs = self.ovn_nbdb_api.db_list_rows(
+            'Load_Balancer').execute(check_error=True)
+        ovn_lb = None
+        for lb in lbs:
+            if (ovn_const.LB_EXT_IDS_HMS_KEY in lb.external_ids.keys() and
+                    hm_id in lb.external_ids[ovn_const.LB_EXT_IDS_HMS_KEY]):
+                ovn_lb = lb
+                break
 
         try:
-            ovn_lb = self._lookup_lb_by_hm_id(hm.uuid)
+            lbhc = self._lookup_lbhc_by_hm_id(hm_id)
         except idlutils.RowNotFound:
-            LOG.debug("Loadbalancer not found with health_check %s !", hm.uuid)
-            return hm, None
+            LOG.debug("Loadbalancer health check %s not found!", hm_id)
+            return None, ovn_lb
 
-        return hm, ovn_lb
+        return lbhc, ovn_lb
 
     def hm_create(self, info):
         status = {
@@ -2448,7 +2455,7 @@ class OvnProviderHelper():
         #   ${OVN_LB_ID} health_check @hc
         # options here are interval, timeout, failure_count and success_count
         # from info object passed-in
-        hm_status = self._add_hm(ovn_lb, pool_key, info)
+        hm_status = self._add_lbhc(ovn_lb, pool_key, info)
         if hm_status[constants.PROVISIONING_STATUS] == constants.ACTIVE:
             if not self._update_hm_members(ovn_lb, pool_key):
                 hm_status[constants.PROVISIONING_STATUS] = constants.ERROR
@@ -2466,9 +2473,9 @@ class OvnProviderHelper():
         hm_id = info[constants.ID]
         pool_id = info[constants.POOL_ID]
 
-        hm, ovn_lb = self._find_ovn_lb_from_hm_id(hm_id)
-        if not hm:
-            LOG.debug("Loadbalancer health monitor %s not found!", hm_id)
+        lbhc, ovn_lb = self._find_ovn_lb_from_hm_id(hm_id)
+        if not lbhc:
+            LOG.debug("Loadbalancer health check %s not found!", hm_id)
             return status
         if not ovn_lb:
             LOG.debug("Could not find LB with health monitor id %s", hm_id)
@@ -2491,7 +2498,7 @@ class OvnProviderHelper():
         commands = []
         commands.append(
             self.ovn_nbdb_api.db_set(
-                'Load_Balancer_Health_Check', hm.uuid,
+                'Load_Balancer_Health_Check', lbhc.uuid,
                 ('options', options)))
         self._execute_commands(commands)
 
@@ -2519,11 +2526,12 @@ class OvnProviderHelper():
                  constants.OPERATING_STATUS: constants.NO_MONITOR,
                  constants.PROVISIONING_STATUS: constants.DELETED}]}
 
-        hm, ovn_lb = self._find_ovn_lb_from_hm_id(hm_id)
-        if not hm or not ovn_lb:
-            LOG.debug("Loadbalancer Health Check %s not found in OVN "
-                      "Northbound DB. Setting the Loadbalancer Health "
-                      "Monitor status to DELETED in Octavia", hm_id)
+        lbhc, ovn_lb = self._find_ovn_lb_from_hm_id(hm_id)
+        if not lbhc or not ovn_lb:
+            LOG.debug("Loadbalancer Health Check associated to Health Monitor "
+                      "%s not found in OVN Northbound DB. Setting the "
+                      "Loadbalancer Health Monitor status to DELETED in "
+                      "Octavia", hm_id)
             return status
 
         # Need to send pool info in status update to avoid immutable objects,
@@ -2537,16 +2545,26 @@ class OvnProviderHelper():
         # ovn-nbctl clear load_balancer ${OVN_LB_ID} ip_port_mappings
         # ovn-nbctl clear load_balancer ${OVN_LB_ID} health_check
         # TODO(haleyb) remove just the ip_port_mappings for this hm
+        hms_key = ovn_lb.external_ids.get(ovn_const.LB_EXT_IDS_HMS_KEY, [])
+        if hms_key:
+            hms_key = jsonutils.loads(hms_key)
+            if lbhc.uuid in hms_key:
+                hms_key.remove(lbhc.uuid)
         commands = []
         commands.append(
             self.ovn_nbdb_api.db_clear('Load_Balancer', ovn_lb.uuid,
                                        'ip_port_mappings'))
         commands.append(
             self.ovn_nbdb_api.db_remove('Load_Balancer', ovn_lb.uuid,
-                                        'health_check', hm.uuid))
+                                        'health_check', lbhc.uuid))
+        commands.append(
+            self.ovn_nbdb_api.db_set(
+                'Load_Balancer', ovn_lb.uuid,
+                ('external_ids', {ovn_const.LB_EXT_IDS_HMS_KEY:
+                                  jsonutils.dumps(hms_key)})))
         commands.append(
             self.ovn_nbdb_api.db_destroy('Load_Balancer_Health_Check',
-                                         hm.uuid))
+                                         lbhc.uuid))
         self._execute_commands(commands)
         status = {
             constants.LOADBALANCERS: [
@@ -2597,24 +2615,24 @@ class OvnProviderHelper():
             ('protocol', '=', row.protocol[0])).execute()
         return lbs if lbs else None
 
-    def hm_update_event_handler(self, row, sm_delete_event=False):
+    def sm_update_event_handler(self, row, sm_delete_event=False):
         # NOTE(froyo): When a delete event is triggered, the Service_Monitor
         # deleted row will include the last valid information, e.g. when the
         # port is directly removed from the VM, the status will be 'online',
         # in order to protect from this behaviour, we will set manually the
         # status to 'offline' if sm_delete_event is reported as True.
         try:
-            ovn_lb = self._get_lbs_on_hm_event(row)
+            ovn_lbs = self._get_lbs_on_hm_event(row)
         except idlutils.RowNotFound:
             LOG.debug("Load balancer information not found")
             return
 
-        if not ovn_lb:
+        if not ovn_lbs:
             LOG.debug("Load balancer not found")
             return
 
         request_info = {
-            "ovn_lb": ovn_lb,
+            "ovn_lbs": ovn_lbs,
             "ip": row.ip,
             "port": str(row.port),
             "status": row.status
@@ -2735,7 +2753,7 @@ class OvnProviderHelper():
         return status
 
     def hm_update_event(self, info):
-        ovn_lbs = info['ovn_lb']
+        ovn_lbs = info['ovn_lbs']
         statuses = []
 
         for ovn_lb in ovn_lbs:
