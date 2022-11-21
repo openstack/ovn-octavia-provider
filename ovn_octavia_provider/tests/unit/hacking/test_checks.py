@@ -100,6 +100,9 @@ class HackingTestCase(base.BaseTestCase):
         self.assertEqual(
             0, len(list(checks.check_assert_called_once_with(pass_code2,
                         "ovn_octavia_provider/tests/test_assert.py"))))
+        self.assertEqual(
+            0, len(list(checks.check_assert_called_once_with(pass_code2,
+                        "ovn_octavia_provider/tests_fake/test_assert.py"))))
 
     def test_asserttruefalse(self):
         true_fail_code1 = """
@@ -144,6 +147,10 @@ class HackingTestCase(base.BaseTestCase):
         self.assertFalse(
             list(checks.check_asserttruefalse(false_pass_code,
                  "ovn_octavia_provider/tests/test_assert.py")))
+        self.assertEqual(
+            0, len(list(checks.check_asserttruefalse(
+                true_pass_code,
+                "ovn_octavia_provider/tests_fake/test_assert.py"))))
 
     def test_assertempty(self):
         fail_code = """
@@ -168,6 +175,11 @@ class HackingTestCase(base.BaseTestCase):
             self.assertEqual(
                 0, len(list(checks.check_asserttruefalse(pass_code2 % ec,
                             "ovn_octavia_provider/tests/test_assert.py"))))
+            self.assertEqual(
+                0, len(list(
+                    checks.check_asserttruefalse(
+                        pass_code2 % ec,
+                        "ovn_octavia_provider/tests_fake/test_assert.py"))))
 
     def test_assertisinstance(self):
         fail_code = """
@@ -188,6 +200,9 @@ class HackingTestCase(base.BaseTestCase):
         self.assertEqual(
             0, len(list(checks.check_assertisinstance(pass_code2,
                         "ovn_octavia_provider/tests/test_assert.py"))))
+        self.assertEqual(
+            0, len(list(checks.check_assertisinstance(pass_code2,
+                        "ovn_octavia_provider/tests_fake/test_assert.py"))))
 
     def test_assertequal_for_httpcode(self):
         fail_code = """
@@ -202,6 +217,9 @@ class HackingTestCase(base.BaseTestCase):
         self.assertEqual(
             0, len(list(checks.check_assertequal_for_httpcode(pass_code,
                         "ovn_octavia_provider/tests/test_assert.py"))))
+        self.assertEqual(
+            0, len(list(checks.check_assertequal_for_httpcode(pass_code,
+                        "ovn_octavia_provider/tests_fake/test_assert.py"))))
 
     def test_check_no_imports_from_tests(self):
         fail_codes = ('from ovn_octavia_provider import tests',
@@ -246,3 +264,9 @@ class HackingTestCase(base.BaseTestCase):
                         fail_line,
                         "ovn_octavia_provider/tests/test_fake.py",
                         None))))
+            self.assertEqual(
+                0, len(list(
+                    checks.check_no_import_mock(
+                        fail_line,
+                        "ovn_octavia_provider/tests/test_fake.py",
+                        True))))

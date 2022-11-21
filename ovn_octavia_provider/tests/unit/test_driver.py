@@ -242,6 +242,13 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
         self.ref_member.address = 'fc00::1'
         self.assertTrue(self.driver._ip_version_differs(self.ref_member))
 
+    def test__ip_version_differs_lb_not_found(self):
+        self.mock_find_ovn_lb_by_pool_id = mock.patch.object(
+            ovn_helper.OvnProviderHelper,
+            '_find_ovn_lb_by_pool_id').start()
+        self.mock_find_ovn_lb_by_pool_id.return_value = (_, None)
+        self.assertFalse(self.driver._ip_version_differs(self.ref_member))
+
     def test__ip_version_differs_pool_disabled(self):
         self.mock_find_lb_pool_key.side_effect = [None, self.ovn_lb]
         self.driver._ip_version_differs(self.ref_member)
@@ -323,6 +330,10 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
         member.subnet_id = None
         self._test_member_create(member)
 
+    def test__check_monitor_options_member_no_monitor_data(self):
+        self.ref_member.monitor_address = None
+        self.assertFalse(self.driver._check_monitor_options(self.ref_member))
+
     def test_member_create_monitor_opts(self):
         self.ref_member.monitor_address = '172.20.20.1'
         self.assertRaises(exceptions.UnsupportedOptionError,
@@ -395,6 +406,15 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
         member.subnet_id = data_models.UnsetType()
         self.driver.member_update(member, self.update_member)
         self.mock_add_request.assert_called_once_with(expected_dict)
+
+    def test_member_update_missing_subnet_id_differs_from_lb_vip(self):
+        self.driver._ovn_helper._get_subnet_from_pool.return_value = (
+            self.ref_member.subnet_id, '198.52.100.0/24')
+        self.driver._ovn_helper._check_ip_in_subnet.return_value = False
+        self.ref_member.subnet_id = data_models.UnsetType()
+        self.assertRaises(exceptions.UnsupportedOptionError,
+                          self.driver.member_update, self.ref_member,
+                          self.update_member)
 
     @mock.patch.object(ovn_driver.OvnProviderDriver, '_ip_version_differs')
     def test_member_update_no_ip_addr(self, mock_ip_differs):
@@ -517,6 +537,14 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
             mock.call(expected_dict),
             mock.call(expected_dict_dvr)]
         self.mock_add_request.assert_has_calls(expected)
+
+    def test_member_delete_missing_subnet_id_differs_from_lb_vip(self):
+        self.driver._ovn_helper._get_subnet_from_pool.return_value = (
+            self.ref_member.subnet_id, '198.52.100.0/24')
+        self.driver._ovn_helper._check_ip_in_subnet.return_value = False
+        self.ref_member.subnet_id = data_models.UnsetType()
+        self.assertRaises(exceptions.UnsupportedOptionError,
+                          self.driver.member_delete, self.ref_member)
 
     def test_listener_create(self):
         info = {'id': self.ref_listener.listener_id,
