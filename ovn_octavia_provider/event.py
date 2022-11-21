@@ -81,6 +81,6 @@ class ServiceMonitorUpdateEvent(row_event.RowEvent):
                   {'event': event,
                    'row': row})
         if event == self.ROW_DELETE:
-            self.driver.hm_update_event_handler(row, sm_delete_event=True)
+            self.driver.sm_update_event_handler(row, sm_delete_event=True)
         elif event == self.ROW_UPDATE:
-            self.driver.hm_update_event_handler(row)
+            self.driver.sm_update_event_handler(row)
