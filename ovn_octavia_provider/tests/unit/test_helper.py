@@ -3673,6 +3673,21 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         self.assertEqual(status['healthmonitors'][0]['operating_status'],
                          constants.ERROR)
 
+    @mock.patch.object(ovn_helper.OvnProviderHelper, '_find_ovn_lb_from_hm_id')
+    def test_hm_update_just_interval(self, folbfhi):
+        folbfhi.return_value = (self.ovn_hm, self.ovn_hm_lb)
+        self.health_monitor['interval'] = 3
+        self.helper.hm_update(self.health_monitor)
+        options = {
+            'interval': str(self.health_monitor['interval']),
+            'timeout': str(self.health_monitor['timeout']),
+            'success_count': str(self.health_monitor['success_count']),
+            'failure_count': str(self.health_monitor['failure_count'])}
+        self.helper.ovn_nbdb_api.db_set.assert_called_once_with(
+            'Load_Balancer_Health_Check',
+            self.ovn_hm.uuid,
+            ('options', options))
+
     def test_hm_delete(self):
         self.helper.ovn_nbdb_api.db_list_rows.return_value.\
             execute.return_value = [self.ovn_hm]
