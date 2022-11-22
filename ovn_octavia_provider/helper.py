@@ -2478,11 +2478,15 @@ class OvnProviderHelper():
                 LOG.debug("Could not find LB with pool id %s", pool_id)
                 return status
 
-        options = {
-            'interval': str(info['interval']),
-            'timeout': str(info['timeout']),
-            'success_count': str(info['success_count']),
-            'failure_count': str(info['failure_count'])}
+        options = {}
+        if info['interval']:
+            options['interval'] = str(info['interval'])
+        if info['timeout']:
+            options['timeout'] = str(info['timeout'])
+        if info['success_count']:
+            options['success_count'] = str(info['success_count'])
+        if info['failure_count']:
+            options['failure_count'] = str(info['failure_count'])
 
         commands = []
         commands.append(
