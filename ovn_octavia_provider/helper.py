@@ -2409,6 +2409,7 @@ class OvnProviderHelper():
         if not ovn_lb:
             LOG.debug("Could not find LB with pool id %s", pool_id)
             return status
+
         status[constants.LOADBALANCERS] = [
             {constants.ID: ovn_lb.name,
              constants.PROVISIONING_STATUS: constants.ACTIVE}]
@@ -2425,6 +2426,15 @@ class OvnProviderHelper():
             {constants.ID: pool_id,
              constants.PROVISIONING_STATUS: constants.ACTIVE,
              constants.OPERATING_STATUS: constants.ONLINE}]
+
+        pool_listeners = self._get_pool_listeners(ovn_lb, pool_key)
+
+        status[constants.LISTENERS] = []
+        for listener in pool_listeners:
+            status[constants.LISTENERS].append(
+                {constants.ID: listener,
+                 constants.PROVISIONING_STATUS: constants.ACTIVE,
+                 constants.OPERATING_STATUS: constants.ONLINE})
 
         # Update status for all members in the pool
         member_status = []
@@ -2520,7 +2530,6 @@ class OvnProviderHelper():
                 {constants.ID: hm_id,
                  constants.OPERATING_STATUS: constants.NO_MONITOR,
                  constants.PROVISIONING_STATUS: constants.DELETED}]}
-
         lbhc, ovn_lb = self._find_ovn_lb_from_hm_id(hm_id)
         if not lbhc or not ovn_lb:
             LOG.debug("Loadbalancer Health Check associated to Health Monitor "
@@ -2532,9 +2541,12 @@ class OvnProviderHelper():
         # Need to send pool info in status update to avoid immutable objects,
         # the LB should have this info
         pool_id = None
+        pool_listeners = []
         for k, v in ovn_lb.external_ids.items():
             if ovn_const.LB_EXT_IDS_POOL_PREFIX in k:
                 pool_id = k.split('_')[1]
+                pool_listeners = self._get_pool_listeners(
+                    ovn_lb, self._get_pool_key(pool_id))
                 break
 
         # ovn-nbctl clear load_balancer ${OVN_LB_ID} ip_port_mappings
@@ -2573,6 +2585,12 @@ class OvnProviderHelper():
             status[constants.POOLS] = [
                 {constants.ID: pool_id,
                  constants.PROVISIONING_STATUS: constants.ACTIVE}]
+
+            status[constants.LISTENERS] = []
+            for listener in pool_listeners:
+                status[constants.LISTENERS].append(
+                    {constants.ID: listener,
+                     constants.PROVISIONING_STATUS: constants.ACTIVE})
         else:
             LOG.warning('Pool not found for load balancer %s, status '
                         'update will have incomplete data', ovn_lb.name)
