@@ -3499,9 +3499,9 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         net_cli.return_value.show_subnet.side_effect = [n_exc.NotFound]
         status = self.helper.hm_create(self.health_monitor)
         self.assertEqual(status['healthmonitors'][0]['provisioning_status'],
-                         constants.ERROR)
+                         constants.ACTIVE)
         self.assertEqual(status['healthmonitors'][0]['operating_status'],
-                         constants.ERROR)
+                         constants.ONLINE)
 
     @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
     @mock.patch.object(ovn_helper.OvnProviderHelper, '_find_ovn_lb_by_pool_id')

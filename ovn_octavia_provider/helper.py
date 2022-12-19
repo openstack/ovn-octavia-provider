@@ -2310,10 +2310,14 @@ class OvnProviderHelper():
                 ovn_lb.external_ids[pool_key]):
             member_lsp = self._get_member_lsp(member_ip, member_subnet)
             if not member_lsp:
-                LOG.error("Member %(member)s Logical_Switch_Port not found. "
-                          "Cannot create a Health Monitor for pool %(pool)s.",
+                # NOTE(froyo): In order to continue evaluating the rest of
+                # the members, we just warn about the member issue,
+                # assuming that it will be in OFFLINE status as soon as the
+                # HM does the first evaluation.
+                LOG.error("Member %(member)s Logical_Switch_Port not found, "
+                          "when creating a Health Monitor for pool %(pool)s.",
                           {'member': member_ip, 'pool': pool_key})
-                return False
+                continue
 
             network_id = member_lsp.external_ids.get(
                 ovn_const.OVN_NETWORK_NAME_EXT_ID_KEY).split('neutron-')[1]
