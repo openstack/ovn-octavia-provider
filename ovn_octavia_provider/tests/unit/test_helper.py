@@ -3370,6 +3370,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
     @mock.patch.object(ovn_helper.OvnProviderHelper, '_update_hm_members')
     @mock.patch.object(ovn_helper.OvnProviderHelper, '_find_ovn_lb_by_pool_id')
     def _test_hm_create(self, protocol, members, folbpi, uhm, net_cli):
+        self._get_pool_listeners.stop()
         fake_subnet = fakes.FakeSubnet.create_one_subnet()
         pool_key = 'pool_%s' % self.pool_id
         self.ovn_hm_lb.protocol = [protocol]
@@ -3384,6 +3385,10 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         self.assertEqual(status['pools'][0]['provisioning_status'],
                          constants.ACTIVE)
         self.assertEqual(status['pools'][0]['operating_status'],
+                         constants.ONLINE)
+        self.assertEqual(status['listeners'][0]['provisioning_status'],
+                         constants.ACTIVE)
+        self.assertEqual(status['listeners'][0]['operating_status'],
                          constants.ONLINE)
         if members:
             self.assertEqual(status['members'][0]['provisioning_status'],
@@ -3444,6 +3449,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
 
     @mock.patch.object(ovn_helper.OvnProviderHelper, '_find_ovn_lb_by_pool_id')
     def test_hm_create_offline(self, folbpi):
+        self._get_pool_listeners.stop()
         pool_key = 'pool_%s' % self.pool_id
         folbpi.return_value = (pool_key, self.ovn_hm_lb)
         self.health_monitor['admin_state_up'] = False
@@ -3455,6 +3461,10 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         self.assertEqual(status['pools'][0]['provisioning_status'],
                          constants.ACTIVE)
         self.assertEqual(status['pools'][0]['operating_status'],
+                         constants.ONLINE)
+        self.assertEqual(status['listeners'][0]['provisioning_status'],
+                         constants.ACTIVE)
+        self.assertEqual(status['listeners'][0]['operating_status'],
                          constants.ONLINE)
 
     @mock.patch.object(ovn_helper.OvnProviderHelper, '_find_ovn_lb_by_pool_id')
@@ -3690,6 +3700,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
             ('options', options))
 
     def test_hm_delete(self):
+        self._get_pool_listeners.stop()
         self.helper.ovn_nbdb_api.db_list_rows.return_value.\
             execute.side_effect = [[self.ovn_hm_lb], [self.ovn_hm]]
         status = self.helper.hm_delete(self.health_monitor)
@@ -3700,6 +3711,8 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         self.assertEqual(status['loadbalancers'][0]['provisioning_status'],
                          constants.ACTIVE)
         self.assertEqual(status['pools'][0]['provisioning_status'],
+                         constants.ACTIVE)
+        self.assertEqual(status['listeners'][0]['provisioning_status'],
                          constants.ACTIVE)
         expected_clear_calls = [
             mock.call('Load_Balancer', self.ovn_hm_lb.uuid,
