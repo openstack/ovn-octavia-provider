@@ -22,7 +22,6 @@ disable=
  dangerous-default-value,
  fixme,
  global-statement,
- no-init,
  protected-access,
  redefined-builtin,
  redefined-outer-name,
@@ -32,10 +31,8 @@ disable=
  unused-variable,
  useless-super-delegation,
 # "C" Coding convention violations
- bad-continuation,
  invalid-name,
  len-as-condition,
- misplaced-comparison-constant,
  missing-docstring,
  superfluous-parens,
  ungrouped-imports,
@@ -43,7 +40,6 @@ disable=
 # "R" Refactor recommendations
  duplicate-code,
  no-else-return,
- no-self-use,
  too-few-public-methods,
  too-many-ancestors,
  too-many-arguments,
@@ -96,8 +92,6 @@ max-line-length=79
 additional-builtins=
 
 [CLASSES]
-# List of interface methods to ignore, separated by a comma.
-ignore-iface-methods=
 
 [IMPORTS]
 # Deprecated modules which should not be used, separated by a comma
@@ -112,4 +106,3 @@ ignored-modules=six.moves,_MovedItems
 [REPORTS]
 # Tells whether to display a full report or only the messages
 reports=no
-

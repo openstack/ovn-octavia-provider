@@ -18,13 +18,12 @@ import re
 import threading
 
 import netaddr
-from neutron_lib.api.definitions import provider_net
 from neutron_lib import constants as n_const
-from neutronclient.common import exceptions as n_exc
 from octavia_lib.api.drivers import data_models as o_datamodels
 from octavia_lib.api.drivers import driver_lib as o_driver_lib
 from octavia_lib.api.drivers import exceptions as driver_exceptions
 from octavia_lib.common import constants
+import openstack
 from oslo_config import cfg
 from oslo_log import log as logging
 from oslo_serialization import jsonutils
@@ -136,18 +135,17 @@ class OvnProviderHelper():
                                        col=col, match=key) from e
 
     def _create_hm_port(self, network_id, subnet_id, project_id):
-        port = {'port': {'name': ovn_const.LB_HM_PORT_PREFIX + str(subnet_id),
-                         'network_id': network_id,
-                         'fixed_ips': [{'subnet_id': subnet_id}],
-                         'admin_state_up': True,
-                         'port_security_enabled': False,
-                         'device_owner': n_const.DEVICE_OWNER_DISTRIBUTED,
-                         'project_id': project_id}}
+        port = {'name': ovn_const.LB_HM_PORT_PREFIX + str(subnet_id),
+                'network_id': network_id,
+                'fixed_ips': [{'subnet_id': subnet_id}],
+                'admin_state_up': True,
+                'port_security_enabled': False,
+                'device_owner': n_const.DEVICE_OWNER_DISTRIBUTED,
+                'project_id': project_id}
         neutron_client = clients.get_neutron_client()
         try:
-            hm_port = neutron_client.create_port(port)
-            return hm_port['port'] if hm_port['port'] else None
-        except n_exc.NeutronClientException:
+            return neutron_client.create_port(**port)
+        except openstack.exceptions.HttpException:
             # NOTE (froyo): whatever other exception as e.g. Timeout
             # we should try to ensure no leftover port remains
             self._clean_up_hm_port(subnet_id)
@@ -159,39 +157,39 @@ class OvnProviderHelper():
         neutron_client = clients.get_neutron_client()
         hm_port_ip = None
 
-        hm_checks_port = self._neutron_list_ports(neutron_client, **{
-            'name': f'{ovn_const.LB_HM_PORT_PREFIX}{subnet_id}'})
-        if hm_checks_port['ports']:
-            # NOTE(froyo): Just to cover the case that we have more than one
-            # hm-port created by a race condition on create_hm_port and we need
-            # to ensure no leftover ports remains
-            for hm_port in hm_checks_port['ports']:
-                for fixed_ip in hm_port.get('fixed_ips', []):
-                    if fixed_ip['subnet_id'] == subnet_id:
-                        hm_port_ip = fixed_ip['ip_address']
+        hm_checks_port = self._neutron_list_ports(
+            neutron_client,
+            name=f'{ovn_const.LB_HM_PORT_PREFIX}{subnet_id}')
+        # NOTE(froyo): Just to cover the case that we have more than one
+        # hm-port created by a race condition on create_hm_port and we need
+        # to ensure no leftover ports remains
+        for hm_port in hm_checks_port:
+            for fixed_ip in hm_port.fixed_ips:
+                if fixed_ip['subnet_id'] == subnet_id:
+                    hm_port_ip = fixed_ip['ip_address']
 
-                if hm_port_ip:
-                    lbs = self.ovn_nbdb_api.db_find_rows(
-                        'Load_Balancer', ('health_check', '!=', [])).execute()
-                    for lb in lbs:
-                        for k, v in lb.ip_port_mappings.items():
-                            if hm_port_ip in v:
-                                return
-                    # Not found any other health monitor using the hm port
-                    self.delete_port(hm_port['id'])
+            if hm_port_ip:
+                lbs = self.ovn_nbdb_api.db_find_rows(
+                    'Load_Balancer', ('health_check', '!=', [])).execute()
+                for lb in lbs:
+                    for k, v in lb.ip_port_mappings.items():
+                        if hm_port_ip in v:
+                            return
+                # Not found any other health monitor using the hm port
+                self.delete_port(hm_port.id)
 
     def _ensure_hm_ovn_port(self, network_id, subnet_id, project_id):
         # We will use a dedicated port for this, so we should find the one
         # related to the network id, if not found, create a new one and use it.
 
         neutron_client = clients.get_neutron_client()
-        hm_checks_port = self._neutron_list_ports(neutron_client, **{
-            'network_id': network_id,
-            'name': f'{ovn_const.LB_HM_PORT_PREFIX}{subnet_id}'})
-        if hm_checks_port['ports']:
-            return hm_checks_port['ports'][0]
-        else:
-            return self._create_hm_port(network_id, subnet_id, project_id)
+        hm_checks_port = self._neutron_find_port(
+            neutron_client,
+            network_id=network_id,
+            name_or_id=f'{ovn_const.LB_HM_PORT_PREFIX}{subnet_id}')
+        if hm_checks_port:
+            return hm_checks_port
+        return self._create_hm_port(network_id, subnet_id, project_id)
 
     def _get_nw_router_info_on_interface_event(self, lrp):
         """Get the Router and Network information on an interface event
@@ -442,12 +440,22 @@ class OvnProviderHelper():
         return self._find_ovn_lbs(lb_id, protocol=protocol)
 
     @tenacity.retry(
-        retry=tenacity.retry_if_exception_type(n_exc.NeutronClientException),
+        retry=tenacity.retry_if_exception_type(
+            openstack.exceptions.HttpException),
         wait=tenacity.wait_exponential(),
         stop=tenacity.stop_after_delay(10),
         reraise=True)
     def _neutron_list_ports(self, neutron_client, **params):
-        return neutron_client.list_ports(**params)
+        return neutron_client.ports(**params)
+
+    @tenacity.retry(
+        retry=tenacity.retry_if_exception_type(
+            openstack.exceptions.HttpException),
+        wait=tenacity.wait_exponential(),
+        stop=tenacity.stop_after_delay(10),
+        reraise=True)
+    def _neutron_find_port(self, neutron_client, **params):
+        return neutron_client.find_port(**params)
 
     def _find_ovn_lbs(self, lb_id, protocol=None):
         """Find the Loadbalancers in OVN with the given lb_id as its name
@@ -573,9 +581,9 @@ class OvnProviderHelper():
         if lb and lb.vip_subnet_id:
             neutron_client = clients.get_neutron_client()
             try:
-                subnet = neutron_client.show_subnet(lb.vip_subnet_id)
-                vip_subnet_cidr = subnet['subnet']['cidr']
-            except n_exc.NotFound:
+                subnet = neutron_client.get_subnet(lb.vip_subnet_id)
+                vip_subnet_cidr = subnet.cidr
+            except openstack.exceptions.ResourceNotFound:
                 LOG.warning('Subnet %s not found while trying to '
                             'fetch its data.', lb.vip_subnet_id)
                 return None, None
@@ -619,9 +627,9 @@ class OvnProviderHelper():
         else:
             neutron_client = clients.get_neutron_client()
             try:
-                subnet = neutron_client.show_subnet(subnet_id)
-                ls_name = utils.ovn_name(subnet['subnet']['network_id'])
-            except n_exc.NotFound:
+                subnet = neutron_client.get_subnet(subnet_id)
+                ls_name = utils.ovn_name(subnet.network_id)
+            except openstack.exceptions.ResourceNotFound:
                 LOG.warning('Subnet %s not found while trying to '
                             'fetch its data.', subnet_id)
                 ls_name = None
@@ -974,43 +982,44 @@ class OvnProviderHelper():
 
     def lb_create(self, loadbalancer, protocol=None):
         port = None
-        subnet = {}
+        subnet = None
         try:
             neutron_client = clients.get_neutron_client()
             if loadbalancer.get(constants.VIP_PORT_ID):
                 # In case we don't have vip_network_id
-                port = neutron_client.show_port(
-                    loadbalancer[constants.VIP_PORT_ID])['port']
-                for ip in port['fixed_ips']:
+                port = neutron_client.get_port(
+                    loadbalancer[constants.VIP_PORT_ID])
+                for ip in port.fixed_ips:
                     if ip['ip_address'] == loadbalancer[constants.VIP_ADDRESS]:
-                        subnet = neutron_client.show_subnet(
-                            ip['subnet_id'])['subnet']
+                        subnet = neutron_client.get_subnet(
+                            ip['subnet_id'])
                         break
             elif (loadbalancer.get(constants.VIP_NETWORK_ID) and
                   loadbalancer.get(constants.VIP_ADDRESS)):
-                ports = self._neutron_list_ports(neutron_client, **{
-                    'network_id': loadbalancer[constants.VIP_NETWORK_ID]})
-                for p in ports['ports']:
-                    for ip in p['fixed_ips']:
+                ports = self._neutron_list_ports(
+                    neutron_client,
+                    network_id=loadbalancer[constants.VIP_NETWORK_ID])
+                for p in ports:
+                    for ip in p.fixed_ips:
                         if ip['ip_address'] == loadbalancer[
                                 constants.VIP_ADDRESS]:
                             port = p
-                            subnet = neutron_client.show_subnet(
-                                ip['subnet_id'])['subnet']
+                            subnet = neutron_client.get_subnet(
+                                ip['subnet_id'])
                             break
         except Exception:
             LOG.error('Cannot get info from neutron client')
             LOG.exception(ovn_const.EXCEPTION_MSG, "creation of loadbalancer")
             # Any Exception set the status to ERROR
-            if isinstance(port, dict):
+            if port:
                 try:
-                    self.delete_port(port.get('id'))
+                    self.delete_port(port.id)
                     LOG.warning("Deleting the VIP port %s since LB went into "
-                                "ERROR state", str(port.get('id')))
+                                "ERROR state", str(port.id))
                 except Exception:
                     LOG.exception("Error deleting the VIP port %s upon "
                                   "loadbalancer %s creation failure",
-                                  str(port.get('id')),
+                                  str(port.id),
                                   str(loadbalancer[constants.ID]))
             status = {
                 constants.LOADBALANCERS: [
@@ -1026,7 +1035,7 @@ class OvnProviderHelper():
         external_ids = {
             ovn_const.LB_EXT_IDS_VIP_KEY: loadbalancer[constants.VIP_ADDRESS],
             ovn_const.LB_EXT_IDS_VIP_PORT_ID_KEY:
-                loadbalancer.get(constants.VIP_PORT_ID) or port['id'],
+                loadbalancer.get(constants.VIP_PORT_ID) or port.id,
             'enabled': str(loadbalancer[constants.ADMIN_STATE_UP])}
         # In case vip_fip was passed - use it.
         vip_fip = loadbalancer.get(ovn_const.LB_EXT_IDS_VIP_FIP_KEY)
@@ -1055,18 +1064,17 @@ class OvnProviderHelper():
 
             # NOTE(ltomasbo): If the VIP is on a provider network, it does
             # not need to be associated to its LS
-            network = neutron_client.show_network(
-                port['network_id'])['network']
-            if not network.get(provider_net.PHYSICAL_NETWORK, False):
+            network = neutron_client.get_network(port.network_id)
+            if not network.provider_physical_network:
                 # NOTE(froyo): This is the association of the lb to the VIP ls
                 # so this is executed right away
                 self._update_lb_to_ls_association(
-                    ovn_lb, network_id=port['network_id'],
+                    ovn_lb, network_id=port.network_id,
                     associate=True, update_ls_ref=True)
-            ls_name = utils.ovn_name(port['network_id'])
+            ls_name = utils.ovn_name(port.network_id)
             ovn_ls = self.ovn_nbdb_api.ls_get(ls_name).execute(
                 check_error=True)
-            ovn_lr = self._find_lr_of_ls(ovn_ls, subnet.get('gateway_ip'))
+            ovn_lr = self._find_lr_of_ls(ovn_ls, subnet.gateway_ip)
             if ovn_lr:
                 try:
                     # NOTE(froyo): This is the association of the lb to the
@@ -1119,15 +1127,15 @@ class OvnProviderHelper():
         except Exception:
             LOG.exception(ovn_const.EXCEPTION_MSG, "creation of loadbalancer")
             # Any Exception set the status to ERROR
-            if isinstance(port, dict):
+            if port:
                 try:
-                    self.delete_port(port.get('id'))
+                    self.delete_port(port.id)
                     LOG.warning("Deleting the VIP port %s since LB went into "
-                                "ERROR state", str(port.get('id')))
+                                "ERROR state", str(port.id))
                 except Exception:
                     LOG.exception("Error deleting the VIP port %s upon "
                                   "loadbalancer %s creation failure",
-                                  str(port.get('id')),
+                                  str(port.id),
                                   str(loadbalancer[constants.ID]))
             status = {
                 constants.LOADBALANCERS: [
@@ -1876,13 +1884,13 @@ class OvnProviderHelper():
         neutron_client = clients.get_neutron_client()
         ovn_lr = None
         try:
-            subnet = neutron_client.show_subnet(subnet_id)
-            ls_name = utils.ovn_name(subnet['subnet']['network_id'])
+            subnet = neutron_client.get_subnet(subnet_id)
+            ls_name = utils.ovn_name(subnet.network_id)
             ovn_ls = self.ovn_nbdb_api.ls_get(ls_name).execute(
                 check_error=True)
             ovn_lr = self._find_lr_of_ls(
-                ovn_ls, subnet['subnet'].get('gateway_ip'))
-        except n_exc.NotFound:
+                ovn_ls, subnet.gateway_ip)
+        except openstack.exceptions.ResourceNotFound:
             pass
         except idlutils.RowNotFound:
             pass
@@ -2147,49 +2155,48 @@ class OvnProviderHelper():
                 return meminf.split('_')[1]
 
     def create_vip_port(self, project_id, lb_id, vip_d):
-        port = {'port': {'name': ovn_const.LB_VIP_PORT_PREFIX + str(lb_id),
-                         'network_id': vip_d[constants.VIP_NETWORK_ID],
-                         'fixed_ips': [{'subnet_id': vip_d['vip_subnet_id']}],
-                         'admin_state_up': True,
-                         'project_id': project_id}}
+        port = {'name': ovn_const.LB_VIP_PORT_PREFIX + str(lb_id),
+                'network_id': vip_d[constants.VIP_NETWORK_ID],
+                'fixed_ips': [{'subnet_id': vip_d['vip_subnet_id']}],
+                'admin_state_up': True,
+                'project_id': project_id}
         try:
-            port['port']['fixed_ips'][0]['ip_address'] = (
+            port['fixed_ips'][0]['ip_address'] = (
                 vip_d[constants.VIP_ADDRESS])
         except KeyError:
             pass
         neutron_client = clients.get_neutron_client()
         try:
-            return neutron_client.create_port(port)
-        except n_exc.IpAddressAlreadyAllocatedClient as e:
+            return neutron_client.create_port(**port)
+        except openstack.exceptions.ConflictException as e:
             # Sometimes the VIP is already created (race-conditions)
             # Lets get the it from Neutron API.
-            ports = self._neutron_list_ports(neutron_client, **{
-                'network_id': vip_d[constants.VIP_NETWORK_ID],
-                'name': f'{ovn_const.LB_VIP_PORT_PREFIX}{lb_id}'})
-            if not ports['ports']:
+            port = self._neutron_find_port(
+                neutron_client,
+                network_id=vip_d[constants.VIP_NETWORK_ID],
+                name_or_id=f'{ovn_const.LB_VIP_PORT_PREFIX}{lb_id}')
+            if not port:
                 LOG.error('Cannot create/get LoadBalancer VIP port with '
                           'fixed IP: %s', vip_d[constants.VIP_ADDRESS])
                 raise e
-            # there should only be one port returned
-            port = ports['ports'][0]
-            LOG.debug('VIP Port already exists, uuid: %s', port['id'])
-            return {'port': port}
-        except n_exc.NeutronClientException as e:
+            LOG.debug('VIP Port already exists, uuid: %s', port.id)
+            return port
+        except openstack.exceptions.HttpException as e:
             # NOTE (froyo): whatever other exception as e.g. Timeout
             # we should try to ensure no leftover port remains
-            ports = self._neutron_list_ports(neutron_client, **{
-                'network_id': vip_d[constants.VIP_NETWORK_ID],
-                'name': f'{ovn_const.LB_VIP_PORT_PREFIX}{lb_id}'})
-            if ports['ports']:
-                port = ports['ports'][0]
+            port = self._neutron_find_port(
+                neutron_client,
+                network_id=vip_d[constants.VIP_NETWORK_ID],
+                name_or_id=f'{ovn_const.LB_VIP_PORT_PREFIX}{lb_id}')
+            if port:
                 LOG.debug('Leftover port %s has been found. Trying to '
-                          'delete it', port['id'])
-                self.delete_port(port['id'])
+                          'delete it', port.id)
+                self.delete_port(port.id)
             raise e
 
     @tenacity.retry(
         retry=tenacity.retry_if_exception_type(
-            n_exc.NeutronClientException),
+            openstack.exceptions.HttpException),
         wait=tenacity.wait_exponential(max=75),
         stop=tenacity.stop_after_attempt(15),
         reraise=True)
@@ -2197,7 +2204,7 @@ class OvnProviderHelper():
         neutron_client = clients.get_neutron_client()
         try:
             neutron_client.delete_port(port_id)
-        except n_exc.PortNotFoundClient:
+        except openstack.exceptions.ResourceNotFound:
             LOG.warning("Port %s could not be found. Please "
                         "check Neutron logs. Perhaps port "
                         "was already deleted.", port_id)
@@ -2261,9 +2268,9 @@ class OvnProviderHelper():
         # Find out if member has FIP assigned.
         neutron_client = clients.get_neutron_client()
         try:
-            subnet = neutron_client.show_subnet(info['subnet_id'])
-            ls_name = utils.ovn_name(subnet['subnet']['network_id'])
-        except n_exc.NotFound:
+            subnet = neutron_client.get_subnet(info['subnet_id'])
+            ls_name = utils.ovn_name(subnet.network_id)
+        except openstack.exceptions.ResourceNotFound:
             LOG.exception('Subnet %s not found while trying to '
                           'fetch its data.', info['subnet_id'])
             return
@@ -2318,15 +2325,14 @@ class OvnProviderHelper():
             # We should call neutron API to do 'empty' update of the FIP.
             # It will bump revision number and do recomputation of the FIP.
             try:
-                fip_info = neutron_client.show_floatingip(
+                fip_info = neutron_client.get_ip(
                     fip.external_ids[ovn_const.OVN_FIP_EXT_ID_KEY])
                 empty_update = {
-                    "floatingip": {
-                        'description': fip_info['floatingip']['description']}}
-                neutron_client.update_floatingip(
+                    'description': fip_info['description']}
+                neutron_client.update_ip(
                     fip.external_ids[ovn_const.OVN_FIP_EXT_ID_KEY],
-                    empty_update)
-            except n_exc.NotFound:
+                    **empty_update)
+            except openstack.exceptions.ResourceNotFound:
                 LOG.warning('Member %(member)s FIP %(fip)s not found in '
                             'Neutron. Cannot update it.',
                             {'member': info['id'],
@@ -2335,12 +2341,12 @@ class OvnProviderHelper():
     def _get_member_lsp(self, member_ip, member_subnet_id):
         neutron_client = clients.get_neutron_client()
         try:
-            member_subnet = neutron_client.show_subnet(member_subnet_id)
-        except n_exc.NotFound:
+            member_subnet = neutron_client.get_subnet(member_subnet_id)
+        except openstack.exceptions.ResourceNotFound:
             LOG.exception('Subnet %s not found while trying to '
                           'fetch its data.', member_subnet_id)
             return
-        ls_name = utils.ovn_name(member_subnet['subnet']['network_id'])
+        ls_name = utils.ovn_name(member_subnet.network_id)
         try:
             ls = self.ovn_nbdb_api.lookup('Logical_Switch', ls_name)
         except idlutils.RowNotFound:

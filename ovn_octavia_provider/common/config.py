@@ -79,39 +79,93 @@ ovn_opts = [
 ]
 
 neutron_opts = [
-    cfg.StrOpt('service_name',
-               help=_('The name of the neutron service in the '
-                      'keystone catalog')),
     cfg.StrOpt('endpoint', help=_('A new endpoint to override the endpoint '
-                                  'in the keystone catalog.')),
-    cfg.StrOpt('region_name',
-               help=_('Region in Identity service catalog to use for '
-                      'communication with the OpenStack services.')),
-    cfg.StrOpt('endpoint_type', default='publicURL',
-               help=_('Endpoint interface in identity service to use')),
+                                  'in the keystone catalog.'),
+               deprecated_for_removal=True,
+               deprecated_reason=_('The endpoint_override option defined by '
+                                   'keystoneauth1 is the new name for this '
+                                   'option.'),
+               deprecated_since='Antelope'),
+    cfg.StrOpt('endpoint_type', help=_('Endpoint interface in identity '
+                                       'service to use'),
+               deprecated_for_removal=True,
+               deprecated_reason=_('This option was replaced by the '
+                                   'valid_interfaces option defined by '
+                                   'keystoneauth.'),
+               deprecated_since='Antelope'),
     cfg.StrOpt('ca_certificates_file',
-               help=_('CA certificates file path')),
-    cfg.BoolOpt('insecure',
-                default=False,
-                help=_('Disable certificate validation on SSL connections ')),
+               help=_('CA certificates file path'),
+               deprecated_for_removal=True,
+               deprecated_reason=_('The cafile option defined by '
+                                   'keystoneauth1 is the new name for this '
+                                   'option.'),
+               deprecated_since='Antelope'),
 ]
+
+
+def handle_neutron_deprecations():
+    # Apply neutron deprecated options to their new setting if needed
+
+    # Basicaly: if the value of the deprecated option is not the default:
+    # * convert it to a valid "new" value if needed
+    # * set it as the default for the new option
+    # Thus [neutron].<new_option> has an higher precedence than
+    # [neutron].<deprecated_option>
+    loc = cfg.CONF.get_location('endpoint', 'neutron')
+    if loc and loc.location != cfg.Locations.opt_default:
+        cfg.CONF.set_default('endpoint_override', cfg.CONF.neutron.endpoint,
+                             'neutron')
+
+    loc = cfg.CONF.get_location('endpoint_type', 'neutron')
+    if loc and loc.location != cfg.Locations.opt_default:
+        endpoint_type = cfg.CONF.neutron.endpoint_type.replace('URL', '')
+        cfg.CONF.set_default('valid_interfaces', [endpoint_type],
+                             'neutron')
+
+    loc = cfg.CONF.get_location('ca_certificates_file', 'neutron')
+    if loc and loc.location != cfg.Locations.opt_default:
+        cfg.CONF.set_default('cafile', cfg.CONF.neutron.ca_certificates_file,
+                             'neutron')
 
 
 def register_opts():
     # NOTE (froyo): just to not try to re-register options already done
     # by Neutron, specially in test scope, that will get a DuplicateOptError
-    missing_opts = ovn_opts
+    missing_ovn_opts = ovn_opts
     try:
         neutron_registered_opts = [opt for opt in cfg.CONF.ovn]
-        missing_opts = [opt for opt in ovn_opts
-                        if opt.name not in neutron_registered_opts]
+        missing_ovn_opts = [opt for opt in ovn_opts
+                            if opt.name not in neutron_registered_opts]
     except cfg.NoSuchOptError:
         LOG.info('Not found any opts under group ovn registered by Neutron')
 
-    cfg.CONF.register_opts(missing_opts, group='ovn')
-    cfg.CONF.register_opts(neutron_opts, group='neutron')
+    # Do the same for neutron options that have been already registered by
+    # Octavia
+    missing_neutron_opts = neutron_opts
+    try:
+        neutron_registered_opts = [opt for opt in cfg.CONF.neutron]
+        missing_neutron_opts = [opt for opt in neutron_opts
+                                if opt.name not in neutron_registered_opts]
+    except cfg.NoSuchOptError:
+        LOG.info('Not found any opts under group neutron')
+
+    cfg.CONF.register_opts(missing_ovn_opts, group='ovn')
+    cfg.CONF.register_opts(missing_neutron_opts, group='neutron')
     ks_loading.register_auth_conf_options(cfg.CONF, 'service_auth')
     ks_loading.register_session_conf_options(cfg.CONF, 'service_auth')
+    ks_loading.register_adapter_conf_options(cfg.CONF, 'service_auth',
+                                             include_deprecated=False)
+
+    ks_loading.register_auth_conf_options(cfg.CONF, 'neutron')
+    ks_loading.register_session_conf_options(cfg.CONF, 'neutron')
+    ks_loading.register_adapter_conf_options(cfg.CONF, 'neutron',
+                                             include_deprecated=False)
+
+    # Override default auth_type for plugins with the default from service_auth
+    auth_type = cfg.CONF.service_auth.auth_type
+    cfg.CONF.set_default('auth_type', auth_type, 'neutron')
+
+    handle_neutron_deprecations()
 
 
 def list_opts():

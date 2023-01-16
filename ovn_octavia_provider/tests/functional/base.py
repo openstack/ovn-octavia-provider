@@ -57,38 +57,43 @@ class TestOvnOctaviaBase(base.TestOVNFunctionalBase,
         self.fake_neutron_client = mock.MagicMock()
         clients.get_neutron_client = mock.MagicMock()
         clients.get_neutron_client.return_value = self.fake_neutron_client
-        self.fake_neutron_client.show_network = self._mock_show_network
-        self.fake_neutron_client.show_subnet = self._mock_show_subnet
-        self.fake_neutron_client.list_ports = self._mock_list_ports
-        self.fake_neutron_client.show_port = self._mock_show_port
+        self.fake_neutron_client.get_network = self._mock_get_network
+        self.fake_neutron_client.get_subnet = self._mock_get_subnet
+        self.fake_neutron_client.ports = self._mock_ports
+        self.fake_neutron_client.get_port = self._mock_get_port
         self.fake_neutron_client.delete_port.return_value = True
         self._local_net_cache = {}
         self._local_cidr_cache = {}
         self._local_port_cache = {'ports': []}
         self.core_plugin = directory.get_plugin()
 
-    def _mock_show_network(self, network_id):
-        network = {}
-        network['id'] = network_id
-        network['provider:physical_network'] = None
-        return {'network': network}
+    def _port_dict_to_mock(self, port_dict):
+        port = mock.Mock(**port_dict)
+        return port
 
-    def _mock_show_subnet(self, subnet_id):
-        subnet = {}
-        subnet['network_id'] = self._local_net_cache[subnet_id]
-        subnet['cidr'] = self._local_cidr_cache[subnet_id]
-        return {'subnet': subnet}
+    def _mock_get_network(self, network_id):
+        network = mock.Mock()
+        network.id = network_id
+        network.provider_physical_network = None
+        return network
 
-    def _mock_list_ports(self, **kwargs):
-        return self._local_port_cache
+    def _mock_get_subnet(self, subnet_id):
+        subnet = mock.Mock()
+        subnet.network_id = self._local_net_cache[subnet_id]
+        subnet.cidr = self._local_cidr_cache[subnet_id]
+        subnet.gateway_ip = None
+        return subnet
 
-    def _mock_show_port(self, port_id):
+    def _mock_ports(self, **kwargs):
+        return self._local_port_cache['ports']
+
+    def _mock_get_port(self, port_id):
         for port in self._local_port_cache['ports']:
-            if port['id'] == port_id:
-                return {'port': port}
+            if port.id == port_id:
+                return port
 
     def _create_provider_network(self):
-        e1 = self._make_network(self.fmt, 'e1', True,
+        e1 = self._make_network(self.fmt, 'e1', True, True,
                                 arg_list=('router:external',
                                           'provider:network_type',
                                           'provider:physical_network'),
@@ -276,7 +281,8 @@ class TestOvnOctaviaBase(base.TestOVNFunctionalBase,
         if router_id:
             self.l3_plugin.add_router_interface(
                 self.context, router_id, {'subnet_id': subnet['id']})
-        self._local_port_cache['ports'].append(port['port'])
+        self._local_port_cache['ports'].append(
+            self._port_dict_to_mock(port['port']))
         vip_port_address = port['port']['fixed_ips'][0]['ip_address']
         return (n1['network']['id'], subnet['id'], vip_port_address,
                 port['port']['id'])
@@ -616,13 +622,13 @@ class TestOvnOctaviaBase(base.TestOVNFunctionalBase,
                 if m.subnet_id:
                     # Need to get the network_id.
                     for port in self._local_port_cache['ports']:
-                        for fixed_ip in port['fixed_ips']:
+                        for fixed_ip in port.fixed_ips:
                             if fixed_ip['subnet_id'] == m.subnet_id:
                                 ex = external_ids[
                                     ovn_const.LB_EXT_IDS_LS_REFS_KEY]
                                 act = ex.get(
-                                    'neutron-%s' % port['network_id'], 0)
-                                ex['neutron-%s' % port['network_id']] = act + 1
+                                    'neutron-%s' % port.network_id, 0)
+                                ex['neutron-%s' % port.network_id] = act + 1
                                 break
                 if p.healthmonitor:
                     member_status[m.member_id] = o_constants.ONLINE

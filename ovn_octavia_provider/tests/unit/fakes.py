@@ -86,6 +86,14 @@ class FakeResource(dict):
         self._add_details(info)
 
 
+class FakeOpenStackSDKResource(FakeResource):
+    def __getattr__(self, attr):
+        if attr in self._info:
+            return self._info[attr]
+        else:
+            raise AttributeError("No such attribute '{}'".format(attr))
+
+
 class FakeOvsdbRow(FakeResource):
     """Fake one or more OVSDB rows."""
 
@@ -165,8 +173,8 @@ class FakeSubnet():
         # Overwrite default attributes.
         subnet_attrs.update(attrs)
 
-        return FakeResource(info=copy.deepcopy(subnet_attrs),
-                            loaded=True)
+        return FakeOpenStackSDKResource(info=copy.deepcopy(subnet_attrs),
+                                        loaded=True)
 
 
 class FakeOVNPort():
@@ -289,8 +297,8 @@ class FakePort():
         # Overwrite default attributes.
         port_attrs.update(attrs)
 
-        return FakeResource(info=copy.deepcopy(port_attrs),
-                            loaded=True)
+        return FakeOpenStackSDKResource(info=copy.deepcopy(port_attrs),
+                                        loaded=True)
 
 
 class FakeLB(data_models.LoadBalancer):

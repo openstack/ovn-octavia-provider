@@ -464,15 +464,18 @@ class OvnProviderDriver(driver_base.ProviderDriver):
         # TODO(gthiemonge): implement additional_vip_dicts
         try:
             port = self._ovn_helper.create_vip_port(
-                project_id, lb_id, vip_dict)['port']
+                project_id, lb_id, vip_dict)
             vip_dict[constants.VIP_PORT_ID] = port['id']
             vip_dict[constants.VIP_ADDRESS] = (
                 port['fixed_ips'][0]['ip_address'])
         except Exception as e:
             kwargs = {}
-            if hasattr(e, 'message'):
-                kwargs = {'user_fault_string': e.message,
-                          'operator_fault_string': e.message}
+            for attr in ('details', 'message'):
+                if hasattr(e, attr):
+                    value = getattr(e, attr)
+                    kwargs = {'user_fault_string': value,
+                              'operator_fault_string': value}
+                    break
             raise driver_exceptions.DriverError(
                 **kwargs)
         return vip_dict, []
