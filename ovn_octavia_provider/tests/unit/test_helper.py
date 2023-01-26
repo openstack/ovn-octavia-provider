@@ -14,6 +14,7 @@
 import copy
 from unittest import mock
 
+from neutron_lib.api.definitions import provider_net
 from neutron_lib import constants as n_const
 from neutronclient.common import exceptions as n_exc
 from octavia_lib.api.drivers import data_models
@@ -641,7 +642,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
             selection_fields=['ip_src', 'ip_dst', 'tp_src', 'tp_dst'])
 
     @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
-    def _test_lb_create_on_multi_protocol(self, protocol, net_cli):
+    def _test_lb_create_on_multi_protocol(self, protocol, provider, net_cli):
         """This test situation when new protocol is added
 
            to the same loadbalancer and we need to add
@@ -652,6 +653,11 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         self.lb[ovn_const.LB_EXT_IDS_LR_REF_KEY] = 'foo'
         self.lb[ovn_const.LB_EXT_IDS_LS_REFS_KEY] = '{\"neutron-foo\": 1}'
         net_cli.return_value.list_ports.return_value = self.ports
+        fake_network = {'id': self.lb['vip_network_id'],
+                        provider_net.PHYSICAL_NETWORK: provider}
+        net_cli.return_value.show_network.return_value = {
+            'network': fake_network}
+
         status = self.helper.lb_create(self.lb, protocol=protocol)
         self.assertEqual(status['loadbalancers'][0]['provisioning_status'],
                          constants.ACTIVE)
@@ -666,18 +672,26 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
             name=mock.ANY,
             protocol=protocol.lower(),
             selection_fields=['ip_src', 'ip_dst', 'tp_src', 'tp_dst'])
-        self.helper._update_lb_to_ls_association.assert_has_calls([
-            mock.call(self.ovn_lb, associate=True,
-                      network_id=self.lb['vip_network_id'],
-                      update_ls_ref=True),
-            mock.call(self.ovn_lb, associate=True, network_id='foo',
-                      update_ls_ref=True)])
+        if provider:
+            self.helper._update_lb_to_ls_association.assert_not_called()
+        else:
+            self.helper._update_lb_to_ls_association.assert_has_calls([
+                mock.call(self.ovn_lb, associate=True,
+                          network_id=self.lb['vip_network_id'],
+                          update_ls_ref=True),
+                mock.call(self.ovn_lb, associate=True, network_id='foo',
+                          update_ls_ref=True)])
 
     def test_lb_create_on_multi_protocol_UDP(self):
-        self._test_lb_create_on_multi_protocol('UDP')
+        self._test_lb_create_on_multi_protocol('UDP', None)
 
     def test_lb_create_on_multi_protocol_SCTP(self):
-        self._test_lb_create_on_multi_protocol('SCTP')
+        self._test_lb_create_on_multi_protocol('SCTP', None)
+
+    def _test_lb_create_on_provider_network(self):
+        # Test case for LB created on provider network.
+        # Ensure LB is not associated to the LS in that case
+        self._test_lb_create_on_multi_protocol('TCP', "provider")
 
     @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
     def test_lb_create_neutron_client_exception(self, net_cli):
