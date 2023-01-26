@@ -57,6 +57,7 @@ class TestOvnOctaviaBase(base.TestOVNFunctionalBase,
         self.fake_neutron_client = mock.MagicMock()
         clients.get_neutron_client = mock.MagicMock()
         clients.get_neutron_client.return_value = self.fake_neutron_client
+        self.fake_neutron_client.show_network = self._mock_show_network
         self.fake_neutron_client.show_subnet = self._mock_show_subnet
         self.fake_neutron_client.list_ports = self._mock_list_ports
         self.fake_neutron_client.show_port = self._mock_show_port
@@ -65,6 +66,12 @@ class TestOvnOctaviaBase(base.TestOVNFunctionalBase,
         self._local_cidr_cache = {}
         self._local_port_cache = {'ports': []}
         self.core_plugin = directory.get_plugin()
+
+    def _mock_show_network(self, network_id):
+        network = {}
+        network['id'] = network_id
+        network['provider:physical_network'] = None
+        return {'network': network}
 
     def _mock_show_subnet(self, subnet_id):
         subnet = {}
