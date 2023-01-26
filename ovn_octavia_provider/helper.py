@@ -18,6 +18,7 @@ import re
 import threading
 
 import netaddr
+from neutron_lib.api.definitions import provider_net
 from neutron_lib import constants as n_const
 from neutronclient.common import exceptions as n_exc
 from octavia_lib.api.drivers import data_models as o_datamodels
@@ -989,11 +990,17 @@ class OvnProviderHelper():
                 loadbalancer[constants.ID],
                 protocol=protocol)
             ovn_lb = ovn_lb if protocol else ovn_lb[0]
-            # NOTE(froyo): This is the association of the lb to the VIP ls
-            # so this is executed right away
-            self._update_lb_to_ls_association(
-                ovn_lb, network_id=port['network_id'],
-                associate=True, update_ls_ref=True)
+
+            # NOTE(ltomasbo): If the VIP is on a provider network, it does
+            # not need to be associated to its LS
+            network = neutron_client.show_network(
+                port['network_id'])['network']
+            if not network.get(provider_net.PHYSICAL_NETWORK, False):
+                # NOTE(froyo): This is the association of the lb to the VIP ls
+                # so this is executed right away
+                self._update_lb_to_ls_association(
+                    ovn_lb, network_id=port['network_id'],
+                    associate=True, update_ls_ref=True)
             ls_name = utils.ovn_name(port['network_id'])
             ovn_ls = self.ovn_nbdb_api.ls_get(ls_name).execute(
                 check_error=True)
