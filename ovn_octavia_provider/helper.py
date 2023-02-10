@@ -134,16 +134,63 @@ class OvnProviderHelper():
             raise idlutils.RowNotFound(table=row._table.name,
                                        col=col, match=key) from e
 
-    def _ensure_hm_ovn_port(self, network_id):
-        # We need to have a metadata or dhcp port, OVN should have created
-        # one when the network was created
+    def _create_hm_port(self, network_id, subnet_id, project_id):
+        port = {'port': {'name': ovn_const.LB_HM_PORT_PREFIX + str(subnet_id),
+                         'network_id': network_id,
+                         'fixed_ips': [{'subnet_id': subnet_id}],
+                         'admin_state_up': True,
+                         'port_security_enabled': False,
+                         'device_owner': n_const.DEVICE_OWNER_DISTRIBUTED,
+                         'project_id': project_id}}
+        neutron_client = clients.get_neutron_client()
+        try:
+            hm_port = neutron_client.create_port(port)
+            return hm_port['port'] if hm_port['port'] else None
+        except n_exc.NeutronClientException:
+            # NOTE (froyo): whatever other exception as e.g. Timeout
+            # we should try to ensure no leftover port remains
+            self._clean_up_hm_port(subnet_id)
+            return None
+
+    def _clean_up_hm_port(self, subnet_id):
+        # Method to delete the hm port created for subnet_id it there isn't any
+        # other health monitor using it
+        neutron_client = clients.get_neutron_client()
+        hm_port_ip = None
+
+        hm_checks_port = self._neutron_list_ports(neutron_client, **{
+            'name': f'{ovn_const.LB_HM_PORT_PREFIX}{subnet_id}'})
+        if hm_checks_port['ports']:
+            # NOTE(froyo): Just to cover the case that we have more than one
+            # hm-port created by a race condition on create_hm_port and we need
+            # to ensure no leftover ports remains
+            for hm_port in hm_checks_port['ports']:
+                for fixed_ip in hm_port.get('fixed_ips', []):
+                    if fixed_ip['subnet_id'] == subnet_id:
+                        hm_port_ip = fixed_ip['ip_address']
+
+                if hm_port_ip:
+                    lbs = self.ovn_nbdb_api.db_find_rows(
+                        'Load_Balancer', ('health_check', '!=', [])).execute()
+                    for lb in lbs:
+                        for k, v in lb.ip_port_mappings.items():
+                            if hm_port_ip in v:
+                                return
+                    # Not found any other health monitor using the hm port
+                    self.delete_port(hm_port['id'])
+
+    def _ensure_hm_ovn_port(self, network_id, subnet_id, project_id):
+        # We will use a dedicated port for this, so we should find the one
+        # related to the network id, if not found, create a new one and use it.
 
         neutron_client = clients.get_neutron_client()
-        meta_dhcp_port = neutron_client.list_ports(
-            network_id=network_id,
-            device_owner=n_const.DEVICE_OWNER_DISTRIBUTED)
-        if meta_dhcp_port['ports']:
-            return meta_dhcp_port['ports'][0]
+        hm_checks_port = self._neutron_list_ports(neutron_client, **{
+            'network_id': network_id,
+            'name': f'{ovn_const.LB_HM_PORT_PREFIX}{subnet_id}'})
+        if hm_checks_port['ports']:
+            return hm_checks_port['ports'][0]
+        else:
+            return self._create_hm_port(network_id, subnet_id, project_id)
 
     def _get_nw_router_info_on_interface_event(self, lrp):
         """Get the Router and Network information on an interface event
@@ -387,6 +434,14 @@ class OvnProviderHelper():
         reraise=True)
     def _find_ovn_lbs_with_retry(self, lb_id, protocol=None):
         return self._find_ovn_lbs(lb_id, protocol=protocol)
+
+    @tenacity.retry(
+        retry=tenacity.retry_if_exception_type(n_exc.NeutronClientException),
+        wait=tenacity.wait_exponential(),
+        stop=tenacity.stop_after_delay(10),
+        reraise=True)
+    def _neutron_list_ports(self, neutron_client, **params):
+        return neutron_client.list_ports(**params)
 
     def _find_ovn_lbs(self, lb_id, protocol=None):
         """Find the Loadbalancers in OVN with the given lb_id as its name
@@ -926,8 +981,8 @@ class OvnProviderHelper():
                         break
             elif (loadbalancer.get(constants.VIP_NETWORK_ID) and
                   loadbalancer.get(constants.VIP_ADDRESS)):
-                ports = neutron_client.list_ports(
-                    network_id=loadbalancer[constants.VIP_NETWORK_ID])
+                ports = self._neutron_list_ports(neutron_client, **{
+                    'network_id': loadbalancer[constants.VIP_NETWORK_ID]})
                 for p in ports['ports']:
                     for ip in p['fixed_ips']:
                         if ip['ip_address'] == loadbalancer[
@@ -942,7 +997,7 @@ class OvnProviderHelper():
             # Any Exception set the status to ERROR
             if isinstance(port, dict):
                 try:
-                    self.delete_vip_port(port.get('id'))
+                    self.delete_port(port.get('id'))
                     LOG.warning("Deleting the VIP port %s since LB went into "
                                 "ERROR state", str(port.get('id')))
                 except Exception:
@@ -1059,7 +1114,7 @@ class OvnProviderHelper():
             # Any Exception set the status to ERROR
             if isinstance(port, dict):
                 try:
-                    self.delete_vip_port(port.get('id'))
+                    self.delete_port(port.get('id'))
                     LOG.warning("Deleting the VIP port %s since LB went into "
                                 "ERROR state", str(port.get('id')))
                 except Exception:
@@ -1103,7 +1158,7 @@ class OvnProviderHelper():
                 if vip_port_id:
                     LOG.warning("Deleting the VIP port %s associated to LB "
                                 "missing in OVN DBs", str(vip_port_id))
-                    self.delete_vip_port(vip_port_id)
+                    self.delete_port(vip_port_id)
             except Exception:
                 LOG.exception("Error deleting the VIP port %s",
                               str(vip_port_id))
@@ -1123,7 +1178,7 @@ class OvnProviderHelper():
             # https://cito.github.io/blog/never-iterate-a-changing-dict/
             status = {key: value for key, value in status.items() if value}
             # Delete VIP port from neutron.
-            self.delete_vip_port(port_id)
+            self.delete_port(port_id)
         except Exception:
             LOG.exception(ovn_const.EXCEPTION_MSG, "deletion of loadbalancer")
             lbalancer_status[constants.PROVISIONING_STATUS] = constants.ERROR
@@ -1133,6 +1188,8 @@ class OvnProviderHelper():
 
     def _lb_delete(self, loadbalancer, ovn_lb, status):
         commands = []
+        member_subnets = []
+        clean_up_hm_port_required = False
         if loadbalancer['cascade']:
             # Delete all pools
             for key, value in ovn_lb.external_ids.items():
@@ -1141,6 +1198,7 @@ class OvnProviderHelper():
                     # Delete all members in the pool
                     if value and len(value.split(',')) > 0:
                         for mem_info in value.split(','):
+                            member_subnets.append(mem_info.split('_')[3])
                             status[constants.MEMBERS].append({
                                 constants.ID: mem_info.split('_')[1],
                                 constants.PROVISIONING_STATUS:
@@ -1154,6 +1212,13 @@ class OvnProviderHelper():
                         constants.ID: key.split('_')[1],
                         constants.PROVISIONING_STATUS: constants.DELETED,
                         constants.OPERATING_STATUS: constants.OFFLINE})
+
+        if ovn_lb.health_check:
+            clean_up_hm_port_required = True
+            commands.append(
+                self.ovn_nbdb_api.db_clear('Load_Balancer', ovn_lb.uuid,
+                                           'health_check'))
+
         ls_refs = ovn_lb.external_ids.get(ovn_const.LB_EXT_IDS_LS_REFS_KEY, {})
         if ls_refs:
             try:
@@ -1212,6 +1277,12 @@ class OvnProviderHelper():
                                     getattr(command, 'router', ''))
                     else:
                         raise
+
+        # NOTE(froyo): we should remove the hm-port if the LB was using a HM
+        # and no more LBs are using it
+        if clean_up_hm_port_required:
+            for subnet_id in list(set(member_subnets)):
+                self._clean_up_hm_port(subnet_id)
 
         return status
 
@@ -1895,8 +1966,14 @@ class OvnProviderHelper():
             pool = {constants.ID: member[constants.POOL_ID],
                     constants.PROVISIONING_STATUS: constants.ACTIVE,
                     constants.OPERATING_STATUS: pool_status}
-            if pool_status == constants.ONLINE and ovn_lb.health_check:
+            if ovn_lb.health_check:
                 self._update_hm_members(ovn_lb, pool_key)
+                # NOTE(froyo): if the pool status is OFFLINE there are no more
+                # members. So we should ensure the hm-port is deleted if no
+                # more LB are using it. We need to do this call after the
+                # cleaning of the ip_port_mappings for the ovn LB.
+                if pool_status == constants.OFFLINE:
+                    self._clean_up_hm_port(member['subnet_id'])
             status = {
                 constants.POOLS: [pool],
                 constants.MEMBERS: [
@@ -2051,9 +2128,9 @@ class OvnProviderHelper():
         except n_exc.IpAddressAlreadyAllocatedClient as e:
             # Sometimes the VIP is already created (race-conditions)
             # Lets get the it from Neutron API.
-            ports = neutron_client.list_ports(
-                network_id=vip_d[constants.VIP_NETWORK_ID],
-                name=f'{ovn_const.LB_VIP_PORT_PREFIX}{lb_id}')
+            ports = self._neutron_list_ports(neutron_client, **{
+                'network_id': vip_d[constants.VIP_NETWORK_ID],
+                'name': f'{ovn_const.LB_VIP_PORT_PREFIX}{lb_id}'})
             if not ports['ports']:
                 LOG.error('Cannot create/get LoadBalancer VIP port with '
                           'fixed IP: %s', vip_d[constants.VIP_ADDRESS])
@@ -2065,14 +2142,14 @@ class OvnProviderHelper():
         except n_exc.NeutronClientException as e:
             # NOTE (froyo): whatever other exception as e.g. Timeout
             # we should try to ensure no leftover port remains
-            ports = neutron_client.list_ports(
-                network_id=vip_d[constants.VIP_NETWORK_ID],
-                name=f'{ovn_const.LB_VIP_PORT_PREFIX}{lb_id}')
+            ports = self._neutron_list_ports(neutron_client, **{
+                'network_id': vip_d[constants.VIP_NETWORK_ID],
+                'name': f'{ovn_const.LB_VIP_PORT_PREFIX}{lb_id}'})
             if ports['ports']:
                 port = ports['ports'][0]
                 LOG.debug('Leftover port %s has been found. Trying to '
                           'delete it', port['id'])
-                self.delete_vip_port(port['id'])
+                self.delete_port(port['id'])
             raise e
 
     @tenacity.retry(
@@ -2081,7 +2158,7 @@ class OvnProviderHelper():
         wait=tenacity.wait_exponential(max=75),
         stop=tenacity.stop_after_attempt(15),
         reraise=True)
-    def delete_vip_port(self, port_id):
+    def delete_port(self, port_id):
         neutron_client = clients.get_neutron_client()
         try:
             neutron_client.delete_port(port_id)
@@ -2328,7 +2405,10 @@ class OvnProviderHelper():
 
             network_id = member_lsp.external_ids.get(
                 ovn_const.OVN_NETWORK_NAME_EXT_ID_KEY).split('neutron-')[1]
-            hm_port = self._ensure_hm_ovn_port(network_id)
+            project_id = member_lsp.external_ids.get(
+                ovn_const.OVN_PROJECT_EXT_ID_KEY)
+            hm_port = self._ensure_hm_ovn_port(
+                network_id, member_subnet, project_id)
             if not hm_port:
                 LOG.error("No port on network %(network)s available for "
                           "health monitoring. Cannot create a Health Monitor "
@@ -2372,10 +2452,20 @@ class OvnProviderHelper():
             mappings[member_ip] = member_src
 
         commands = []
+        # NOTE(froyo): This db_clear over field ip_port_mappings is needed just
+        # to clean the old values (including the removed member) and the
+        # following db_set will update the using the mappings calculated some
+        # lines above with reemaining members only.
+        # TODO(froyo): use the ovsdbapp commands to add/del members to
+        # ip_port_mappings field
         commands.append(
-            self.ovn_nbdb_api.db_set(
-                'Load_Balancer', ovn_lb.uuid,
-                ('ip_port_mappings', mappings)))
+            self.ovn_nbdb_api.db_clear('Load_Balancer', ovn_lb.uuid,
+                                       'ip_port_mappings'))
+        if mappings:
+            commands.append(
+                self.ovn_nbdb_api.db_set(
+                    'Load_Balancer', ovn_lb.uuid,
+                    ('ip_port_mappings', mappings)))
         self._execute_commands(commands)
         return True
 
@@ -2549,11 +2639,18 @@ class OvnProviderHelper():
             return status
 
         # Need to send pool info in status update to avoid immutable objects,
-        # the LB should have this info
+        # the LB should have this info. Also in order to delete the hm port
+        # used for health checks we need to get all subnets from the members
+        # on the pool
         pool_id = None
         pool_listeners = []
+        member_subnets = []
         for k, v in ovn_lb.external_ids.items():
             if ovn_const.LB_EXT_IDS_POOL_PREFIX in k:
+                members = self._extract_member_info(ovn_lb.external_ids[k])
+                member_subnets = list(
+                    set([mem_subnet for (_, _, mem_subnet) in members])
+                )
                 pool_id = k.split('_')[1]
                 pool_listeners = self._get_pool_listeners(
                     ovn_lb, self._get_pool_key(pool_id))
@@ -2583,6 +2680,11 @@ class OvnProviderHelper():
             self.ovn_nbdb_api.db_destroy('Load_Balancer_Health_Check',
                                          lbhc.uuid))
         self._execute_commands(commands)
+
+        # Delete the hm port if not in use by other health monitors
+        for subnet in member_subnets:
+            self._clean_up_hm_port(subnet)
+
         status = {
             constants.LOADBALANCERS: [
                 {constants.ID: ovn_lb.name,
