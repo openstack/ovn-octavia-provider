@@ -2994,9 +2994,77 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
                 '_find_ovn_lbs')
     def test_handle_vip_fip_disassociate(self, flb):
         lb = mock.MagicMock()
+        vip_fip = '10.0.0.123'
+        external_ids = {
+            'neutron:vip': '172.26.21.20',
+            'neutron:vip_fip': vip_fip}
+
+        lb.external_ids = external_ids
+        lb_hc = mock.MagicMock()
+        lb_hc.uuid = "fake_lb_hc"
+        lb_hc.vip = "{}:80".format(vip_fip)
+        lb.health_check = [lb_hc]
+
         fip_info = {
             'action': 'disassociate',
-            'vip_fip': None,
+            'vip_fip': vip_fip,
+            'ovn_lb': lb}
+        flb.return_value = lb
+        self.helper.handle_vip_fip(fip_info)
+        calls = [
+            mock.call.db_remove(
+                'Load_Balancer', lb.uuid, 'external_ids', 'neutron:vip_fip'),
+            mock.call.db_remove(
+                'Load_Balancer', lb.uuid, 'health_check', lb_hc.uuid),
+            mock.call.db_destroy('Load_Balancer_Health_Check', lb_hc.uuid),
+            mock.call.db_clear('Load_Balancer', lb.uuid, 'vips'),
+            mock.call.db_set('Load_Balancer', lb.uuid, ('vips', {}))]
+        self.helper.ovn_nbdb_api.assert_has_calls(calls)
+
+    @mock.patch('ovn_octavia_provider.helper.OvnProviderHelper.'
+                '_find_ovn_lbs')
+    def test_handle_vip_fip_disassociate_no_lbhc(self, flb):
+        lb = mock.MagicMock()
+        vip_fip = '10.0.0.123'
+        external_ids = {
+            'neutron:vip': '172.26.21.20',
+            'neutron:vip_fip': vip_fip}
+
+        lb.external_ids = external_ids
+        lb.health_check = []
+
+        fip_info = {
+            'action': 'disassociate',
+            'vip_fip': vip_fip,
+            'ovn_lb': lb}
+        flb.return_value = lb
+        self.helper.handle_vip_fip(fip_info)
+        calls = [
+            mock.call.db_remove(
+                'Load_Balancer', lb.uuid, 'external_ids', 'neutron:vip_fip'),
+            mock.call.db_clear('Load_Balancer', lb.uuid, 'vips'),
+            mock.call.db_set('Load_Balancer', lb.uuid, ('vips', {}))]
+        self.helper.ovn_nbdb_api.assert_has_calls(calls)
+
+    @mock.patch('ovn_octavia_provider.helper.OvnProviderHelper.'
+                '_find_ovn_lbs')
+    def test_handle_vip_fip_disassociate_no_matching_lbhc(self, flb):
+        lb = mock.MagicMock()
+        vip_fip = '10.0.0.123'
+        external_ids = {
+            'neutron:vip': '172.26.21.20',
+            'neutron:vip_fip': vip_fip}
+
+        lb.external_ids = external_ids
+        lb_hc = mock.MagicMock()
+        lb_hc.uuid = "fake_lb_hc"
+        lb_hc.vip = "10.0.0.222:80"
+        lb.health_check = [lb_hc]
+        lb.health_check = []
+
+        fip_info = {
+            'action': 'disassociate',
+            'vip_fip': vip_fip,
             'ovn_lb': lb}
         flb.return_value = lb
         self.helper.handle_vip_fip(fip_info)
@@ -3028,16 +3096,61 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         fb.return_value = lb
 
         self.helper.handle_vip_fip(fip_info)
-        calls = [
-            mock.call.db_set(
-                'Load_Balancer', lb.uuid,
-                ('external_ids', {'neutron:vip_fip': '10.0.0.123'})),
-            mock.call.db_clear('Load_Balancer', lb.uuid, 'vips'),
-            mock.call.db_set(
-                'Load_Balancer', lb.uuid,
-                ('vips', {'10.0.0.123:80': '192.168.2.149:1010',
-                          '172.26.21.20:80': '192.168.2.149:1010'}))]
-        self.helper.ovn_nbdb_api.assert_has_calls(calls)
+
+        kwargs = {
+            'vip': fip_info['vip_fip'],
+            'options': lb.health_check[0].options,
+            'external_ids': lb.health_check[0].external_ids}
+        self.helper.ovn_nbdb_api.db_create.assert_called_once_with(
+            'Load_Balancer_Health_Check', **kwargs)
+        self.helper.ovn_nbdb_api.db_add.assert_called_once_with(
+            'Load_Balancer', lb.uuid, 'health_check', mock.ANY)
+        expected_db_set_calls = [
+            mock.call('Load_Balancer', lb.uuid,
+                      ('external_ids', {'neutron:vip_fip': '10.0.0.123'})),
+            mock.call('Load_Balancer', lb.uuid,
+                      ('vips', {'10.0.0.123:80': '192.168.2.149:1010',
+                                '172.26.21.20:80': '192.168.2.149:1010'}))
+        ]
+        self.helper.ovn_nbdb_api.db_set.assert_has_calls(expected_db_set_calls)
+        self.helper.ovn_nbdb_api.db_clear.assert_called_once_with(
+            'Load_Balancer', lb.uuid, 'vips')
+
+    @mock.patch('ovn_octavia_provider.helper.OvnProviderHelper.'
+                '_find_ovn_lbs')
+    def test_handle_vip_fip_associate_no_lbhc(self, fb):
+        lb = mock.MagicMock()
+        fip_info = {
+            'action': 'associate',
+            'vip_fip': '10.0.0.123',
+            'ovn_lb': lb}
+        members = 'member_%s_%s:%s_%s' % (self.member_id,
+                                          self.member_address,
+                                          self.member_port,
+                                          self.member_subnet_id)
+        external_ids = {
+            'listener_foo': '80:pool_%s' % self.pool_id,
+            'pool_%s' % self.pool_id: members,
+            'neutron:vip': '172.26.21.20'}
+
+        lb.external_ids = external_ids
+        lb.health_check = []
+        fb.return_value = lb
+
+        self.helper.handle_vip_fip(fip_info)
+
+        self.helper.ovn_nbdb_api.db_create.assert_not_called()
+        self.helper.ovn_nbdb_api.db_add.assert_not_called()
+        expected_db_set_calls = [
+            mock.call('Load_Balancer', lb.uuid,
+                      ('external_ids', {'neutron:vip_fip': '10.0.0.123'})),
+            mock.call('Load_Balancer', lb.uuid,
+                      ('vips', {'10.0.0.123:80': '192.168.2.149:1010',
+                                '172.26.21.20:80': '192.168.2.149:1010'}))
+        ]
+        self.helper.ovn_nbdb_api.db_set.assert_has_calls(expected_db_set_calls)
+        self.helper.ovn_nbdb_api.db_clear.assert_called_once_with(
+            'Load_Balancer', lb.uuid, 'vips')
 
     @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
     def test_handle_member_dvr_lb_has_no_fip(self, net_cli):
@@ -3385,7 +3498,8 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
     @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
     @mock.patch.object(ovn_helper.OvnProviderHelper, '_update_hm_members')
     @mock.patch.object(ovn_helper.OvnProviderHelper, '_find_ovn_lb_by_pool_id')
-    def _test_hm_create(self, protocol, members, folbpi, uhm, net_cli):
+    def _test_hm_create(self, protocol, members, fip, folbpi, uhm,
+                        net_cli):
         self._get_pool_listeners.stop()
         fake_subnet = fakes.FakeSubnet.create_one_subnet()
         pool_key = 'pool_%s' % self.pool_id
@@ -3393,6 +3507,8 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         folbpi.return_value = (pool_key, self.ovn_hm_lb)
         uhm.return_value = True
         net_cli.return_value.show_subnet.return_value = {'subnet': fake_subnet}
+        if not fip:
+            del self.ovn_hm_lb.external_ids[ovn_const.LB_EXT_IDS_VIP_FIP_KEY]
         status = self.helper.hm_create(self.health_monitor)
         self.assertEqual(status['healthmonitors'][0]['provisioning_status'],
                          constants.ACTIVE)
@@ -3413,6 +3529,10 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
                              constants.ONLINE)
         vip = (self.ovn_hm_lb.external_ids[ovn_const.LB_EXT_IDS_VIP_KEY] +
                ':' + str(self.listener['protocol_port']))
+        if fip:
+            fip = (self.ovn_hm_lb.external_ids[
+                   ovn_const.LB_EXT_IDS_VIP_FIP_KEY] +
+                   ':' + str(self.listener['protocol_port']))
         options = {'interval': '6',
                    'timeout': '7',
                    'failure_count': '5',
@@ -3421,21 +3541,39 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         kwargs = {'vip': vip,
                   'options': options,
                   'external_ids': external_ids}
-        self.helper.ovn_nbdb_api.db_create.assert_called_once_with(
-            'Load_Balancer_Health_Check', **kwargs)
-        self.helper.ovn_nbdb_api.db_add.assert_called_once_with(
-            'Load_Balancer', self.ovn_hm_lb.uuid, 'health_check', mock.ANY)
+        if fip:
+            fip_kwargs = {'vip': fip,
+                          'options': options,
+                          'external_ids': external_ids}
+
+        expected_lbhc_calls = [
+            mock.call('Load_Balancer_Health_Check', **kwargs)]
+        if fip:
+            expected_lbhc_calls.append(
+                mock.call('Load_Balancer_Health_Check', **fip_kwargs)
+            )
+        self.helper.ovn_nbdb_api.db_create.assert_has_calls(
+            expected_lbhc_calls)
+
+        if fip:
+            self.assertEqual(self.helper.ovn_nbdb_api.db_add.call_count, 2)
+        else:
+            self.helper.ovn_nbdb_api.db_add.assert_called_once_with(
+                'Load_Balancer', self.ovn_hm_lb.uuid, 'health_check', mock.ANY)
 
     def test_hm_create_tcp(self):
-        self._test_hm_create('tcp', False)
+        self._test_hm_create('tcp', False, True)
+
+    def test_hm_create_tcp_no_fip(self):
+        self._test_hm_create('tcp', False, False)
 
     def test_hm_create_udp(self):
-        self._test_hm_create('udp', False)
+        self._test_hm_create('udp', False, True)
 
     def test_hm_create_tcp_pool_members(self):
         pool_key = 'pool_%s' % self.pool_id
         self.ovn_hm_lb.external_ids[pool_key] = self.member_line
-        self._test_hm_create('tcp', True)
+        self._test_hm_create('tcp', True, True)
 
     @mock.patch.object(ovn_helper.OvnProviderHelper, '_find_ovn_lb_by_pool_id')
     def test_hm_create_no_vip_port(self, folbpi):
@@ -3458,10 +3596,11 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         kwargs = {'vip': vip,
                   'options': options,
                   'external_ids': external_ids}
-        self.helper.ovn_nbdb_api.db_create.assert_called_once_with(
-            'Load_Balancer_Health_Check', **kwargs)
-        self.helper.ovn_nbdb_api.db_add.assert_called_once_with(
-            'Load_Balancer', self.ovn_hm_lb.uuid, 'health_check', mock.ANY)
+        expected_lbhc_calls = [
+            mock.call('Load_Balancer_Health_Check', **kwargs),
+            mock.call('Load_Balancer_Health_Check', **kwargs)]
+        self.helper.ovn_nbdb_api.db_create.has_calls(expected_lbhc_calls)
+        self.assertEqual(self.helper.ovn_nbdb_api.db_add.call_count, 2)
 
     @mock.patch.object(ovn_helper.OvnProviderHelper, '_find_ovn_lb_by_pool_id')
     def test_hm_create_offline(self, folbpi):
@@ -3605,29 +3744,61 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         self.assertEqual(status['healthmonitors'][0]['operating_status'],
                          constants.ERROR)
 
-    @mock.patch.object(ovn_helper.OvnProviderHelper, '_lookup_lbhc_by_hm_id')
     @mock.patch.object(ovn_helper.OvnProviderHelper, '_get_or_create_ovn_lb')
-    def test_hm_create_then_listener_create(self, get_ovn_lb, lookup_hm):
-        get_ovn_lb.return_value = self.ovn_hm_lb
-        lookup_hm.return_value = self.ovn_hm
-        self.ovn_hm_lb.health_check = self.ovn_hm
-        self.listener['admin_state_up'] = True
-        status = self.helper.listener_create(self.listener)
+    def test_hm_create_then_listener_create(self, get_ovn_lb):
         vip = (self.ovn_hm_lb.external_ids[ovn_const.LB_EXT_IDS_VIP_KEY] +
                ':' + str(self.listener['protocol_port']))
+        fip = (self.ovn_hm_lb.external_ids[ovn_const.LB_EXT_IDS_VIP_FIP_KEY] +
+               ':' + str(self.listener['protocol_port']))
+        self.ovn_hm.vip = []
+        self.ovn_hm_lb.health_check = [self.ovn_hm]
+        get_ovn_lb.return_value = self.ovn_hm_lb
+        self.listener['admin_state_up'] = True
+        kwargs = {
+            'vip': fip,
+            'options': self.ovn_hm.options,
+            'external_ids': self.ovn_hm.external_ids}
+
+        status = self.helper.listener_create(self.listener)
+
         self.helper.ovn_nbdb_api.db_set.assert_called_with(
             'Load_Balancer_Health_Check', self.ovn_hm.uuid, ('vip', vip))
+        self.helper.ovn_nbdb_api.db_create.assert_called_with(
+            'Load_Balancer_Health_Check', **kwargs)
+        self.helper.ovn_nbdb_api.db_add.assert_called_with(
+            'Load_Balancer', self.ovn_hm_lb.uuid, 'health_check', mock.ANY)
         self.assertEqual(status['listeners'][0]['provisioning_status'],
                          constants.ACTIVE)
         self.assertEqual(status['listeners'][0]['operating_status'],
                          constants.ONLINE)
 
-    @mock.patch.object(ovn_helper.OvnProviderHelper, '_lookup_lbhc_by_hm_id')
+    @mock.patch.object(ovn_helper.OvnProviderHelper, '_get_or_create_ovn_lb')
+    def test_hm_create_then_listener_create_no_fip(self, get_ovn_lb):
+        vip = (self.ovn_hm_lb.external_ids[ovn_const.LB_EXT_IDS_VIP_KEY] +
+               ':' + str(self.listener['protocol_port']))
+        self.ovn_hm.vip = []
+        self.ovn_hm_lb.health_check = [self.ovn_hm]
+        get_ovn_lb.return_value = self.ovn_hm_lb
+        self.listener['admin_state_up'] = True
+        del self.ovn_hm_lb.external_ids[ovn_const.LB_EXT_IDS_VIP_FIP_KEY]
+
+        status = self.helper.listener_create(self.listener)
+
+        self.helper.ovn_nbdb_api.db_set.assert_called_with(
+            'Load_Balancer_Health_Check', self.ovn_hm.uuid, ('vip', vip))
+        self.helper.ovn_nbdb_api.db_create.assert_not_called()
+        self.helper.ovn_nbdb_api.db_add.assert_not_called()
+        self.assertEqual(status['listeners'][0]['provisioning_status'],
+                         constants.ACTIVE)
+        self.assertEqual(status['listeners'][0]['operating_status'],
+                         constants.ONLINE)
+
+    @mock.patch.object(ovn_helper.OvnProviderHelper, '_lookup_lbhcs_by_hm_id')
     @mock.patch.object(ovn_helper.OvnProviderHelper, '_get_or_create_ovn_lb')
     def test_hm_create_then_listener_create_no_hm(self, get_ovn_lb, lookup_hm):
         get_ovn_lb.return_value = self.ovn_hm_lb
-        lookup_hm.return_value = None
-        self.ovn_hm_lb.health_check = self.ovn_hm
+        lookup_hm.return_value = []
+        self.ovn_hm_lb.health_check = [self.ovn_hm]
         self.listener['admin_state_up'] = True
         status = self.helper.listener_create(self.listener)
         self.assertEqual(status['listeners'][0]['provisioning_status'],
@@ -3636,13 +3807,13 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
                          constants.ERROR)
 
     @mock.patch.object(ovn_helper.OvnProviderHelper, '_refresh_lb_vips')
-    @mock.patch.object(ovn_helper.OvnProviderHelper, '_lookup_lbhc_by_hm_id')
+    @mock.patch.object(ovn_helper.OvnProviderHelper, '_lookup_lbhcs_by_hm_id')
     @mock.patch.object(ovn_helper.OvnProviderHelper, '_get_or_create_ovn_lb')
     def test_hm_create_then_listener_create_no_vip(self, get_ovn_lb,
                                                    lookup_hm, refresh_vips):
         get_ovn_lb.return_value = self.ovn_hm_lb
-        lookup_hm.return_value = self.ovn_hm
-        self.ovn_hm_lb.health_check = self.ovn_hm
+        lookup_hm.return_value = [self.ovn_hm]
+        self.ovn_hm_lb.health_check = [self.ovn_hm]
         self.ovn_hm_lb.external_ids.pop(ovn_const.LB_EXT_IDS_VIP_KEY)
         self.listener['admin_state_up'] = True
         status = self.helper.listener_create(self.listener)
@@ -3651,9 +3822,18 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         self.assertEqual(status['listeners'][0]['operating_status'],
                          constants.ERROR)
 
+    @mock.patch.object(ovn_helper.OvnProviderHelper, '_update_lbhc_vip')
+    @mock.patch.object(ovn_helper.OvnProviderHelper, '_find_ovn_lbs')
+    def test_hm_create_then_listener_update(self, find_ovn_lbs,
+                                            update_lbhc_vip):
+        find_ovn_lbs.return_value = self.ovn_hm_lb
+        self.helper.listener_update(self.listener)
+        update_lbhc_vip.assert_called_once_with(
+            self.ovn_hm_lb, self.listener[constants.PROTOCOL_PORT])
+
     @mock.patch.object(ovn_helper.OvnProviderHelper, '_find_ovn_lb_from_hm_id')
     def test_hm_update(self, folbfhi):
-        folbfhi.return_value = (self.ovn_hm, self.ovn_hm_lb)
+        folbfhi.return_value = ([self.ovn_hm], self.ovn_hm_lb)
         status = self.helper.hm_update(self.health_monitor)
         self.assertEqual(status['healthmonitors'][0]['provisioning_status'],
                          constants.ACTIVE)
@@ -3662,7 +3842,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
 
     @mock.patch.object(ovn_helper.OvnProviderHelper, '_find_ovn_lb_from_hm_id')
     def test_hm_update_no_admin_state_up(self, folbfhi):
-        folbfhi.return_value = (self.ovn_hm, self.ovn_hm_lb)
+        folbfhi.return_value = ([self.ovn_hm], self.ovn_hm_lb)
         self.ovn_hm_lb.pop('admin_state_up')
         status = self.helper.hm_update(self.health_monitor)
         self.assertEqual(status['healthmonitors'][0]['provisioning_status'],
@@ -3672,7 +3852,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
 
     @mock.patch.object(ovn_helper.OvnProviderHelper, '_find_ovn_lb_from_hm_id')
     def test_hm_update_offline(self, folbfhi):
-        folbfhi.return_value = (self.ovn_hm, self.ovn_hm_lb)
+        folbfhi.return_value = ([self.ovn_hm], self.ovn_hm_lb)
         self.health_monitor['admin_state_up'] = False
         status = self.helper.hm_update(self.health_monitor)
         self.assertEqual(status['healthmonitors'][0]['provisioning_status'],
@@ -3682,7 +3862,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
 
     @mock.patch.object(ovn_helper.OvnProviderHelper, '_find_ovn_lb_from_hm_id')
     def test_hm_update_hm_not_found(self, folbfhi):
-        folbfhi.return_value = (None, None)
+        folbfhi.return_value = ([], None)
         status = self.helper.hm_update(self.health_monitor)
         self.assertEqual(status['healthmonitors'][0]['provisioning_status'],
                          constants.ERROR)
@@ -3692,7 +3872,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
     @mock.patch.object(ovn_helper.OvnProviderHelper, '_find_ovn_lb_from_hm_id')
     @mock.patch.object(ovn_helper.OvnProviderHelper, '_find_ovn_lb_by_pool_id')
     def test_hm_update_lb_not_found(self, folbpi, folbfhi):
-        folbfhi.return_value = (self.ovn_hm, None)
+        folbfhi.return_value = ([self.ovn_hm], None)
         folbpi.return_value = (None, None)
         status = self.helper.hm_update(self.health_monitor)
         self.assertEqual(status['healthmonitors'][0]['provisioning_status'],
@@ -3702,7 +3882,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
 
     @mock.patch.object(ovn_helper.OvnProviderHelper, '_find_ovn_lb_from_hm_id')
     def test_hm_update_just_interval(self, folbfhi):
-        folbfhi.return_value = (self.ovn_hm, self.ovn_hm_lb)
+        folbfhi.return_value = ([self.ovn_hm], self.ovn_hm_lb)
         self.health_monitor['interval'] = 3
         self.helper.hm_update(self.health_monitor)
         options = {
