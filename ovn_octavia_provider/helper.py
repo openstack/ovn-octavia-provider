@@ -843,10 +843,11 @@ class OvnProviderHelper():
         if member:
             for mem in member.split(','):
                 mem_split = mem.split('_')
+                mem_id = mem_split[1]
                 mem_ip_port = mem_split[2]
                 mem_ip, mem_port = mem_ip_port.rsplit(':', 1)
                 mem_subnet = mem_split[3]
-                mem_info.append((mem_ip, mem_port, mem_subnet))
+                mem_info.append((mem_ip, mem_port, mem_subnet, mem_id))
         return mem_info
 
     def _get_member_info(self, member):
@@ -923,12 +924,12 @@ class OvnProviderHelper():
                 continue
 
             ips = []
-            for member_ip, member_port, subnet in self._extract_member_info(
+            for mb_ip, mb_port, mb_subnet, mb_id in self._extract_member_info(
                     lb_external_ids[pool_id]):
-                if netaddr.IPNetwork(member_ip).version == 6:
-                    ips.append(f'[{member_ip}]:{member_port}')
+                if netaddr.IPNetwork(mb_ip).version == 6:
+                    ips.append(f'[{mb_ip}]:{mb_port}')
                 else:
-                    ips.append(f'{member_ip}:{member_port}')
+                    ips.append(f'{mb_ip}:{mb_port}')
 
             if netaddr.IPNetwork(lb_vip).version == 6:
                 lb_vip = f'[{lb_vip}]'
@@ -1942,7 +1943,9 @@ class OvnProviderHelper():
         operating_status = constants.NO_MONITOR
         if new_member and ovn_lb.health_check:
             operating_status = constants.ONLINE
-            if not self._update_hm_members(ovn_lb, pool_key):
+            mb_ip, mb_port, mb_subnet, mb_id = self._extract_member_info(
+                new_member)[0]
+            if not self._update_hm_member(ovn_lb, pool_key, mb_ip):
                 operating_status = constants.ERROR
             member_status[constants.OPERATING_STATUS] = operating_status
 
@@ -1958,6 +1961,13 @@ class OvnProviderHelper():
         existing_members = external_ids[pool_key].split(",")
         member_info = self._get_member_info(member)
         if member_info in existing_members:
+
+            if ovn_lb.health_check:
+                self._update_hm_member(ovn_lb,
+                                       pool_key,
+                                       member.get(constants.ADDRESS),
+                                       delete=True)
+
             commands = []
             existing_members.remove(member_info)
 
@@ -1993,14 +2003,13 @@ class OvnProviderHelper():
             pool = {constants.ID: member[constants.POOL_ID],
                     constants.PROVISIONING_STATUS: constants.ACTIVE,
                     constants.OPERATING_STATUS: pool_status}
-            if ovn_lb.health_check:
-                self._update_hm_members(ovn_lb, pool_key)
+            if ovn_lb.health_check and pool_status == constants.OFFLINE:
                 # NOTE(froyo): if the pool status is OFFLINE there are no more
                 # members. So we should ensure the hm-port is deleted if no
                 # more LB are using it. We need to do this call after the
                 # cleaning of the ip_port_mappings for the ovn LB.
-                if pool_status == constants.OFFLINE:
-                    self._clean_up_hm_port(member['subnet_id'])
+                self._clean_up_hm_port(member[constants.SUBNET_ID])
+
             status = {
                 constants.POOLS: [pool],
                 constants.MEMBERS: [
@@ -2493,86 +2502,114 @@ class OvnProviderHelper():
         self._execute_commands(commands)
         return True
 
-    def _update_hm_members(self, ovn_lb, pool_key):
-        mappings = {}
-        # For each member, set it's HM
-        for member_ip, member_port, member_subnet in self._extract_member_info(
-                ovn_lb.external_ids[pool_key]):
-            member_lsp = self._get_member_lsp(member_ip, member_subnet)
-            if not member_lsp:
-                # NOTE(froyo): In order to continue evaluating the rest of
-                # the members, we just warn about the member issue,
-                # assuming that it will be in OFFLINE status as soon as the
-                # HM does the first evaluation.
-                LOG.error("Member %(member)s Logical_Switch_Port not found, "
-                          "when creating a Health Monitor for pool %(pool)s.",
-                          {'member': member_ip, 'pool': pool_key})
-                continue
+    def _update_ip_port_mappings(self, ovn_lb, backend_ip, port_name, src_ip,
+                                 delete=False):
 
-            network_id = member_lsp.external_ids.get(
-                ovn_const.OVN_NETWORK_NAME_EXT_ID_KEY).split('neutron-')[1]
-            project_id = member_lsp.external_ids.get(
-                ovn_const.OVN_PROJECT_EXT_ID_KEY)
-            hm_port = self._ensure_hm_ovn_port(
-                network_id, member_subnet, project_id)
-            if not hm_port:
-                LOG.error("No port on network %(network)s available for "
-                          "health monitoring. Cannot create a Health Monitor "
-                          "for pool %(pool)s.",
-                          {'network': network_id,
-                           'pool': pool_key})
-                return False
-            hm_source_ip = None
-            for fixed_ip in hm_port['fixed_ips']:
-                if fixed_ip['subnet_id'] == member_subnet:
-                    hm_source_ip = fixed_ip['ip_address']
-                    break
-            if not hm_source_ip:
-                LOG.error("No port on subnet %(subnet)s available for "
-                          "health monitoring member IP %(member)s. Cannot "
-                          "create a Health Monitor for pool %(pool)s.",
-                          {'subnet': member_subnet,
-                           'member': member_ip,
-                           'pool': pool_key})
-                return False
-            # ovn-nbctl set load_balancer ${OVN_LB_ID}
-            #   ip_port_mappings:${MEMBER_IP}=${LSP_NAME_MEMBER}:${HEALTH_SRC}
-            # where:
-            #  OVN_LB_ID: id of LB
-            #  MEMBER_IP: IP of member_lsp
-            #  HEALTH_SRC: source IP of hm_port
+        # ip_port_mappings:${MEMBER_IP}=${LSP_NAME_MEMBER}:${HEALTH_SRC}
+        # where:
+        #  MEMBER_IP: IP of member_lsp
+        #  LSP_NAME_MEMBER: Logical switch port
+        #  HEALTH_SRC: source IP of hm_port
 
-            # need output like this
-            # vips: {"172.24.4.246:80"="10.0.0.10:80"}
-            # ip_port_mappings: {"10.0.0.10"="ID:10.0.0.2"}
-            # ip_port_mappings: {"MEMBER_IP"="LSP_NAME_MEMBER:HEALTH_SRC"}
-            # OVN does not support IPv6 Health Checks, but we check anyways
-            member_src = f'{member_lsp.name}:'
-            if netaddr.IPNetwork(hm_source_ip).version == 6:
-                member_src += f'[{hm_source_ip}]'
-            else:
-                member_src += f'{hm_source_ip}'
+        if delete:
+            self.ovn_nbdb_api.lb_del_ip_port_mapping(ovn_lb.uuid,
+                                                     backend_ip).execute()
+        else:
+            self.ovn_nbdb_api.lb_add_ip_port_mapping(ovn_lb.uuid,
+                                                     backend_ip,
+                                                     port_name,
+                                                     src_ip).execute()
 
-            if netaddr.IPNetwork(member_ip).version == 6:
-                member_ip = f'[{member_ip}]'
-            mappings[member_ip] = member_src
-
-        commands = []
-        # NOTE(froyo): This db_clear over field ip_port_mappings is needed just
-        # to clean the old values (including the removed member) and the
-        # following db_set will update the using the mappings calculated some
-        # lines above with reemaining members only.
-        # TODO(froyo): use the ovsdbapp commands to add/del members to
-        # ip_port_mappings field
-        commands.append(
+    def _clean_ip_port_mappings(self, ovn_lb, pool_key=None):
+        if not pool_key:
             self.ovn_nbdb_api.db_clear('Load_Balancer', ovn_lb.uuid,
-                                       'ip_port_mappings'))
-        if mappings:
-            commands.append(
-                self.ovn_nbdb_api.db_set(
-                    'Load_Balancer', ovn_lb.uuid,
-                    ('ip_port_mappings', mappings)))
-        self._execute_commands(commands)
+                                       'ip_port_mappings').execute()
+        else:
+            # NOTE(froyo): before removing a member from the ip_port_mappings
+            # list, we need to ensure that the member is not being monitored by
+            # any other existing HM. To prevent accidentally removing the
+            # member we can use the neutron:member_status to search for any
+            # other members with the same address
+            members_try_remove = self._extract_member_info(
+                ovn_lb.external_ids[pool_key])
+            other_members = []
+            for k, v in ovn_lb.external_ids.items():
+                if ovn_const.LB_EXT_IDS_POOL_PREFIX in k and k != pool_key:
+                    other_members.extend(self._extract_member_info(
+                        ovn_lb.external_ids[k]))
+
+            member_statuses = ovn_lb.external_ids.get(
+                ovn_const.OVN_MEMBER_STATUS_KEY)
+
+            try:
+                member_statuses = jsonutils.loads(member_statuses)
+            except TypeError:
+                LOG.debug("no member status on external_ids: %s",
+                          str(member_statuses))
+                member_statuses = {}
+
+            for (mb_ip, mb_port, mb_subnet, mb_id) in members_try_remove:
+                delete = True
+                for member_id in [item[3] for item in other_members
+                                  if item[0] == mb_ip]:
+                    if member_statuses.get(
+                            member_id, '') != constants.NO_MONITOR:
+                        # same address being monitorized by another HM
+                        delete = False
+
+                if delete:
+                    self.ovn_nbdb_api.lb_del_ip_port_mapping(
+                        ovn_lb.uuid, mb_ip).execute()
+
+    def _update_hm_member(self, ovn_lb, pool_key, backend_ip, delete=False):
+        # Update just the backend_ip member
+        for mb_ip, mb_port, mb_subnet, mb_id in self._extract_member_info(
+                ovn_lb.external_ids[pool_key]):
+            member_lsp = self._get_member_lsp(mb_ip, mb_subnet)
+            if mb_ip == backend_ip:
+                if not member_lsp:
+                    # NOTE(froyo): In order to continue evaluating the rest of
+                    # the members, we just warn about the member issue,
+                    # assuming that it will be in OFFLINE status as soon as the
+                    # HM does the first evaluation.
+                    LOG.error("Member %(member)s Logical_Switch_Port not "
+                              "found, when creating a Health Monitor for "
+                              "pool %(pool)s.",
+                              {'member': mb_ip, 'pool': pool_key})
+                    break
+
+                network_id = member_lsp.external_ids.get(
+                    ovn_const.OVN_NETWORK_NAME_EXT_ID_KEY).split('neutron-')[1]
+                project_id = member_lsp.external_ids.get(
+                    ovn_const.OVN_PROJECT_EXT_ID_KEY)
+                hm_port = self._ensure_hm_ovn_port(
+                    network_id, mb_subnet, project_id)
+                if not hm_port:
+                    LOG.error("No port on network %(network)s available for "
+                              "health monitoring. Cannot find a Health "
+                              "Monitor for pool %(pool)s.",
+                              {'network': network_id, 'pool': pool_key})
+                    return False
+                hm_source_ip = None
+                for fixed_ip in hm_port['fixed_ips']:
+                    if fixed_ip['subnet_id'] == mb_subnet:
+                        hm_source_ip = fixed_ip['ip_address']
+                        break
+                if not hm_source_ip:
+                    LOG.error("No port on subnet %(subnet)s available for "
+                              "health monitoring member IP %(member)s. Cannot "
+                              "find a Health Monitor for pool %(pool)s.",
+                              {'subnet': mb_subnet,
+                               'member': mb_ip,
+                               'pool': pool_key})
+                    return False
+                self._update_ip_port_mappings(ovn_lb, backend_ip,
+                                              member_lsp.name, hm_source_ip,
+                                              delete)
+                return True
+
+        # NOTE(froyo): If the backend is not located or just one member but not
+        # found the lsp
         return True
 
     def _lookup_lbhcs_by_hm_id(self, hm_id):
@@ -2659,9 +2696,13 @@ class OvnProviderHelper():
         # from info object passed-in
         hm_status = self._add_lbhc(ovn_lb, pool_key, info)
         if hm_status[constants.PROVISIONING_STATUS] == constants.ACTIVE:
-            if not self._update_hm_members(ovn_lb, pool_key):
-                hm_status[constants.PROVISIONING_STATUS] = constants.ERROR
-                hm_status[constants.OPERATING_STATUS] = constants.ERROR
+            for mb_ip, mb_port, mb_subnet, mb_id in self._extract_member_info(
+                    ovn_lb.external_ids[pool_key]):
+                if not self._update_hm_member(ovn_lb, pool_key, mb_ip):
+                    hm_status[constants.PROVISIONING_STATUS] = constants.ERROR
+                    hm_status[constants.OPERATING_STATUS] = constants.ERROR
+                    self._clean_ip_port_mappings(ovn_lb, pool_key)
+                    break
         status[constants.HEALTHMONITORS] = [hm_status]
         return status
 
@@ -2749,7 +2790,8 @@ class OvnProviderHelper():
             if ovn_const.LB_EXT_IDS_POOL_PREFIX in k:
                 members = self._extract_member_info(ovn_lb.external_ids[k])
                 member_subnets = list(
-                    set([mem_subnet for (_, _, mem_subnet) in members])
+                    set([mb_subnet
+                         for (mb_ip, mb_port, mb_subnet, mb_id) in members])
                 )
                 pool_id = k.split('_')[1]
                 pool_listeners = self._get_pool_listeners(
@@ -2770,10 +2812,11 @@ class OvnProviderHelper():
             hms_key = jsonutils.loads(hms_key)
             if hm_id in hms_key:
                 hms_key.remove(hm_id)
+
+        self._clean_ip_port_mappings(ovn_lb, ovn_const.LB_EXT_IDS_POOL_PREFIX +
+                                     str(pool_id_related))
+
         commands = []
-        commands.append(
-            self.ovn_nbdb_api.db_clear('Load_Balancer', ovn_lb.uuid,
-                                       'ip_port_mappings'))
         for lbhc in lbhcs:
             commands.append(
                 self.ovn_nbdb_api.db_remove('Load_Balancer', ovn_lb.uuid,
@@ -3006,17 +3049,15 @@ class OvnProviderHelper():
                 if ovn_const.LB_EXT_IDS_POOL_PREFIX not in k:
                     continue
                 for (
-                    member_ip,
-                    member_port,
-                    subnet,
+                    mb_ip, mb_port, mb_subnet, mb_id,
                 ) in self._extract_member_info(v):
-                    if info['ip'] != member_ip:
+                    if info['ip'] != mb_ip:
                         continue
-                    if info['port'] != member_port:
+                    if info['port'] != mb_port:
                         continue
                     # match
                     member_id = [mb.split('_')[1] for mb in v.split(',')
-                                 if member_ip in mb and member_port in mb][0]
+                                 if mb_ip in mb and mb_port in mb][0]
                     break
 
                 # found it in inner loop
