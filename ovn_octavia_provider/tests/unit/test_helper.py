@@ -224,6 +224,128 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         (self.helper.ovn_nbdb_api.ls_get.return_value.
             execute.return_value) = self.network
 
+    def test__update_hm_member_no_members(self):
+        pool_key = 'pool_%s' % self.pool_id
+        self.ovn_lb.external_ids[pool_key] = ''
+        self.assertTrue(
+            self.helper._update_hm_member(self.ovn_lb,
+                                          pool_key,
+                                          '10.0.0.4'))
+
+    def test__update_hm_member_backend_ip_not_match(self):
+        pool_key = 'pool_%s' % self.pool_id
+        self.ovn_lb.external_ids[pool_key] = self.member_line
+        with mock.patch.object(ovn_helper.OvnProviderHelper,
+                               '_get_member_lsp'):
+            self.assertTrue(
+                self.helper._update_hm_member(self.ovn_lb,
+                                              pool_key,
+                                              '10.0.0.4'))
+
+    @mock.patch.object(ovn_helper.OvnProviderHelper, '_ensure_hm_ovn_port')
+    def test__update_hm_member_hm_port_multiple_ip(self, ensure_hm_port):
+        hm_port = {
+            'fixed_ips': [{
+                'subnet_id': 'ipv6_foo',
+                'ip_address': '2001:db8::199'}, {
+                'subnet_id': self.member_subnet_id,
+                'ip_address': '10.0.0.4'}]}
+        ensure_hm_port.return_value = hm_port
+        pool_key = 'pool_%s' % self.pool_id
+        with mock.patch.object(ovn_helper.OvnProviderHelper,
+                               '_get_member_lsp'):
+            self.assertTrue(
+                self.helper._update_hm_member(self.ovn_lb,
+                                              pool_key,
+                                              self.member_address))
+
+    @mock.patch.object(ovn_helper.OvnProviderHelper, '_ensure_hm_ovn_port')
+    def test__update_hm_member_hm_port_not_found(self, ensure_hm_port):
+        ensure_hm_port.return_value = None
+        pool_key = 'pool_%s' % self.pool_id
+        with mock.patch.object(ovn_helper.OvnProviderHelper,
+                               '_get_member_lsp'):
+            self.assertFalse(
+                self.helper._update_hm_member(self.ovn_lb,
+                                              pool_key,
+                                              self.member_address))
+
+    def test__clean_ip_port_mappings(self):
+        self.helper._clean_ip_port_mappings(self.ovn_hm_lb)
+        self.helper.ovn_nbdb_api.db_clear.assert_called_once_with(
+            'Load_Balancer', self.ovn_hm_lb.uuid, 'ip_port_mappings')
+
+    def test__clean_ip_port_mappings_two_hm_pools_sharing_members(self):
+        self.member_line_pool1 = 'member_uuid1_address1:port1_subnet1, \
+            member_uuid2_address2:port2_subnet1'
+        self.member_line_pool2 = 'member_uuid3_address1:port3_subnet1, \
+            member_uuid4_address4:port4_subnet1'
+        self.ovn_hm_lb.external_ids['pool_1'] = self.member_line_pool1
+        self.ovn_hm_lb.external_ids['pool_2'] = self.member_line_pool2
+        self.ovn_hm_lb.external_ids[ovn_const.OVN_MEMBER_STATUS_KEY] = \
+            '{"uuid1":  "ONLINE", "uuid2":  "ONLINE", \
+              "uuid3":  "ONLINE", "uuid4":  "ONLINE"}'
+        self.helper._clean_ip_port_mappings(self.ovn_hm_lb, 'pool_1')
+        self.helper.ovn_nbdb_api.db_clear.assert_not_called()
+        self.helper.ovn_nbdb_api.lb_del_ip_port_mapping.\
+            assert_called_once_with(self.ovn_hm_lb.uuid, 'address2')
+
+    def test__clean_ip_port_mappings_one_hm_pools_sharing_members(self):
+        self.member_line_pool1 = 'member_uuid1_address1:port1_subnet1, \
+            member_uuid2_address2:port2_subnet1'
+        self.member_line_pool2 = 'member_uuid3_address1:port3_subnet1, \
+            member_uuid4_address2:port4_subnet1'
+        self.ovn_hm_lb.external_ids['pool_1'] = self.member_line_pool1
+        self.ovn_hm_lb.external_ids['pool_2'] = self.member_line_pool2
+        self.ovn_hm_lb.external_ids[ovn_const.OVN_MEMBER_STATUS_KEY] = \
+            '{"uuid1":  "ONLINE", "uuid2":  "ONLINE", \
+              "uuid3":  "NO_MONITOR", "uuid4":  "NO_MONITOR"}'
+        self.helper._clean_ip_port_mappings(self.ovn_hm_lb, 'pool_1')
+        self.helper.ovn_nbdb_api.db_clear.assert_not_called()
+        self.helper.ovn_nbdb_api.lb_del_ip_port_mapping.\
+            assert_has_calls([mock.call(self.ovn_hm_lb.uuid, 'address1'),
+                              mock.ANY,
+                              mock.call(self.ovn_hm_lb.uuid, 'address2'),
+                              mock.ANY])
+
+    def test__clean_ip_port_mappings_two_hm_pools_not_sharing_members(self):
+        self.member_line_pool1 = 'member_uuid1_address1:port1_subnet1, \
+            member_uuid2_address2:port2_subnet1'
+        self.member_line_pool2 = 'member_uuid3_address3:port3_subnet1, \
+            member_uuid4_address4:port4_subnet1'
+        self.ovn_hm_lb.external_ids['pool_1'] = self.member_line_pool1
+        self.ovn_hm_lb.external_ids['pool_2'] = self.member_line_pool2
+        self.ovn_hm_lb.external_ids[ovn_const.OVN_MEMBER_STATUS_KEY] = \
+            '{"uuid1":  "ONLINE", "uuid2":  "ONLINE", \
+              "uuid3":  "ONLINE", "uuid4":  "ONLINE"}'
+        self.helper._clean_ip_port_mappings(self.ovn_hm_lb, 'pool_1')
+        self.helper.ovn_nbdb_api.db_clear.assert_not_called()
+        self.helper.ovn_nbdb_api.lb_del_ip_port_mapping.\
+            assert_has_calls([mock.call(self.ovn_hm_lb.uuid, 'address1'),
+                              mock.ANY,
+                              mock.call(self.ovn_hm_lb.uuid, 'address2'),
+                              mock.ANY])
+
+    def test__update_ip_port_mappings(self):
+        src_ip = '10.22.33.4'
+        fakes.FakeOvsdbRow.create_one_ovsdb_row(
+            attrs={'ip': self.member_address,
+                   'logical_port': 'a-logical-port',
+                   'src_ip': src_ip,
+                   'port': self.member_port,
+                   'protocol': self.ovn_hm_lb.protocol,
+                   'status': ovn_const.HM_EVENT_MEMBER_PORT_ONLINE})
+        self.helper._update_ip_port_mappings(
+            self.ovn_lb, self.member_address, 'a-logical-port', src_ip)
+        self.helper.ovn_nbdb_api.lb_add_ip_port_mapping.\
+            assert_called_once_with(self.ovn_lb.uuid, self.member_address,
+                                    'a-logical-port', src_ip)
+        self.helper._update_ip_port_mappings(
+            self.ovn_lb, self.member_address, 'a-logical-port', src_ip,
+            delete=True)
+        self.helper.ovn_nbdb_api.lb_del_ip_port_mapping.\
+            assert_called_once_with(self.ovn_lb.uuid, self.member_address)
+
     def test__update_external_ids_member_status(self):
         self.helper._update_external_ids_member_status(
             self.ovn_lb, self.member_id, constants.NO_MONITOR)
@@ -1865,6 +1987,20 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         self.assertEqual(status['pools'][0]['provisioning_status'],
                          constants.ACTIVE)
 
+    @mock.patch.object(ovn_helper.OvnProviderHelper, '_find_ovn_lb_by_pool_id')
+    @mock.patch.object(ovn_helper.OvnProviderHelper, '_update_hm_member')
+    def test_member_delete_hm(self, uhm, folbpi):
+        pool_key = 'pool_%s' % self.pool_id
+        self.ovn_hm_lb.external_ids[pool_key] = self.member_line
+        self.ovn_hm_lb.external_ids[ovn_const.OVN_MEMBER_STATUS_KEY] = \
+            '{"%s": "%s"}' % (self.member_id, constants.ONLINE)
+        folbpi.return_value = (pool_key, self.ovn_hm_lb)
+        self.helper.member_delete(self.member)
+        uhm.assert_called_once_with(self.ovn_hm_lb,
+                                    pool_key,
+                                    self.member_address,
+                                    delete=True)
+
     def test_member_delete_none(self):
         self.ovn_lb.external_ids.update({'pool_' + self.pool_id: ''})
         status = self.helper.member_delete(self.member)
@@ -3496,7 +3632,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         self.assertFalse(ret)
 
     @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
-    @mock.patch.object(ovn_helper.OvnProviderHelper, '_update_hm_members')
+    @mock.patch.object(ovn_helper.OvnProviderHelper, '_update_hm_member')
     @mock.patch.object(ovn_helper.OvnProviderHelper, '_find_ovn_lb_by_pool_id')
     def _test_hm_create(self, protocol, members, fip, folbpi, uhm,
                         net_cli):
@@ -3913,9 +4049,6 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
                          constants.ACTIVE)
         self.assertEqual(status['listeners'][0]['provisioning_status'],
                          constants.ACTIVE)
-        expected_clear_calls = [
-            mock.call('Load_Balancer', self.ovn_hm_lb.uuid,
-                      'ip_port_mappings')]
         expected_remove_calls = [
             mock.call('Load_Balancer', self.ovn_hm_lb.uuid, 'health_check',
                       self.ovn_hm.uuid),
@@ -3924,8 +4057,6 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         expected_destroy_calls = [
             mock.call('Load_Balancer_Health_Check', self.ovn_hm.uuid)]
         del_hm_port.assert_called_once_with(self.member_subnet_id)
-        self.helper.ovn_nbdb_api.db_clear.assert_has_calls(
-            expected_clear_calls)
         self.helper.ovn_nbdb_api.db_remove.assert_has_calls(
             expected_remove_calls)
         self.helper.ovn_nbdb_api.db_destroy.assert_has_calls(
@@ -3949,17 +4080,14 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
                          constants.ACTIVE)
         self.assertEqual(status['listeners'][0]['provisioning_status'],
                          constants.ACTIVE)
-        expected_clear_calls = [
-            mock.call('Load_Balancer', self.ovn_hm_lb.uuid,
-                      'ip_port_mappings')]
         expected_remove_calls = [
             mock.call('Load_Balancer', self.ovn_hm_lb.uuid, 'health_check',
-                      self.ovn_hm.uuid)]
+                      self.ovn_hm.uuid),
+            mock.call('Load_Balancer', self.ovn_hm_lb.uuid,
+                      'external_ids', ovn_const.LB_EXT_IDS_HMS_KEY)]
         expected_destroy_calls = [
             mock.call('Load_Balancer_Health_Check', self.ovn_hm.uuid)]
         del_hm_port.assert_not_called()
-        self.helper.ovn_nbdb_api.db_clear.assert_has_calls(
-            expected_clear_calls)
         self.helper.ovn_nbdb_api.db_remove.assert_has_calls(
             expected_remove_calls)
         self.helper.ovn_nbdb_api.db_destroy.assert_has_calls(
