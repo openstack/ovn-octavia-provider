@@ -1043,7 +1043,8 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
         self.mock_add_request.assert_called_once_with(expected_dict)
 
     def test_health_monitor_delete(self):
-        info = {'id': self.ref_health_monitor.healthmonitor_id}
+        info = {'id': self.ref_health_monitor.healthmonitor_id,
+                'pool_id': self.ref_health_monitor.pool_id}
         expected_dict = {'type': ovn_const.REQ_TYPE_HM_DELETE,
                          'info': info}
         self.driver.health_monitor_delete(self.ref_health_monitor)
