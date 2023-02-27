@@ -3918,7 +3918,9 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
                       'ip_port_mappings')]
         expected_remove_calls = [
             mock.call('Load_Balancer', self.ovn_hm_lb.uuid, 'health_check',
-                      self.ovn_hm.uuid)]
+                      self.ovn_hm.uuid),
+            mock.call('Load_Balancer', self.ovn_hm_lb.uuid,
+                      'external_ids', ovn_const.LB_EXT_IDS_HMS_KEY)]
         expected_destroy_calls = [
             mock.call('Load_Balancer_Health_Check', self.ovn_hm.uuid)]
         del_hm_port.assert_called_once_with(self.member_subnet_id)
@@ -3987,6 +3989,35 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         self.assertEqual(status['healthmonitors'][0]['operating_status'],
                          constants.NO_MONITOR)
         self.helper.ovn_nbdb_api.db_clear.assert_not_called()
+
+    @mock.patch.object(ovn_helper.OvnProviderHelper, '_find_ovn_lb_from_hm_id')
+    def test_hm_delete_hm_not_found_in_external_ids(self, folbfhi):
+        folbfhi.return_value = (self.ovn_hm, self.ovn_hm_lb)
+        self.ovn_hm_lb.external_ids[ovn_const.LB_EXT_IDS_HMS_KEY] = []
+        status = self.helper.hm_delete(self.health_monitor)
+        self.assertEqual(status['healthmonitors'][0]['provisioning_status'],
+                         constants.DELETED)
+        self.assertEqual(status['healthmonitors'][0]['operating_status'],
+                         constants.NO_MONITOR)
+
+    @mock.patch.object(ovn_helper.OvnProviderHelper, '_find_ovn_lb_from_hm_id')
+    def test_hm_delete_hm_not_match_in_external_ids(self, folbfhi):
+        folbfhi.return_value = (self.ovn_hm, self.ovn_hm_lb)
+        self.ovn_hm_lb.external_ids[ovn_const.LB_EXT_IDS_HMS_KEY] = \
+            '["%s"]' % (uuidutils.generate_uuid())
+        status = self.helper.hm_delete(self.health_monitor)
+        self.assertEqual(status['healthmonitors'][0]['provisioning_status'],
+                         constants.DELETED)
+        self.assertEqual(status['healthmonitors'][0]['operating_status'],
+                         constants.NO_MONITOR)
+        expected_set_external_ids_calls = [
+            mock.call('Load_Balancer', self.ovn_hm_lb.uuid,
+                      ('external_ids', {
+                          ovn_const.LB_EXT_IDS_HMS_KEY:
+                              self.ovn_hm_lb.external_ids[
+                                  ovn_const.LB_EXT_IDS_HMS_KEY]}))]
+        self.helper.ovn_nbdb_api.db_set.assert_has_calls(
+            expected_set_external_ids_calls)
 
     def test_hm_update_event_offline(self):
         self.helper.ovn_nbdb_api.db_find_rows.return_value.\

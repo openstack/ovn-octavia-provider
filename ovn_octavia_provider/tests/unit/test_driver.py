@@ -870,24 +870,31 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
         self.driver.pool_delete(self.ref_pool)
         self.mock_add_request.assert_called_once_with(expected)
 
-    def test_pool_delete_with_members(self):
+    def test_pool_delete_with_members_and_hm(self):
+        self.ref_pool.healthmonitor = self.ref_health_monitor
         info = {'id': self.ref_pool.pool_id,
                 'protocol': self.ref_pool.protocol,
                 'loadbalancer_id': self.ref_pool.loadbalancer_id}
         expected = {'type': ovn_const.REQ_TYPE_POOL_DELETE,
                     'info': info}
+        info_hm = {'id': self.ref_pool.healthmonitor.healthmonitor_id,
+                   'pool_id': self.ref_pool.pool_id}
         info_member = {'id': self.ref_member.member_id,
                        'pool_id': self.ref_member.pool_id,
                        'subnet_id': self.ref_member.subnet_id,
                        'protocol_port': self.ref_member.protocol_port,
                        'address': self.ref_member.address}
+        expected_hm = {
+            'type': ovn_const.REQ_TYPE_HM_DELETE,
+            'info': info_hm}
         expected_members = {
             'type': ovn_const.REQ_TYPE_MEMBER_DELETE,
             'info': info_member}
         expected_members_dvr = {
             'type': ovn_const.REQ_TYPE_HANDLE_MEMBER_DVR,
             'info': mock.ANY}
-        calls = [mock.call(expected_members),
+        calls = [mock.call(expected_hm),
+                 mock.call(expected_members),
                  mock.call(expected_members_dvr),
                  mock.call(expected)]
         self.driver.pool_delete(self.ref_pool)
