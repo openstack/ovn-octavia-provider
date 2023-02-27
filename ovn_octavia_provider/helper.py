@@ -2772,15 +2772,22 @@ class OvnProviderHelper():
             commands.append(
                 self.ovn_nbdb_api.db_remove('Load_Balancer', ovn_lb.uuid,
                                             'health_check', lbhc.uuid))
-        commands.append(
-            self.ovn_nbdb_api.db_set(
-                'Load_Balancer', ovn_lb.uuid,
-                ('external_ids', {ovn_const.LB_EXT_IDS_HMS_KEY:
-                                  jsonutils.dumps(hms_key)})))
-        for lbhc in lbhcs:
             commands.append(
                 self.ovn_nbdb_api.db_destroy('Load_Balancer_Health_Check',
                                              lbhc.uuid))
+
+        if hms_key:
+            commands.append(
+                self.ovn_nbdb_api.db_set(
+                    'Load_Balancer', ovn_lb.uuid,
+                    ('external_ids', {
+                        ovn_const.LB_EXT_IDS_HMS_KEY:
+                            jsonutils.dumps(hms_key)})))
+        else:
+            commands.append(
+                self.ovn_nbdb_api.db_remove(
+                    'Load_Balancer', ovn_lb.uuid,
+                    'external_ids', (ovn_const.LB_EXT_IDS_HMS_KEY)))
         self._execute_commands(commands)
 
         # Delete the hm port if not in use by other health monitors
