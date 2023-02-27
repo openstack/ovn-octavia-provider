@@ -139,6 +139,9 @@ class OvnProviderDriver(driver_base.ProviderDriver):
             self.health_monitor_create(pool.healthmonitor)
 
     def pool_delete(self, pool):
+        if pool.healthmonitor:
+            self.health_monitor_delete(pool.healthmonitor)
+
         for member in pool.members:
             self.member_delete(member)
 
