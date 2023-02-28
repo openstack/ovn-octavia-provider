@@ -220,6 +220,39 @@ class TestOvnOctaviaProviderDriver(ovn_base.TestOvnOctaviaBase):
         # Delete the whole LB.
         self._delete_load_balancer_and_validate(lb_data)
 
+    def test_hm(self):
+        lb_data = self._create_load_balancer_and_validate(
+            {'vip_network': 'vip_network',
+             'cidr': '10.0.0.0/24'})
+
+        # TCP Pool
+        self._create_pool_and_validate(lb_data, "p_TCP",
+                                       protocol=o_constants.PROTOCOL_TCP)
+
+        pool_TCP_id = lb_data['pools'][0].pool_id
+
+        # Members for TCP Pool
+        self._create_member_and_validate(
+            lb_data, pool_TCP_id, lb_data['vip_net_info'][1],
+            lb_data['vip_net_info'][0], '10.0.0.10')
+        self._create_member_and_validate(
+            lb_data, pool_TCP_id, lb_data['vip_net_info'][1],
+            lb_data['vip_net_info'][0], '10.0.0.11')
+
+        # CRUD health monitor.
+        self._create_hm_and_validate(lb_data, pool_TCP_id, 'hm_TCP', 10, 30, 3,
+                                     o_constants.HEALTH_MONITOR_TCP)
+        self._update_hm_and_validate(lb_data, pool_TCP_id,
+                                     admin_state_up=False)
+        self._update_hm_and_validate(lb_data, pool_TCP_id, admin_state_up=True)
+        self._delete_hm_and_validate(lb_data, pool_TCP_id)
+
+        # Create to test delete over pool
+        self._create_hm_and_validate(lb_data, pool_TCP_id, 'hm_TCP', 10, 30, 3,
+                                     o_constants.HEALTH_MONITOR_TCP)
+        # Deleting the pool should also delete the health monitor.
+        self._delete_pool_and_validate(lb_data, "p_TCP")
+
     def test_listener(self):
         lb_data = self._create_load_balancer_and_validate(
             {'vip_network': 'vip_network',
@@ -347,6 +380,23 @@ class TestOvnOctaviaProviderDriver(ovn_base.TestOvnOctaviaBase):
 
     def test_cascade_delete(self):
         self._test_cascade_delete()
+
+    def test_hm_unsupported_protocol(self):
+        lb_data = self._create_load_balancer_and_validate(
+            {'vip_network': 'vip_network',
+             'cidr': '10.0.0.0/24'})
+
+        self._create_pool_and_validate(lb_data, "p_SCTP",
+                                       protocol=o_constants.PROTOCOL_SCTP)
+        pool_SCTP_id = lb_data['pools'][0].pool_id
+        self._create_member_and_validate(
+            lb_data, pool_SCTP_id, lb_data['vip_net_info'][1],
+            lb_data['vip_net_info'][0], '10.0.0.10')
+        self.assertRaises(o_exceptions.UnsupportedOptionError,
+                          self._create_hm_and_validate, lb_data, pool_SCTP_id,
+                          'hm_SCTP', 10, 30, 3,
+                          o_constants.HEALTH_MONITOR_SCTP)
+        self._delete_load_balancer_and_validate(lb_data)
 
     def test_for_unsupported_options(self):
         lb_data = self._create_load_balancer_and_validate(

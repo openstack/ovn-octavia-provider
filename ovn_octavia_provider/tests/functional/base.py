@@ -159,6 +159,14 @@ class TestOvnOctaviaBase(base.TestOVNFunctionalBase,
         m_member.admin_state_up = admin_state_up
         return m_member
 
+    def _create_hm_model(self, pool_id, name, delay, timeout, max_retries,
+                         hm_type, max_retries_down=3, admin_state_up=True):
+        return octavia_data_model.HealthMonitor(
+            admin_state_up=admin_state_up, delay=delay,
+            max_retries=max_retries, max_retries_down=max_retries_down,
+            healthmonitor_id=uuidutils.generate_uuid(),
+            name=name, pool_id=pool_id, type=hm_type, timeout=timeout)
+
     def _create_listener_model(self, loadbalancer_id, pool_id=None,
                                protocol_port=80, protocol=None,
                                admin_state_up=True):
@@ -616,7 +624,12 @@ class TestOvnOctaviaBase(base.TestOVNFunctionalBase,
                                     'neutron-%s' % port['network_id'], 0)
                                 ex['neutron-%s' % port['network_id']] = act + 1
                                 break
-                member_status[m.member_id] = o_constants.NO_MONITOR
+                if p.healthmonitor:
+                    member_status[m.member_id] = o_constants.ONLINE
+                    external_ids[ovn_const.LB_EXT_IDS_HMS_KEY] = \
+                        jsonutils.dumps([p.healthmonitor.healthmonitor_id])
+                else:
+                    member_status[m.member_id] = o_constants.NO_MONITOR
             pool_key = 'pool_' + p.pool_id
             if not p.admin_state_up:
                 pool_key += ':D'
@@ -731,17 +744,36 @@ class TestOvnOctaviaBase(base.TestOVNFunctionalBase,
         self.ovn_driver.pool_delete(p)
         lb_data['pools'].remove(p)
         expected_status = []
-        # When a pool is deleted and if it has any members, there are
-        # expected to be deleted.
+
+        # When a pool is deleted and if it has a health_monitor associated or
+        # any members, there are expected to be deleted.
+        if p.healthmonitor:
+            member_statuses = [{"id": m.member_id,
+                                "provisioning_status": o_constants.ACTIVE,
+                                "operating_status": o_constants.NO_MONITOR}
+                               for m in p.members]
+            expected_status.append(
+                {'healthmonitors': [{
+                    "id": p.healthmonitor.healthmonitor_id,
+                    "provisioning_status": o_constants.DELETED,
+                    "operating_status": o_constants.NO_MONITOR}],
+                 'members': member_statuses,
+                 'loadbalancers': [{
+                     "id": p.loadbalancer_id,
+                     "provisioning_status": o_constants.ACTIVE}],
+                 'pools': [{"id": p.pool_id,
+                            "provisioning_status": o_constants.ACTIVE}],
+                 'listeners': []})
         for m in p.members:
             expected_status.append(
                 {'pools': [{"id": p.pool_id,
                             "provisioning_status": o_constants.ACTIVE,
                             "operating_status": o_constants.ONLINE}],
                  'members': [{"id": m.member_id,
-                              "provisioning_status": "DELETED"}],
-                 'loadbalancers': [{"id": p.loadbalancer_id,
-                                    "provisioning_status": "ACTIVE"}],
+                              "provisioning_status": o_constants.DELETED}],
+                 'loadbalancers': [{
+                     "id": p.loadbalancer_id,
+                     "provisioning_status": o_constants.ACTIVE}],
                  'listeners': []})
             self._update_ls_refs(
                 lb_data, self._local_net_cache[m.subnet_id], add_ref=False)
@@ -924,6 +956,104 @@ class TestOvnOctaviaBase(base.TestOVNFunctionalBase,
             'listeners': []}
 
         self._update_ls_refs(lb_data, network_id, add_ref=False)
+        self._wait_for_status_and_validate(lb_data, [expected_status])
+
+    def _create_hm_and_validate(self, lb_data, pool_id, name, delay, timeout,
+                                max_retries, hm_type):
+        self._o_driver_lib.update_loadbalancer_status.reset_mock()
+        pool = self._get_pool_from_lb_data(lb_data, pool_id=pool_id)
+        pool_status = {'id': pool.pool_id,
+                       'provisioning_status': o_constants.ACTIVE,
+                       'operating_status': o_constants.ONLINE}
+
+        m_hm = self._create_hm_model(pool.pool_id, name, delay, timeout,
+                                     max_retries, hm_type)
+        pool.healthmonitor = m_hm
+
+        self.ovn_driver.health_monitor_create(m_hm)
+        pool_listeners = self._get_pool_listeners(lb_data, pool_id)
+        expected_listener_status = [
+            {'id': listener.listener_id,
+             'provisioning_status': o_constants.ACTIVE}
+            for listener in pool_listeners]
+
+        expected_member_status = [
+            {'id': m.member_id, 'provisioning_status': o_constants.ACTIVE,
+             'operating_status': o_constants.ONLINE}
+            for m in pool.members]
+
+        expected_hm_status = {'id': m_hm.healthmonitor_id,
+                              'provisioning_status': o_constants.ACTIVE,
+                              'operating_status': o_constants.ONLINE}
+        expected_status = {
+            'pools': [pool_status],
+            'members': expected_member_status,
+            'loadbalancers': [{'id': pool.loadbalancer_id,
+                               'provisioning_status': o_constants.ACTIVE}],
+            'listeners': expected_listener_status,
+            'healthmonitors': [expected_hm_status]
+        }
+        self._wait_for_status_and_validate(lb_data, [expected_status])
+
+    def _update_hm_and_validate(self, lb_data, pool_id, admin_state_up=None):
+        self._o_driver_lib.update_loadbalancer_status.reset_mock()
+        pool = self._get_pool_from_lb_data(lb_data, pool_id=pool_id)
+        hm = pool.healthmonitor
+        old_hm = copy.deepcopy(hm)
+
+        operating_status = o_constants.ONLINE
+        if admin_state_up is not None:
+            hm.admin_state_up = admin_state_up
+            if not admin_state_up:
+                operating_status = o_constants.OFFLINE
+
+        pool_status = {"id": pool.pool_id,
+                       "provisioning_status": o_constants.ACTIVE}
+
+        self.ovn_driver.health_monitor_update(old_hm, hm)
+
+        expected_hm_status = {'id': hm.healthmonitor_id,
+                              'provisioning_status': o_constants.ACTIVE,
+                              'operating_status': operating_status}
+
+        expected_status = {
+            'pools': [pool_status],
+            'loadbalancers': [{'id': pool.loadbalancer_id,
+                               'provisioning_status': o_constants.ACTIVE}],
+            'healthmonitors': [expected_hm_status]}
+
+        self._wait_for_status_and_validate(lb_data, [expected_status])
+
+    def _delete_hm_and_validate(self, lb_data, pool_id):
+        self._o_driver_lib.update_loadbalancer_status.reset_mock()
+        pool = self._get_pool_from_lb_data(lb_data, pool_id=pool_id)
+        hm = pool.healthmonitor
+        pool.healthmonitor = None
+        pool_status = {'id': pool.pool_id,
+                       'provisioning_status': o_constants.ACTIVE}
+        pool_listeners = self._get_pool_listeners(lb_data, pool_id)
+        expected_listener_status = [
+            {'id': listener.listener_id,
+             'provisioning_status': o_constants.ACTIVE}
+            for listener in pool_listeners]
+
+        self.ovn_driver.health_monitor_delete(hm)
+
+        expected_hm_status = {'id': hm.healthmonitor_id,
+                              'provisioning_status': o_constants.DELETED,
+                              'operating_status': o_constants.NO_MONITOR}
+        expected_member_status = [
+            {'id': m.member_id, 'provisioning_status': o_constants.ACTIVE,
+             'operating_status': o_constants.NO_MONITOR}
+            for m in pool.members]
+        expected_status = {
+            'pools': [pool_status],
+            'loadbalancers': [{"id": pool.loadbalancer_id,
+                               "provisioning_status": o_constants.ACTIVE}],
+            'members': expected_member_status,
+            'listeners': expected_listener_status,
+            'healthmonitors': [expected_hm_status]}
+
         self._wait_for_status_and_validate(lb_data, [expected_status])
 
     def _create_listener_and_validate(self, lb_data, pool_id=None,
