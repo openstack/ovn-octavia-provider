@@ -119,7 +119,8 @@ class OvnProviderHelper():
             Stream.ssl_set_ca_cert_file(ca_cert_file)
 
     def shutdown(self):
-        self.requests.put({'type': ovn_const.REQ_TYPE_EXIT})
+        self.requests.put({'type': ovn_const.REQ_TYPE_EXIT},
+                          timeout=ovn_const.MAX_TIMEOUT_REQUEST)
         self.helper_thread.join()
         self.ovn_nbdb.stop()
         del self.ovn_nbdb_api
@@ -389,7 +390,12 @@ class OvnProviderHelper():
 
     def request_handler(self):
         while True:
-            request = self.requests.get()
+            try:
+                request = self.requests.get(
+                    timeout=ovn_const.MAX_TIMEOUT_REQUEST)
+            except queue.Empty:
+                continue
+
             request_type = request['type']
             if request_type == ovn_const.REQ_TYPE_EXIT:
                 break
@@ -414,7 +420,7 @@ class OvnProviderHelper():
                 LOG.exception('Unexpected exception in request_handler')
 
     def add_request(self, req):
-        self.requests.put(req)
+        self.requests.put(req, timeout=ovn_const.MAX_TIMEOUT_REQUEST)
 
     @tenacity.retry(
         retry=tenacity.retry_if_exception_type(

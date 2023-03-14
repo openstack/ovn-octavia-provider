@@ -109,3 +109,6 @@ LB_SELECTION_FIELDS_MAP = {
 # HM events status
 HM_EVENT_MEMBER_PORT_ONLINE = ['online']
 HM_EVENT_MEMBER_PORT_OFFLINE = ['offline']
+
+# max timeout for request
+MAX_TIMEOUT_REQUEST = 5
