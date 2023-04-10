@@ -44,6 +44,10 @@ These include:
 * Only the SOURCE_IP_PORT load balancing algorithm is supported, others
   like ROUND_ROBIN and LEAST_CONNECTIONS are not currently supported.
 
+* OVN supports health checks for TCP and UDP-CONNECT protocols, but not for
+  SCTP. Therefore, when configuring a health monitor, you cannot use SCTP as
+  the type.
+
 * Due to nature of OVN octavia driver (flows distributed in all the nodes)
   there is no need for some of the amphora specific functionality that is
   specific to the fact that a VM is created for the load balancing actions. As
