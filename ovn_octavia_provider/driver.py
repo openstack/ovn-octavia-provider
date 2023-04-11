@@ -532,7 +532,8 @@ class OvnProviderDriver(driver_base.ProviderDriver):
         self._ovn_helper.add_request(request)
 
     def health_monitor_delete(self, healthmonitor):
-        request_info = {'id': healthmonitor.healthmonitor_id}
+        request_info = {'id': healthmonitor.healthmonitor_id,
+                        'pool_id': healthmonitor.pool_id}
         request = {'type': ovn_const.REQ_TYPE_HM_DELETE,
                    'info': request_info}
         self._ovn_helper.add_request(request)
