@@ -1787,7 +1787,25 @@ class OvnProviderHelper():
                       str(member_id))
         return constants.NO_MONITOR
 
-    def _update_member_status(self, ovn_lb, member, status=None, delete=False):
+    def _update_member_statuses(self, ovn_lb, pool_id, provisioning_status,
+                                operating_status):
+        member_statuses = []
+        existing_members = ovn_lb.external_ids.get(
+            ovn_const.LB_EXT_IDS_POOL_PREFIX + str(pool_id))
+        if len(existing_members) > 0:
+            for mem_info in existing_members.split(','):
+                member_statuses.append({
+                    constants.ID: mem_info.split('_')[1],
+                    constants.PROVISIONING_STATUS: provisioning_status,
+                    constants.OPERATING_STATUS: operating_status})
+                self._update_external_ids_member_status(
+                    ovn_lb,
+                    mem_info.split('_')[1],
+                    operating_status)
+        return member_statuses
+
+    def _update_external_ids_member_status(self, ovn_lb, member, status=None,
+                                           delete=False):
         existing_members = ovn_lb.external_ids.get(
             ovn_const.OVN_MEMBER_STATUS_KEY)
         try:
@@ -1928,7 +1946,7 @@ class OvnProviderHelper():
                 operating_status = constants.ERROR
             member_status[constants.OPERATING_STATUS] = operating_status
 
-        self._update_member_status(
+        self._update_external_ids_member_status(
             ovn_lb,
             member[constants.ID],
             operating_status)
@@ -2004,7 +2022,7 @@ class OvnProviderHelper():
                     {constants.ID: ovn_lb.name,
                      constants.PROVISIONING_STATUS: constants.ACTIVE}]}
 
-        self._update_member_status(
+        self._update_external_ids_member_status(
             ovn_lb, member[constants.ID], None, delete=True)
 
         listener_status = []
@@ -2081,7 +2099,7 @@ class OvnProviderHelper():
                      constants.PROVISIONING_STATUS: constants.ACTIVE}]}
 
         if constants.OPERATING_STATUS in member_status:
-            self._update_member_status(
+            self._update_external_ids_member_status(
                 ovn_lb,
                 member[constants.ID],
                 member_status[constants.OPERATING_STATUS])
@@ -2628,21 +2646,9 @@ class OvnProviderHelper():
                  constants.OPERATING_STATUS: constants.ONLINE})
 
         # Update status for all members in the pool
-        member_status = []
-        existing_members = ovn_lb.external_ids[pool_key]
-        if len(existing_members) > 0:
-            for mem_info in existing_members.split(','):
-                member_status.append({
-                    constants.ID: mem_info.split('_')[1],
-                    constants.PROVISIONING_STATUS: constants.ACTIVE,
-                    constants.OPERATING_STATUS: constants.ONLINE})
-                # NOTE (froyo): to sync local info with the HM initial one for
-                # previously created members, in case HM detects any change we
-                # will be event triggered about the change one.
-                self._update_member_status(
-                    ovn_lb,
-                    mem_info.split('_')[1],
-                    constants.ONLINE)
+        member_status = self._update_member_statuses(ovn_lb, pool_id,
+                                                     constants.ACTIVE,
+                                                     constants.ONLINE)
         status[constants.MEMBERS] = member_status
 
         # MONITOR_PRT = 80
@@ -2717,6 +2723,8 @@ class OvnProviderHelper():
 
     def hm_delete(self, info):
         hm_id = info[constants.ID]
+        pool_id_related = info[constants.POOL_ID]
+
         status = {
             constants.HEALTHMONITORS: [
                 {constants.ID: hm_id,
@@ -2752,6 +2760,12 @@ class OvnProviderHelper():
         # ovn-nbctl clear load_balancer ${OVN_LB_ID} health_check
         # TODO(haleyb) remove just the ip_port_mappings for this hm
         hms_key = ovn_lb.external_ids.get(ovn_const.LB_EXT_IDS_HMS_KEY, [])
+
+        # Update status for members in the pool related to HM
+        member_status = self._update_member_statuses(ovn_lb, pool_id_related,
+                                                     constants.ACTIVE,
+                                                     constants.NO_MONITOR)
+
         if hms_key:
             hms_key = jsonutils.loads(hms_key)
             if hm_id in hms_key:
@@ -2791,6 +2805,9 @@ class OvnProviderHelper():
             status[constants.POOLS] = [
                 {constants.ID: pool_id,
                  constants.PROVISIONING_STATUS: constants.ACTIVE}]
+
+            if member_status:
+                status[constants.MEMBERS] = member_status
 
             status[constants.LISTENERS] = []
             for listener in pool_listeners:
@@ -3006,7 +3023,8 @@ class OvnProviderHelper():
                 if info['status'] == ovn_const.HM_EVENT_MEMBER_PORT_OFFLINE:
                     member_status = constants.ERROR
 
-                self._update_member_status(ovn_lb, member_id, member_status)
+                self._update_external_ids_member_status(ovn_lb, member_id,
+                                                        member_status)
                 statuses.append(self._get_current_operating_statuses(ovn_lb))
 
         if not statuses:
