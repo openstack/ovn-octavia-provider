@@ -1870,7 +1870,11 @@ class OvnProviderHelper():
                                      ('external_ids', pool_data)))
 
         external_ids[pool_key] = pool_data[pool_key]
-        commands.extend(self._refresh_lb_vips(ovn_lb, external_ids))
+
+        # NOTE(froyo): Add the member to the vips if it is enabled
+        if member.get(constants.ADMIN_STATE_UP, False):
+            commands.extend(self._refresh_lb_vips(ovn_lb, external_ids))
+
         # Note (froyo): commands are now splitted to separate atomic process,
         # leaving outside the not mandatory ones to allow add_member
         # finish correctly
@@ -1920,13 +1924,8 @@ class OvnProviderHelper():
             pool = {constants.ID: member[constants.POOL_ID],
                     constants.PROVISIONING_STATUS: constants.ACTIVE,
                     constants.OPERATING_STATUS: constants.ONLINE}
-            member_status = {constants.ID: member[constants.ID],
-                             constants.PROVISIONING_STATUS: constants.ACTIVE}
-            if not member[constants.ADMIN_STATE_UP]:
-                member_status[constants.OPERATING_STATUS] = constants.OFFLINE
             status = {
                 constants.POOLS: [pool],
-                constants.MEMBERS: [member_status],
                 constants.LOADBALANCERS: [
                     {constants.ID: ovn_lb.name,
                      constants.PROVISIONING_STATUS: constants.ACTIVE}]}
@@ -1951,13 +1950,19 @@ class OvnProviderHelper():
         status[constants.LISTENERS] = listener_status
 
         operating_status = constants.NO_MONITOR
-        if new_member and ovn_lb.health_check:
+        if not member[constants.ADMIN_STATE_UP]:
+            operating_status = constants.OFFLINE
+        elif (new_member and operating_status == constants.NO_MONITOR and
+                ovn_lb.health_check):
             operating_status = constants.ONLINE
             mb_ip, mb_port, mb_subnet, mb_id = self._extract_member_info(
                 new_member)[0]
             if not self._update_hm_member(ovn_lb, pool_key, mb_ip):
                 operating_status = constants.ERROR
-            member_status[constants.OPERATING_STATUS] = operating_status
+        member_status = {constants.ID: member[constants.ID],
+                         constants.PROVISIONING_STATUS: constants.ACTIVE,
+                         constants.OPERATING_STATUS: operating_status}
+        status[constants.MEMBERS] = [member_status]
 
         self._update_external_ids_member_status(
             ovn_lb,
