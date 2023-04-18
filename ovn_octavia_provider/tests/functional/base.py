@@ -861,7 +861,8 @@ class TestOvnOctaviaBase(base.TestOVNFunctionalBase,
         expected_status = {
             'pools': [pool_status],
             'members': [{"id": m_member.member_id,
-                         "provisioning_status": "ACTIVE"}],
+                         "provisioning_status": "ACTIVE",
+                         "operating_status": o_constants.NO_MONITOR}],
             'loadbalancers': [{'id': pool.loadbalancer_id,
                                'provisioning_status': 'ACTIVE'}],
             'listeners': expected_listener_status
