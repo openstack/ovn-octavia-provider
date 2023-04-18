@@ -1681,8 +1681,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
 
     @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
     def test_member_create(self, net_cli):
-        net_cli.return_value.get_subnet.side_effect = [
-            idlutils.RowNotFound, idlutils.RowNotFound]
+        net_cli.return_value.show_subnet.side_effect = [idlutils.RowNotFound]
         self.ovn_lb.external_ids = mock.MagicMock()
         status = self.helper.member_create(self.member)
         self.assertEqual(status['loadbalancers'][0]['provisioning_status'],
@@ -1691,6 +1690,17 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
                          constants.ACTIVE)
         self.assertEqual(status['members'][0]['provisioning_status'],
                          constants.ACTIVE)
+        self.assertEqual(status['members'][0]['operating_status'],
+                         constants.NO_MONITOR)
+        calls = [
+            mock.call.db_clear('Load_Balancer', self.ovn_lb.uuid, 'vips'),
+            mock.call.db_set('Load_Balancer', self.ovn_lb.uuid, ('vips', {}))]
+        self.helper.ovn_nbdb_api.assert_has_calls(calls)
+
+    @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
+    def test_member_create_disabled(self, net_cli):
+        net_cli.return_value.show_subnet.side_effect = [idlutils.RowNotFound]
+        self.ovn_lb.external_ids = mock.MagicMock()
         self.member['admin_state_up'] = False
         status = self.helper.member_create(self.member)
         self.assertEqual(status['loadbalancers'][0]['provisioning_status'],
@@ -1701,6 +1711,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
                          constants.ACTIVE)
         self.assertEqual(status['members'][0]['operating_status'],
                          constants.OFFLINE)
+        self.helper.ovn_nbdb_api.db_clear.assert_not_called()
 
     @mock.patch.object(ovn_helper.OvnProviderHelper, '_find_ovn_lb_by_pool_id')
     @mock.patch.object(ovn_helper.OvnProviderHelper, '_find_lr_of_ls')
