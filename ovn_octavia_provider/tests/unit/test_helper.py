@@ -1022,7 +1022,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         self.assertEqual(status['loadbalancers'][0]['operating_status'],
                          constants.OFFLINE)
         refresh_vips.assert_called_once_with(
-            self.ovn_lb.uuid, self.ovn_lb.external_ids)
+            self.ovn_lb, self.ovn_lb.external_ids)
         self.helper.ovn_nbdb_api.db_set.assert_called_once_with(
             'Load_Balancer', self.ovn_lb.uuid,
             ('external_ids', {'enabled': 'False'}))
@@ -1038,7 +1038,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         self.assertEqual(status['loadbalancers'][0]['operating_status'],
                          constants.ONLINE)
         refresh_vips.assert_called_once_with(
-            self.ovn_lb.uuid, self.ovn_lb.external_ids)
+            self.ovn_lb, self.ovn_lb.external_ids)
         self.helper.ovn_nbdb_api.db_set.assert_called_once_with(
             'Load_Balancer', self.ovn_lb.uuid,
             ('external_ids', {'enabled': 'True'}))
@@ -1051,7 +1051,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         self.assertEqual(status['loadbalancers'][0]['operating_status'],
                          constants.ONLINE)
         refresh_vips.assert_called_once_with(
-            self.ovn_lb.uuid, self.ovn_lb.external_ids)
+            self.ovn_lb, self.ovn_lb.external_ids)
         self.helper.ovn_nbdb_api.db_set.assert_called_once_with(
             'Load_Balancer', self.ovn_lb.uuid,
             ('external_ids', {'enabled': 'True'}))
@@ -1072,10 +1072,10 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         self.assertEqual(status['loadbalancers'][0]['operating_status'],
                          constants.ONLINE)
         refresh_vips.assert_has_calls([
-            mock.call(self.ovn_lb.uuid, self.ovn_lb.external_ids),
+            mock.call(self.ovn_lb, self.ovn_lb.external_ids),
             mock.ANY,
             mock.ANY,
-            mock.call(udp_lb.uuid, udp_lb.external_ids)],
+            mock.call(udp_lb, udp_lb.external_ids)],
             any_order=False)
         self.helper.ovn_nbdb_api.db_set.assert_has_calls([
             mock.call('Load_Balancer', self.ovn_lb.uuid,
@@ -1106,7 +1106,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         self.ovn_lb.external_ids.update({
             'listener_%s:D' % self.listener_id: '80:pool_%s' % self.pool_id})
         refresh_vips.assert_called_once_with(
-            self.ovn_lb.uuid, self.ovn_lb.external_ids)
+            self.ovn_lb, self.ovn_lb.external_ids)
         expected_calls = [
             mock.call(
                 'Load_Balancer', self.ovn_lb.uuid,
@@ -1130,7 +1130,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         self.listener['admin_state_up'] = True
         status = self.helper.listener_create(self.listener)
         refresh_vips.assert_called_once_with(
-            self.ovn_lb.uuid, self.ovn_lb.external_ids)
+            self.ovn_lb, self.ovn_lb.external_ids)
         expected_calls = [
             mock.call(
                 'Load_Balancer', self.ovn_lb.uuid,
@@ -1236,7 +1236,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         self.ovn_lb.external_ids.update(
             {'listener_%s' % self.listener_id: '123:pool_%s' % self.pool_id})
         refresh_vips.assert_called_once_with(
-            self.ovn_lb.uuid, self.ovn_lb.external_ids)
+            self.ovn_lb, self.ovn_lb.external_ids)
 
     @mock.patch.object(ovn_helper.OvnProviderHelper, '_refresh_lb_vips')
     def test_listener_update_listener_disabled(self, refresh_vips):
@@ -1258,7 +1258,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         self.ovn_lb.external_ids.update(
             {'listener_%s:D' % self.listener_id: '80:pool_%s' % self.pool_id})
         refresh_vips.assert_called_once_with(
-            self.ovn_lb.uuid, self.ovn_lb.external_ids)
+            self.ovn_lb, self.ovn_lb.external_ids)
         # As it is marked disabled, a second call should not try and remove it
         self.helper.ovn_nbdb_api.db_remove.reset_mock()
         status = self.helper.listener_update(self.listener)
@@ -1278,7 +1278,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
                          constants.ACTIVE)
         self.helper.ovn_nbdb_api.db_remove.assert_not_called()
         refresh_vips.assert_called_once_with(
-            self.ovn_lb.uuid, self.ovn_lb.external_ids)
+            self.ovn_lb, self.ovn_lb.external_ids)
 
     @mock.patch.object(ovn_helper.OvnProviderHelper, '_refresh_lb_vips')
     def test_listener_update_no_admin_state_up_or_default_pool_id(
@@ -1338,7 +1338,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
             'external_ids', 'listener_%s' % self.listener_id)
         self.ovn_lb.external_ids.pop('listener_%s' % self.listener_id)
         refresh_vips.assert_called_once_with(
-            self.ovn_lb.uuid, self.ovn_lb.external_ids)
+            self.ovn_lb, self.ovn_lb.external_ids)
 
     @mock.patch.object(ovn_helper.OvnProviderHelper, '_is_lb_empty')
     def test_listener_delete_ovn_lb_not_empty(self, lb_empty):
@@ -1908,53 +1908,12 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         self.assertEqual(status['listeners'][0]['id'],
                          'listener1')
 
-    @mock.patch.object(ovn_helper.OvnProviderHelper, '_update_member')
-    def test_member_update_exception(self, mock_update_member):
-        mock_update_member.side_effect = [RuntimeError]
+    @mock.patch.object(ovn_helper.OvnProviderHelper, '_find_member_status')
+    def test_member_update_exception(self, mock_find_member_status):
+        mock_find_member_status.side_effect = [TypeError]
         status = self.helper.member_update(self.member)
         self.assertEqual(status['pools'][0]['provisioning_status'],
                          constants.ACTIVE)
-
-    def test_member_update_new_member_line(self):
-        old_member_line = (
-            'member_%s_%s:%s' %
-            (self.member_id, self.member_address,
-             self.member_port))
-        new_member_line = (
-            'member_%s_%s:%s_%s' %
-            (self.member_id, self.member_address,
-             self.member_port, self.member_subnet_id))
-        self.ovn_lb.external_ids.update(
-            {'pool_%s' % self.pool_id: old_member_line})
-        self.helper.member_update(self.member)
-        expected_calls = [
-            mock.call('Load_Balancer', self.ovn_lb.uuid,
-                      ('external_ids', {
-                          'pool_%s' % self.pool_id: new_member_line}))]
-        self.helper.ovn_nbdb_api.db_set.assert_has_calls(
-            expected_calls)
-
-    def test_member_update_new_port(self):
-        new_port = 11
-        member_line = ('member_%s_%s:%s_%s' %
-                       (self.member_id, self.member_address,
-                        new_port, self.member_subnet_id))
-        self.ovn_lb.external_ids.update(
-            {'pool_%s' % self.pool_id: member_line})
-        self.helper.member_update(self.member)
-        new_member_line = (
-            'member_%s_%s:%s_%s' %
-            (self.member_id, self.member_address,
-             self.member_port, self.member_subnet_id))
-        expected_calls = [
-            mock.call('Load_Balancer', self.ovn_lb.uuid,
-                      ('external_ids', {
-                          'pool_%s' % self.pool_id: new_member_line})),
-            mock.call('Load_Balancer', self.ovn_lb.uuid, ('vips', {
-                '10.22.33.4:80': '192.168.2.149:1010',
-                '123.123.123.123:80': '192.168.2.149:1010'}))]
-        self.helper.ovn_nbdb_api.db_set.assert_has_calls(
-            expected_calls)
 
     @mock.patch('ovn_octavia_provider.helper.OvnProviderHelper.'
                 '_refresh_lb_vips')
@@ -3568,20 +3527,27 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
                           self.pool_id)
 
     def test__frame_lb_vips(self):
-        ret = self.helper._frame_vip_ips(self.ovn_lb.external_ids)
+        ret = self.helper._frame_vip_ips(self.ovn_lb, self.ovn_lb.external_ids)
         expected = {'10.22.33.4:80': '192.168.2.149:1010',
                     '123.123.123.123:80': '192.168.2.149:1010'}
         self.assertEqual(expected, ret)
 
+    def test__frame_lb_vips_member_offline(self):
+        self.ovn_lb.external_ids[ovn_const.OVN_MEMBER_STATUS_KEY] = \
+            '{"%s": "%s"}' % (self.member_id, constants.OFFLINE)
+        ret = self.helper._frame_vip_ips(self.ovn_lb, self.ovn_lb.external_ids)
+        expected = {}
+        self.assertEqual(expected, ret)
+
     def test__frame_lb_vips_no_vip_fip(self):
         self.ovn_lb.external_ids.pop(ovn_const.LB_EXT_IDS_VIP_FIP_KEY)
-        ret = self.helper._frame_vip_ips(self.ovn_lb.external_ids)
+        ret = self.helper._frame_vip_ips(self.ovn_lb, self.ovn_lb.external_ids)
         expected = {'10.22.33.4:80': '192.168.2.149:1010'}
         self.assertEqual(expected, ret)
 
     def test__frame_lb_vips_disabled(self):
         self.ovn_lb.external_ids['enabled'] = 'False'
-        ret = self.helper._frame_vip_ips(self.ovn_lb.external_ids)
+        ret = self.helper._frame_vip_ips(self.ovn_lb, self.ovn_lb.external_ids)
         self.assertEqual({}, ret)
 
     def test__frame_lb_vips_ipv6(self):
@@ -3595,7 +3561,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
             ovn_const.LB_EXT_IDS_VIP_FIP_KEY: '2002::',
             'pool_%s' % self.pool_id: self.member_line,
             'listener_%s' % self.listener_id: '80:pool_%s' % self.pool_id}
-        ret = self.helper._frame_vip_ips(self.ovn_lb.external_ids)
+        ret = self.helper._frame_vip_ips(self.ovn_lb, self.ovn_lb.external_ids)
         expected = {'[2002::]:80': '[2001:db8::1]:1010',
                     '[fc00::]:80': '[2001:db8::1]:1010'}
         self.assertEqual(expected, ret)
