@@ -366,8 +366,7 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
                 'protocol_port': self.ref_member.protocol_port,
                 'pool_id': self.ref_member.pool_id,
                 'admin_state_up': self.update_member.admin_state_up,
-                'old_admin_state_up': self.ref_member.admin_state_up,
-                'subnet_id': self.ref_member.subnet_id}
+                'old_admin_state_up': self.ref_member.admin_state_up}
         expected_dict = {'type': ovn_const.REQ_TYPE_MEMBER_UPDATE,
                          'info': info}
         self.driver.member_update(self.ref_member, self.update_member)
@@ -381,8 +380,7 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
                 'protocol_port': self.ref_member.protocol_port,
                 'pool_id': self.ref_member.pool_id,
                 'admin_state_up': self.update_member.admin_state_up,
-                'old_admin_state_up': self.ref_member.admin_state_up,
-                'subnet_id': self.ref_member.subnet_id}
+                'old_admin_state_up': self.ref_member.admin_state_up}
         expected_dict = {'type': ovn_const.REQ_TYPE_MEMBER_UPDATE,
                          'info': info}
         member = copy.copy(self.ref_member)
@@ -398,23 +396,13 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
                 'address': self.ref_member.address,
                 'protocol_port': self.ref_member.protocol_port,
                 'pool_id': self.ref_member.pool_id,
-                'old_admin_state_up': self.ref_member.admin_state_up,
-                'subnet_id': self.ref_member.subnet_id}
+                'old_admin_state_up': self.ref_member.admin_state_up}
         expected_dict = {'type': ovn_const.REQ_TYPE_MEMBER_UPDATE,
                          'info': info}
         member = copy.copy(self.ref_member)
         member.subnet_id = data_models.UnsetType()
         self.driver.member_update(member, self.update_member)
         self.mock_add_request.assert_called_once_with(expected_dict)
-
-    def test_member_update_missing_subnet_id_differs_from_lb_vip(self):
-        self.driver._ovn_helper._get_subnet_from_pool.return_value = (
-            self.ref_member.subnet_id, '198.52.100.0/24')
-        self.driver._ovn_helper._check_ip_in_subnet.return_value = False
-        self.ref_member.subnet_id = data_models.UnsetType()
-        self.assertRaises(exceptions.UnsupportedOptionError,
-                          self.driver.member_update, self.ref_member,
-                          self.update_member)
 
     @mock.patch.object(ovn_driver.OvnProviderDriver, '_ip_version_differs')
     def test_member_update_no_ip_addr(self, mock_ip_differs):
