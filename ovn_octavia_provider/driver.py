@@ -339,7 +339,6 @@ class OvnProviderDriver(driver_base.ProviderDriver):
 
     def member_batch_update(self, pool_id, members):
         request_list = []
-        skipped_members = []
         pool_key, ovn_lb = self._ovn_helper._find_ovn_lb_by_pool_id(pool_id)
         external_ids = copy.deepcopy(ovn_lb.external_ids)
         pool = external_ids[pool_key]
@@ -347,10 +346,16 @@ class OvnProviderDriver(driver_base.ProviderDriver):
         members_to_delete = copy.copy(existing_members)
         pool_subnet_id = None
         for member in members:
-            if (self._check_monitor_options(member) or
-                    member.address and self._ip_version_differs(member)):
-                skipped_members.append(member.member_id)
-                continue
+            # NOTE(froyo): in order to keep sync with Octavia DB, we raise
+            # not supporting exceptions as soon as posible, considering the
+            # full request as not valid
+            if (self._check_monitor_options(member)):
+                msg = 'OVN provider does not support monitor options'
+                raise driver_exceptions.UnsupportedOptionError(
+                    user_fault_string=msg,
+                    operator_fault_string=msg)
+            if (member.address and self._ip_version_differs(member)):
+                raise ovn_exc.IPVersionsMixingNotSupportedError()
             # NOTE(froyo): if subnet_id not provided, lets try to get it
             # from the member pool_id
             subnet_id = member.subnet_id
@@ -412,12 +417,6 @@ class OvnProviderDriver(driver_base.ProviderDriver):
 
         for request in request_list:
             self._ovn_helper.add_request(request)
-        if skipped_members:
-            msg = (_('OVN provider does not support monitor options, '
-                     'so following members skipped: %s') % skipped_members)
-            raise driver_exceptions.UnsupportedOptionError(
-                user_fault_string=msg,
-                operator_fault_string=msg)
 
     def create_vip_port(self, lb_id, project_id, vip_dict):
         try:
