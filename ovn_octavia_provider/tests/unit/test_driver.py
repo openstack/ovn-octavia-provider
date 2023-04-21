@@ -415,6 +415,22 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
                                         [self.ref_member, self.update_member])
         self.assertEqual(self.mock_add_request.call_count, 3)
 
+    def test_member_batch_update_member_delete(self):
+        info_md = {
+            'id': self.ref_member.member_id,
+            'address': mock.ANY,
+            'protocol_port': mock.ANY,
+            'pool_id': self.ref_member.pool_id,
+            'subnet_id': self.ref_member.subnet_id}
+        expected_dict_md = {
+            'type': ovn_const.REQ_TYPE_MEMBER_DELETE,
+            'info': info_md}
+        expected = [
+            mock.call(expected_dict_md)]
+        self.driver.member_batch_update(self.pool_id, [])
+        self.assertEqual(self.mock_add_request.call_count, 1)
+        self.mock_add_request.assert_has_calls(expected)
+
     def test_member_batch_update_no_members(self):
         pool_key = 'pool_%s' % self.pool_id
         ovn_lb = copy.copy(self.ovn_lb)
@@ -442,6 +458,26 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
         self.ref_member.admin_state_up = data_models.UnsetType()
         self.driver.member_batch_update(self.pool_id, [self.ref_member])
         self.assertEqual(self.mock_add_request.call_count, 2)
+
+    def test_member_batch_update_toggle_admin_state_up(self):
+        info_mu = {
+            'id': self.ref_member.member_id,
+            'address': self.member_address,
+            'protocol_port': self.member_port,
+            'pool_id': self.ref_member.pool_id,
+            'subnet_id': self.ref_member.subnet_id,
+            'admin_state_up': False}
+        expected_dict_mu = {
+            'type': ovn_const.REQ_TYPE_MEMBER_UPDATE,
+            'info': info_mu}
+        expected = [
+            mock.call(expected_dict_mu)]
+        self.ref_member.admin_state_up = False
+        self.ref_member.address = self.member_address
+        self.ref_member.protocol_port = self.member_port
+        self.driver.member_batch_update(self.pool_id, [self.ref_member])
+        self.assertEqual(self.mock_add_request.call_count, 1)
+        self.mock_add_request.assert_has_calls(expected)
 
     def test_member_batch_update_missing_subnet_id(self):
         self.ref_member.subnet_id = None
