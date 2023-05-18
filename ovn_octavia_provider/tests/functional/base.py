@@ -609,8 +609,6 @@ class TestOvnOctaviaBase(base.TestOVNFunctionalBase,
                 field='external_ids')
             p_members = ""
             for m in p.members:
-                if not m.admin_state_up:
-                    continue
                 m_info = 'member_' + m.member_id + '_' + m.address
                 m_info += ":" + str(m.protocol_port)
                 m_info += "_" + str(m.subnet_id)
@@ -635,7 +633,10 @@ class TestOvnOctaviaBase(base.TestOVNFunctionalBase,
                     external_ids[ovn_const.LB_EXT_IDS_HMS_KEY] = \
                         jsonutils.dumps([p.healthmonitor.healthmonitor_id])
                 else:
-                    member_status[m.member_id] = o_constants.NO_MONITOR
+                    if m.admin_state_up:
+                        member_status[m.member_id] = o_constants.NO_MONITOR
+                    else:
+                        member_status[m.member_id] = o_constants.OFFLINE
             pool_key = 'pool_' + p.pool_id
             if not p.admin_state_up:
                 pool_key += ':D'
@@ -866,13 +867,14 @@ class TestOvnOctaviaBase(base.TestOVNFunctionalBase,
                 return m
 
     def _update_member_and_validate(self, lb_data, pool_id, member_address,
-                                    remove_subnet_id=False):
+                                    remove_subnet_id=False,
+                                    admin_state_up=True):
         pool = self._get_pool_from_lb_data(lb_data, pool_id=pool_id)
 
         member = self._get_pool_member(pool, member_address)
         self._o_driver_lib.update_loadbalancer_status.reset_mock()
         old_member = copy.deepcopy(member)
-
+        member.admin_state_up = admin_state_up
         # NOTE(froyo): In order to test update of member without passing the
         # subnet_id parameter of the member, just to cover the case when a new
         # member has been created without passing that argument
