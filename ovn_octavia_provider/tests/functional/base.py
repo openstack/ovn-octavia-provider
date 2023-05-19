@@ -21,10 +21,13 @@ from neutron_lib.plugins import directory
 from octavia_lib.api.drivers import data_models as octavia_data_model
 from octavia_lib.api.drivers import driver_lib
 from octavia_lib.common import constants as o_constants
+from oslo_db import exception as odb_exc
 from oslo_serialization import jsonutils
 from oslo_utils import uuidutils
 from ovsdbapp.schema.ovn_northbound import impl_idl as nb_idl_ovn
 from ovsdbapp.schema.ovn_southbound import impl_idl as sb_idl_ovn
+
+import tenacity
 
 # NOTE(mjozefcz): We need base neutron functionals because we need
 # mechanism driver and l3 plugin.
@@ -259,6 +262,11 @@ class TestOvnOctaviaBase(base.TestOVNFunctionalBase,
                 return lb_uuid in ls_lbs
         return False
 
+    @tenacity.retry(
+        retry=tenacity.retry_if_exception_type(odb_exc.DBError),
+        wait=tenacity.wait_exponential(),
+        stop=tenacity.stop_after_attempt(3),
+        reraise=True)
     def _create_router(self, name, gw_info=None):
         router = {'router':
                   {'name': name,
@@ -269,6 +277,11 @@ class TestOvnOctaviaBase(base.TestOVNFunctionalBase,
         router = self.l3_plugin.create_router(self.context, router)
         return router['id']
 
+    @tenacity.retry(
+        retry=tenacity.retry_if_exception_type(odb_exc.DBError),
+        wait=tenacity.wait_exponential(),
+        stop=tenacity.stop_after_attempt(3),
+        reraise=True)
     def _create_net(self, name, cidr, router_id=None):
         n1 = self._make_network(self.fmt, name, True)
         res = self._create_subnet(self.fmt, n1['network']['id'],
