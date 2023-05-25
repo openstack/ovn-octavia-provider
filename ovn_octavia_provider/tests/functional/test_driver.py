@@ -107,6 +107,8 @@ class TestOvnOctaviaProviderDriver(ovn_base.TestOvnOctaviaBase):
             lb_data, pool_TCP_id, lb_data['vip_net_info'][1],
             lb_data['vip_net_info'][0], '10.0.0.10')
         self._update_member_and_validate(lb_data, pool_TCP_id, "10.0.0.10")
+        self._update_member_and_validate(lb_data, pool_TCP_id, "10.0.0.10",
+                                         admin_state_up=False)
         self._create_member_and_validate(
             lb_data, pool_TCP_id, lb_data['vip_net_info'][1],
             lb_data['vip_net_info'][0], '10.0.0.11')
@@ -116,6 +118,8 @@ class TestOvnOctaviaProviderDriver(ovn_base.TestOvnOctaviaBase):
             lb_data, pool_UDP_id, lb_data['vip_net_info'][1],
             lb_data['vip_net_info'][0], '10.0.0.10')
         self._update_member_and_validate(lb_data, pool_UDP_id, "10.0.0.10")
+        self._update_member_and_validate(lb_data, pool_UDP_id, "10.0.0.10",
+                                         admin_state_up=False)
         self._create_member_and_validate(
             lb_data, pool_UDP_id, lb_data['vip_net_info'][1],
             lb_data['vip_net_info'][0], '10.0.0.11')
@@ -125,6 +129,8 @@ class TestOvnOctaviaProviderDriver(ovn_base.TestOvnOctaviaBase):
             lb_data, pool_SCTP_id, lb_data['vip_net_info'][1],
             lb_data['vip_net_info'][0], '10.0.0.10')
         self._update_member_and_validate(lb_data, pool_SCTP_id, "10.0.0.10")
+        self._update_member_and_validate(lb_data, pool_SCTP_id, "10.0.0.10",
+                                         admin_state_up=False)
         self._create_member_and_validate(
             lb_data, pool_SCTP_id, lb_data['vip_net_info'][1],
             lb_data['vip_net_info'][0], '10.0.0.11')
