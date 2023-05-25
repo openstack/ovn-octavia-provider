@@ -901,7 +901,10 @@ class OvnProviderHelper():
                 return vip_port
         return None
 
-    def _frame_vip_ips(self, lb_external_ids):
+    def _is_member_offline(self, ovn_lb, member_id):
+        return constants.OFFLINE == self._find_member_status(ovn_lb, member_id)
+
+    def _frame_vip_ips(self, ovn_lb, lb_external_ids):
         vip_ips = {}
         # If load balancer is disabled, return
         if lb_external_ids.get('enabled') == 'False':
@@ -925,27 +928,29 @@ class OvnProviderHelper():
             ips = []
             for mb_ip, mb_port, mb_subnet, mb_id in self._extract_member_info(
                     lb_external_ids[pool_id]):
-                if netaddr.IPNetwork(mb_ip).version == 6:
-                    ips.append(f'[{mb_ip}]:{mb_port}')
-                else:
-                    ips.append(f'{mb_ip}:{mb_port}')
+                if not self._is_member_offline(ovn_lb, mb_id):
+                    if netaddr.IPNetwork(mb_ip).version == 6:
+                        ips.append(f'[{mb_ip}]:{mb_port}')
+                    else:
+                        ips.append(f'{mb_ip}:{mb_port}')
 
-            if netaddr.IPNetwork(lb_vip).version == 6:
-                lb_vip = f'[{lb_vip}]'
-            vip_ips[lb_vip + ':' + vip_port] = ','.join(ips)
+            if ips:
+                if netaddr.IPNetwork(lb_vip).version == 6:
+                    lb_vip = f'[{lb_vip}]'
+                vip_ips[lb_vip + ':' + vip_port] = ','.join(ips)
 
-            if vip_fip:
-                if netaddr.IPNetwork(vip_fip).version == 6:
-                    vip_fip = f'[{vip_fip}]'
-                vip_ips[vip_fip + ':' + vip_port] = ','.join(ips)
+                if vip_fip:
+                    if netaddr.IPNetwork(vip_fip).version == 6:
+                        vip_fip = f'[{vip_fip}]'
+                    vip_ips[vip_fip + ':' + vip_port] = ','.join(ips)
 
         return vip_ips
 
-    def _refresh_lb_vips(self, ovn_lb_uuid, lb_external_ids):
-        vip_ips = self._frame_vip_ips(lb_external_ids)
-        return [self.ovn_nbdb_api.db_clear('Load_Balancer', ovn_lb_uuid,
+    def _refresh_lb_vips(self, ovn_lb, lb_external_ids):
+        vip_ips = self._frame_vip_ips(ovn_lb, lb_external_ids)
+        return [self.ovn_nbdb_api.db_clear('Load_Balancer', ovn_lb.uuid,
                                            'vips'),
-                self.ovn_nbdb_api.db_set('Load_Balancer', ovn_lb_uuid,
+                self.ovn_nbdb_api.db_set('Load_Balancer', ovn_lb.uuid,
                                          ('vips', vip_ips))]
 
     def _is_listener_in_lb(self, lb):
@@ -1316,7 +1321,7 @@ class OvnProviderHelper():
                                                  ('external_ids', enable_info))
                     )
                     commands.extend(
-                        self._refresh_lb_vips(ovn_lb.uuid,
+                        self._refresh_lb_vips(ovn_lb,
                                               ovn_lb.external_ids))
                     self._execute_commands(commands)
                 if lb_enabled:
@@ -1365,7 +1370,7 @@ class OvnProviderHelper():
                         'Load_Balancer', ovn_lb.uuid,
                         ('protocol',
                          str(listener[constants.PROTOCOL]).lower())))
-            commands.extend(self._refresh_lb_vips(ovn_lb.uuid, external_ids))
+            commands.extend(self._refresh_lb_vips(ovn_lb, external_ids))
             self._execute_commands(commands)
         except Exception:
             LOG.exception(ovn_const.EXCEPTION_MSG, "creation of listener")
@@ -1436,7 +1441,7 @@ class OvnProviderHelper():
                 # has pending delete operation.
                 if not lb_to_delete:
                     commands.extend(
-                        self._refresh_lb_vips(ovn_lb.uuid, external_ids))
+                        self._refresh_lb_vips(ovn_lb, external_ids))
                 self._execute_commands(commands)
             except Exception:
                 LOG.exception(ovn_const.EXCEPTION_MSG, "deletion of listener")
@@ -1542,7 +1547,7 @@ class OvnProviderHelper():
                         ('external_ids', l_key_to_add)))
 
             commands.extend(
-                self._refresh_lb_vips(ovn_lb.uuid, external_ids))
+                self._refresh_lb_vips(ovn_lb, external_ids))
             self._execute_commands(commands)
         except Exception:
             LOG.exception(ovn_const.EXCEPTION_MSG, "update of listener")
@@ -1642,7 +1647,7 @@ class OvnProviderHelper():
                                                 'external_ids', (pool_key)))
                 del external_ids[pool_key]
                 commands.extend(
-                    self._refresh_lb_vips(ovn_lb.uuid, external_ids))
+                    self._refresh_lb_vips(ovn_lb, external_ids))
             # Remove Pool from Listener if it is associated
             for key, value in ovn_lb.external_ids.items():
                 if (key.startswith(ovn_const.LB_EXT_IDS_LISTENER_PREFIX) and
@@ -1743,7 +1748,7 @@ class OvnProviderHelper():
                         ('external_ids', p_key_to_add)))
 
                 commands.extend(
-                    self._refresh_lb_vips(ovn_lb.uuid, external_ids))
+                    self._refresh_lb_vips(ovn_lb, external_ids))
                 self._execute_commands(commands)
             if pool[constants.ADMIN_STATE_UP]:
                 operating_status = constants.ONLINE
@@ -1859,7 +1864,7 @@ class OvnProviderHelper():
                                      ('external_ids', pool_data)))
 
         external_ids[pool_key] = pool_data[pool_key]
-        commands.extend(self._refresh_lb_vips(ovn_lb.uuid, external_ids))
+        commands.extend(self._refresh_lb_vips(ovn_lb, external_ids))
         # Note (froyo): commands are now splitted to separate atomic process,
         # leaving outside the not mandatory ones to allow add_member
         # finish correctly
@@ -1980,7 +1985,7 @@ class OvnProviderHelper():
                                          ('external_ids', pool_data)))
             external_ids[pool_key] = ",".join(existing_members)
             commands.extend(
-                self._refresh_lb_vips(ovn_lb.uuid, external_ids))
+                self._refresh_lb_vips(ovn_lb, external_ids))
             self._execute_commands(commands)
             self._update_lb_to_ls_association(
                 ovn_lb, subnet_id=member.get(constants.SUBNET_ID),
@@ -2042,25 +2047,6 @@ class OvnProviderHelper():
 
         return status
 
-    def _update_member(self, member, ovn_lb, pool_key):
-        commands = []
-        external_ids = copy.deepcopy(ovn_lb.external_ids)
-        existing_members = external_ids[pool_key].split(",")
-        member_info = self._get_member_info(member)
-        for mem in existing_members:
-            if (member_info.split('_')[1] == mem.split('_')[1] and
-                    mem != member_info):
-                existing_members.remove(mem)
-                existing_members.append(member_info)
-                pool_data = {pool_key: ",".join(existing_members)}
-                commands.append(
-                    self.ovn_nbdb_api.db_set('Load_Balancer', ovn_lb.uuid,
-                                             ('external_ids', pool_data)))
-                external_ids[pool_key] = ",".join(existing_members)
-                commands.extend(
-                    self._refresh_lb_vips(ovn_lb.uuid, external_ids))
-                self._execute_commands(commands)
-
     def member_update(self, member):
         pool_listeners = []
         try:
@@ -2077,15 +2063,14 @@ class OvnProviderHelper():
                     {constants.ID: ovn_lb.name,
                      constants.PROVISIONING_STATUS: constants.ACTIVE}]}
             pool_listeners = self._get_pool_listeners(ovn_lb, pool_key)
-            self._update_member(member, ovn_lb, pool_key)
+            last_status = self._find_member_status(
+                ovn_lb, member[constants.ID])
             if constants.ADMIN_STATE_UP in member:
                 if member[constants.ADMIN_STATE_UP]:
                     # if HM exists trust on neutron:member_status
                     # as the last status valid for the member
                     if ovn_lb.health_check:
                         # search status of member_uuid
-                        last_status = self._find_member_status(
-                            ovn_lb, member[constants.ID])
                         member_status[constants.OPERATING_STATUS] = last_status
                     else:
                         member_status[constants.OPERATING_STATUS] = (
@@ -2093,6 +2078,29 @@ class OvnProviderHelper():
                 else:
                     member_status[constants.OPERATING_STATUS] = (
                         constants.OFFLINE)
+
+                if constants.OPERATING_STATUS in member_status:
+                    self._update_external_ids_member_status(
+                        ovn_lb,
+                        member[constants.ID],
+                        member_status[constants.OPERATING_STATUS])
+
+                # NOTE(froyo): If we are toggling from/to OFFLINE due to an
+                # admin_state_up change, in that case we should update vips
+                if (
+                    last_status != constants.OFFLINE and
+                    member_status[constants.OPERATING_STATUS] ==
+                    constants.OFFLINE
+                ) or (
+                    last_status == constants.OFFLINE and
+                    member_status[constants.OPERATING_STATUS] !=
+                    constants.OFFLINE
+                ):
+                    commands = []
+                    commands.extend(self._refresh_lb_vips(ovn_lb,
+                                                          ovn_lb.external_ids))
+                    self._execute_commands(commands)
+
         except Exception:
             LOG.exception(ovn_const.EXCEPTION_MSG, "update of member")
             status = {
@@ -2105,12 +2113,6 @@ class OvnProviderHelper():
                 constants.LOADBALANCERS: [
                     {constants.ID: ovn_lb.name,
                      constants.PROVISIONING_STATUS: constants.ACTIVE}]}
-
-        if constants.OPERATING_STATUS in member_status:
-            self._update_external_ids_member_status(
-                ovn_lb,
-                member[constants.ID],
-                member_status[constants.OPERATING_STATUS])
 
         listener_status = []
         for listener in pool_listeners:
@@ -2246,7 +2248,7 @@ class OvnProviderHelper():
                         'Load_Balancer_Health_Check', lbhc.uuid))
                     break
 
-        commands.extend(self._refresh_lb_vips(ovn_lb.uuid, external_ids))
+        commands.extend(self._refresh_lb_vips(ovn_lb, external_ids))
         self._execute_commands(commands)
 
     def handle_member_dvr(self, info):

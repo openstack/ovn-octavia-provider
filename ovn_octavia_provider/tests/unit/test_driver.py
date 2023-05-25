@@ -355,8 +355,7 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
                 'protocol_port': self.ref_member.protocol_port,
                 'pool_id': self.ref_member.pool_id,
                 'admin_state_up': self.update_member.admin_state_up,
-                'old_admin_state_up': self.ref_member.admin_state_up,
-                'subnet_id': self.ref_member.subnet_id}
+                'old_admin_state_up': self.ref_member.admin_state_up}
         expected_dict = {'type': ovn_const.REQ_TYPE_MEMBER_UPDATE,
                          'info': info}
         self.driver.member_update(self.ref_member, self.update_member)
@@ -370,8 +369,7 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
                 'protocol_port': self.ref_member.protocol_port,
                 'pool_id': self.ref_member.pool_id,
                 'admin_state_up': self.update_member.admin_state_up,
-                'old_admin_state_up': self.ref_member.admin_state_up,
-                'subnet_id': self.ref_member.subnet_id}
+                'old_admin_state_up': self.ref_member.admin_state_up}
         expected_dict = {'type': ovn_const.REQ_TYPE_MEMBER_UPDATE,
                          'info': info}
         member = copy.copy(self.ref_member)
@@ -387,8 +385,7 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
                 'address': self.ref_member.address,
                 'protocol_port': self.ref_member.protocol_port,
                 'pool_id': self.ref_member.pool_id,
-                'old_admin_state_up': self.ref_member.admin_state_up,
-                'subnet_id': self.ref_member.subnet_id}
+                'old_admin_state_up': self.ref_member.admin_state_up}
         expected_dict = {'type': ovn_const.REQ_TYPE_MEMBER_UPDATE,
                          'info': info}
         member = copy.copy(self.ref_member)

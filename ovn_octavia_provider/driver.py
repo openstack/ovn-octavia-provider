@@ -329,25 +329,6 @@ class OvnProviderDriver(driver_base.ProviderDriver):
         self._ovn_helper.add_request(request)
 
     def member_update(self, old_member, new_member):
-        # NOTE(froyo): OVN provider allow to create member without param
-        # subnet_id, in that case the driver search it according to the
-        # pool_id, but it is not propagated to Octavia. In this case, if
-        # the member is updated, Octavia send the object without subnet_id.
-        subnet_id = old_member.subnet_id
-        if (isinstance(subnet_id, o_datamodels.UnsetType) or not subnet_id):
-            subnet_id, subnet_cidr = self._ovn_helper._get_subnet_from_pool(
-                old_member.pool_id)
-            if not (subnet_id and
-                    self._ovn_helper._check_ip_in_subnet(new_member.address,
-                                                         subnet_cidr)):
-                msg = _('Subnet is required, or Loadbalancer associated with '
-                        'Pool must have a subnet, for Member update '
-                        'with OVN Provider Driver if it is not the same as '
-                        'LB VIP subnet')
-                raise driver_exceptions.UnsupportedOptionError(
-                    user_fault_string=msg,
-                    operator_fault_string=msg)
-
         # Validate monitoring options if present
         self._check_member_monitor_options(new_member)
         if new_member.address and self._ip_version_differs(new_member):
@@ -356,7 +337,6 @@ class OvnProviderDriver(driver_base.ProviderDriver):
                         'address': old_member.address,
                         'protocol_port': old_member.protocol_port,
                         'pool_id': old_member.pool_id,
-                        'subnet_id': subnet_id,
                         'old_admin_state_up': old_member.admin_state_up}
         if not isinstance(new_member.admin_state_up, o_datamodels.UnsetType):
             request_info['admin_state_up'] = new_member.admin_state_up
