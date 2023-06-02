@@ -97,6 +97,11 @@ class OvnProviderDriver(driver_base.ProviderDriver):
                         'vip_network_id': loadbalancer.vip_network_id,
                         'admin_state_up': admin_state_up}
 
+        if not isinstance(loadbalancer.additional_vips,
+                          o_datamodels.UnsetType):
+            request_info[constants.ADDITIONAL_VIPS] = \
+                loadbalancer.additional_vips
+
         request = {'type': ovn_const.REQ_TYPE_LB_CREATE,
                    'info': request_info}
         self._ovn_helper.add_request(request)
@@ -474,13 +479,23 @@ class OvnProviderDriver(driver_base.ProviderDriver):
         :return: a tuple that contains the VIP provider dictionary and a list
                  of additional VIP dictionaries
         """
-        # TODO(gthiemonge): implement additional_vip_dicts
         try:
-            port = self._ovn_helper.create_vip_port(
-                project_id, lb_id, vip_dict)
-            vip_dict[constants.VIP_PORT_ID] = port['id']
+            port, additional_ports = self._ovn_helper.create_vip_port(
+                project_id, lb_id, vip_dict, additional_vip_dicts)
+            vip_dict[constants.VIP_PORT_ID] = port.id
             vip_dict[constants.VIP_ADDRESS] = (
                 port['fixed_ips'][0]['ip_address'])
+
+            additional_vip_port_dict = []
+            for additional_port in additional_ports:
+                additional_vip_port_dict.append({
+                    'port_id': additional_port['id'],
+                    constants.NETWORK_ID:
+                        additional_port[constants.NETWORK_ID],
+                    constants.SUBNET_ID:
+                        additional_port['fixed_ips'][0]['subnet_id'],
+                    'ip_address': additional_port['fixed_ips'][0]['ip_address']
+                })
         except Exception as e:
             kwargs = {}
             for attr in ('details', 'message'):
@@ -491,7 +506,7 @@ class OvnProviderDriver(driver_base.ProviderDriver):
                     break
             raise driver_exceptions.DriverError(
                 **kwargs)
-        return vip_dict, []
+        return vip_dict, additional_vip_port_dict
 
     def _validate_hm_support(self, hm, action='create'):
         if not self._is_health_check_supported():

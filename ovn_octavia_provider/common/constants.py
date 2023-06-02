@@ -18,6 +18,7 @@ LRP_PREFIX = "lrp-"
 OVN_NAME_PREFIX = "neutron-"
 LB_HM_PORT_PREFIX = "ovn-lb-hm-"
 LB_VIP_PORT_PREFIX = "ovn-lb-vip-"
+LB_VIP_ADDIT_PORT_PREFIX = "ovn-lb-vip-additional-"
 OVN_PORT_NAME_EXT_ID_KEY = 'neutron:port_name'
 OVN_ROUTER_NAME_EXT_ID_KEY = 'neutron:router_name'
 OVN_PORT_FIP_EXT_ID_KEY = 'neutron:port_fip'
@@ -45,9 +46,15 @@ LB_EXT_IDS_HM_KEY = 'octavia:healthmonitor'
 LB_EXT_IDS_HM_POOL_KEY = 'octavia:pool_id'
 LB_EXT_IDS_HM_VIP = 'octavia:vip'
 LB_EXT_IDS_HMS_KEY = 'octavia:healthmonitors'
+
+# NOTE(froyo):from additional-vips feature we will mantain the old ones for
+# backward compatibility
 LB_EXT_IDS_VIP_KEY = 'neutron:vip'
-LB_EXT_IDS_VIP_FIP_KEY = 'neutron:vip_fip'
+LB_EXT_IDS_ADDIT_VIP_KEY = 'neutron:additional_vips'
 LB_EXT_IDS_VIP_PORT_ID_KEY = 'neutron:vip_port_id'
+LB_EXT_IDS_ADDIT_VIP_PORT_ID_KEY = 'neutron:additional_vip_port_ids'
+LB_EXT_IDS_VIP_FIP_KEY = 'neutron:vip_fip'
+LB_EXT_IDS_ADDIT_VIP_FIP_KEY = 'neutron:additional_vip_fips'
 
 PORT_FORWARDING_PLUGIN = 'port_forwarding_plugin'
 

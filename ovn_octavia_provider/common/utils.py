@@ -10,11 +10,22 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+import re
+
 from oslo_utils import netutils
 import tenacity
 
 from ovn_octavia_provider.common import config
 from ovn_octavia_provider.common import constants
+
+
+def get_uuid(dynamic_string):
+    # If it exists get the UUID from any string
+    uuid_pattern = r"[\da-fA-F]{8}-(?:[\da-fA-F]{4}-){3}[\da-fA-F]{12}"
+    uuid_match = re.search(uuid_pattern, dynamic_string)
+    if uuid_match:
+        return uuid_match.group()
+    return ''
 
 
 def ovn_uuid(name):

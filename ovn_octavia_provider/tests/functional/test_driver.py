@@ -16,22 +16,36 @@
 from octavia_lib.api.drivers import exceptions as o_exceptions
 from octavia_lib.common import constants as o_constants
 
+from oslo_utils import uuidutils
+
 from ovn_octavia_provider.tests.functional import base as ovn_base
 
 
 class TestOvnOctaviaProviderDriver(ovn_base.TestOvnOctaviaBase):
 
     def test_loadbalancer(self):
+        r1_id = self._create_router('r' + uuidutils.generate_uuid()[:4])
+        network_N1 = self._create_net('N' + uuidutils.generate_uuid()[:4])
+        sbnet_info = self._create_subnet_from_net(network_N1, '10.0.0.0/24',
+                                                  router_id=r1_id)
+        sbnet_additional_info = self._create_subnet_from_net(
+            network_N1, '10.0.1.0/24', router_id=r1_id)
+        additional_vips_list = [{
+            'ip_address': sbnet_additional_info[2],
+            'port_id': sbnet_additional_info[3],
+            'network_id': sbnet_additional_info[0],
+            'subnet_id': sbnet_additional_info[1]
+        }]
+
+        # Create LB
         lb_data = self._create_load_balancer_and_validate(
-            {'vip_network': 'vip_network',
-             'cidr': '10.0.0.0/24'})
+            sbnet_info, router_id=r1_id, additional_vips=additional_vips_list)
         self._update_load_balancer_and_validate(lb_data, admin_state_up=False)
         self._update_load_balancer_and_validate(lb_data, admin_state_up=True)
         self._delete_load_balancer_and_validate(lb_data)
         # create load balance with admin state down
         lb_data = self._create_load_balancer_and_validate(
-            {'vip_network': 'vip_network',
-             'cidr': '10.0.0.0/24'}, admin_state_up=False)
+            sbnet_info, router_id=r1_id, admin_state_up=False)
         self._delete_load_balancer_and_validate(lb_data)
 
     def test_create_lb_custom_network(self):
@@ -46,10 +60,14 @@ class TestOvnOctaviaProviderDriver(ovn_base.TestOvnOctaviaBase):
 
     def test_delete_lb_on_nonexisting_lb(self):
         # LoadBalancer doesnt exist anymore, so just create a model and delete
-        lb_data = self._create_load_balancer_and_validate(
-            {'vip_network': 'vip_network',
-             'cidr': '19.0.0.0/24'},
-            only_model=True)
+        r1_id = self._create_router('r' + uuidutils.generate_uuid()[:4])
+        network_N1 = self._create_net('N' + uuidutils.generate_uuid()[:4])
+        sbnet_info = self._create_subnet_from_net(network_N1, '19.0.0.0/24',
+                                                  router_id=r1_id)
+        # Create LB
+        lb_data = self._create_load_balancer_and_validate(sbnet_info,
+                                                          router_id=r1_id,
+                                                          only_model=True)
         self.ovn_driver.loadbalancer_delete(lb_data['model'])
         expected_status = {
             'loadbalancers': [{"id": lb_data['model'].loadbalancer_id,
@@ -63,9 +81,13 @@ class TestOvnOctaviaProviderDriver(ovn_base.TestOvnOctaviaBase):
         self._wait_for_status_and_validate(lb_data, [expected_status])
 
     def test_pool(self):
-        lb_data = self._create_load_balancer_and_validate(
-            {'vip_network': 'vip_network',
-             'cidr': '10.0.0.0/24'})
+        r1_id = self._create_router('r' + uuidutils.generate_uuid()[:4])
+        network_N1 = self._create_net('N' + uuidutils.generate_uuid()[:4])
+        sbnet_info = self._create_subnet_from_net(network_N1, '10.0.0.0/24',
+                                                  router_id=r1_id)
+        # Create LB
+        lb_data = self._create_load_balancer_and_validate(sbnet_info,
+                                                          router_id=r1_id)
         self._create_pool_and_validate(lb_data, "p_TCP_1", protocol='TCP')
         self._update_pool_and_validate(lb_data, "p_TCP_1")
         self._create_pool_and_validate(lb_data, "p_UDP_1", protocol='UDP')
@@ -85,9 +107,13 @@ class TestOvnOctaviaProviderDriver(ovn_base.TestOvnOctaviaBase):
         self._delete_load_balancer_and_validate(lb_data)
 
     def test_member(self):
+        r1_id = self._create_router('r' + uuidutils.generate_uuid()[:4])
+        network_N1 = self._create_net('N' + uuidutils.generate_uuid()[:4])
+        sbnet_info = self._create_subnet_from_net(network_N1, '10.0.0.0/24',
+                                                  router_id=r1_id)
+        # Create LB
         lb_data = self._create_load_balancer_and_validate(
-            {'vip_network': 'vip_network',
-             'cidr': '10.0.0.0/24'})
+            sbnet_info, router_id=r1_id)
 
         # TCP Pool
         self._create_pool_and_validate(lb_data, "p_TCP", protocol='TCP')
@@ -155,16 +181,20 @@ class TestOvnOctaviaProviderDriver(ovn_base.TestOvnOctaviaBase):
             lb_data['vip_net_info'][0], '10.0.0.10')
 
         # Create new networks and add member to TCP pool from it.
-        net20_info = self._create_net('net20', '20.0.0.0/24')
-        net20 = net20_info[0]
-        subnet20 = net20_info[1]
+        net2 = self._create_net('N' + uuidutils.generate_uuid()[:4])
+        subnet20_info = self._create_subnet_from_net(
+            net2, '20.0.0.0/24', router_id=r1_id)
+        net20 = subnet20_info[0]
+        subnet20 = subnet20_info[1]
         self._create_member_and_validate(lb_data, pool_TCP_id, subnet20, net20,
                                          '20.0.0.4')
         self._create_member_and_validate(lb_data, pool_TCP_id, subnet20, net20,
                                          '20.0.0.6')
-        net30_info = self._create_net('net30', '30.0.0.0/24')
-        net30 = net30_info[0]
-        subnet30 = net30_info[1]
+        net3 = self._create_net('N' + uuidutils.generate_uuid()[:4])
+        subnet30_info = self._create_subnet_from_net(
+            net3, '30.0.0.0/24', router_id=r1_id)
+        net30 = subnet30_info[0]
+        subnet30 = subnet30_info[1]
         self._create_member_and_validate(lb_data, pool_TCP_id, subnet30, net30,
                                          '30.0.0.6')
         self._delete_member_and_validate(lb_data, pool_TCP_id, net20,
@@ -186,9 +216,13 @@ class TestOvnOctaviaProviderDriver(ovn_base.TestOvnOctaviaBase):
         self.assertRaises(o_exceptions.UnsupportedOptionError,
                           self.ovn_driver.member_create, m_member)
 
-        lb_data = self._create_load_balancer_and_validate(
-            {'vip_network': 'vip_network',
-             'cidr': '10.0.0.0/24'})
+        r1_id = self._create_router('r' + uuidutils.generate_uuid()[:4])
+        network_N1 = self._create_net('N' + uuidutils.generate_uuid()[:4])
+        sbnet_info = self._create_subnet_from_net(network_N1, '10.0.0.0/24',
+                                                  router_id=r1_id)
+        # Create LB
+        lb_data = self._create_load_balancer_and_validate(sbnet_info,
+                                                          router_id=r1_id)
 
         # TCP Pool
         self._create_pool_and_validate(lb_data, "p_TCP", protocol='TCP')
@@ -227,9 +261,21 @@ class TestOvnOctaviaProviderDriver(ovn_base.TestOvnOctaviaBase):
         self._delete_load_balancer_and_validate(lb_data)
 
     def test_hm(self):
+        r1_id = self._create_router('r' + uuidutils.generate_uuid()[:4])
+        network_N1 = self._create_net('N' + uuidutils.generate_uuid()[:4])
+        sbnet_info = self._create_subnet_from_net(network_N1, '10.0.0.0/24',
+                                                  router_id=r1_id)
+        sbnet_additional_info = self._create_subnet_from_net(
+            network_N1, '10.1.1.0/24', router_id=r1_id)
+        additional_vips_list = [{
+            'ip_address': sbnet_additional_info[2],
+            'port_id': sbnet_additional_info[3],
+            'network_id': sbnet_additional_info[0],
+            'subnet_id': sbnet_additional_info[1]
+        }]
+        # Create LB
         lb_data = self._create_load_balancer_and_validate(
-            {'vip_network': 'vip_network',
-             'cidr': '10.0.0.0/24'})
+            sbnet_info, router_id=r1_id, additional_vips=additional_vips_list)
 
         # TCP Pool
         self._create_pool_and_validate(lb_data, "p_TCP",
@@ -260,37 +306,46 @@ class TestOvnOctaviaProviderDriver(ovn_base.TestOvnOctaviaBase):
         self._delete_pool_and_validate(lb_data, "p_TCP")
 
     def test_listener(self):
-        lb_data = self._create_load_balancer_and_validate(
-            {'vip_network': 'vip_network',
-             'cidr': '10.0.0.0/24'})
+        r1_id = self._create_router('r' + uuidutils.generate_uuid()[:4])
+        network_N1 = self._create_net('N' + uuidutils.generate_uuid()[:4])
+        sbnet_info = self._create_subnet_from_net(network_N1, '10.1.0.0/24',
+                                                  router_id=r1_id)
+        # Create LB
+        lb_data = self._create_load_balancer_and_validate(sbnet_info,
+                                                          router_id=r1_id)
         self._create_pool_and_validate(lb_data, "p_TCP", protocol='TCP')
         self._create_pool_and_validate(lb_data, "p_UDP", protocol='UDP')
         self._create_pool_and_validate(lb_data, "p_SCTP", protocol='SCTP')
         pool_TCP_id = lb_data['pools'][0].pool_id
         pool_UDP_id = lb_data['pools'][1].pool_id
         pool_SCTP_id = lb_data['pools'][2].pool_id
-        net_info = self._create_net('net1', '20.0.0.0/24')
+        network_N2 = self._create_net('N' + uuidutils.generate_uuid()[:4])
+        subnet_info = self._create_subnet_from_net(
+            network_N2, '20.1.0.0/24', router_id=r1_id)
 
         # Create member in TCP pool
         self._create_member_and_validate(
             lb_data, pool_TCP_id, lb_data['vip_net_info'][1],
-            lb_data['vip_net_info'][0], '10.0.0.4')
+            lb_data['vip_net_info'][0], '10.1.0.4')
         self._create_member_and_validate(lb_data, pool_TCP_id,
-                                         net_info[1], net_info[0], '20.0.0.4')
+                                         subnet_info[1], subnet_info[0],
+                                         '20.1.0.4')
 
         # Create member in UDP pool
         self._create_member_and_validate(
             lb_data, pool_UDP_id, lb_data['vip_net_info'][1],
-            lb_data['vip_net_info'][0], '10.0.0.4')
+            lb_data['vip_net_info'][0], '10.1.0.4')
         self._create_member_and_validate(lb_data, pool_UDP_id,
-                                         net_info[1], net_info[0], '20.0.0.4')
+                                         subnet_info[1], subnet_info[0],
+                                         '20.1.0.4')
 
         # Create member in SCTP pool
         self._create_member_and_validate(
             lb_data, pool_SCTP_id, lb_data['vip_net_info'][1],
-            lb_data['vip_net_info'][0], '10.0.0.4')
+            lb_data['vip_net_info'][0], '10.1.0.4')
         self._create_member_and_validate(lb_data, pool_SCTP_id,
-                                         net_info[1], net_info[0], '20.0.0.4')
+                                         subnet_info[1], subnet_info[0],
+                                         '20.1.0.4')
 
         # Play around first listener linked to TCP pool
         self._create_listener_and_validate(
@@ -338,19 +393,24 @@ class TestOvnOctaviaProviderDriver(ovn_base.TestOvnOctaviaBase):
             lb_data, protocol_port=80, protocol='TCP')
         # Delete TCP pool members
         self._delete_member_and_validate(lb_data, pool_TCP_id,
-                                         net_info[0], '20.0.0.4')
+                                         subnet_info[0], '20.1.0.4')
         self._delete_member_and_validate(lb_data, pool_TCP_id,
                                          lb_data['vip_net_info'][0],
-                                         '10.0.0.4')
+                                         '10.1.0.4')
         # Delete empty, TCP pool
         self._delete_pool_and_validate(lb_data, "p_TCP")
         # Delete the rest
         self._delete_load_balancer_and_validate(lb_data)
 
     def _test_cascade_delete(self, pool=True, listener=True, member=True):
-        lb_data = self._create_load_balancer_and_validate(
-            {'vip_network': 'vip_network',
-             'cidr': '10.0.0.0/24'})
+        r1_id = self._create_router('r' + uuidutils.generate_uuid()[:4])
+        network_N1 = self._create_net('N' + uuidutils.generate_uuid()[:4])
+        sbnet_info = self._create_subnet_from_net(network_N1, '10.0.0.0/24',
+                                                  router_id=r1_id)
+        # Create LB
+        lb_data = self._create_load_balancer_and_validate(sbnet_info,
+                                                          router_id=r1_id)
+
         if pool:
             self._create_pool_and_validate(lb_data, "p_TCP", protocol='TCP')
             self._create_pool_and_validate(lb_data, "p_UDP", protocol='UDP')
@@ -388,9 +448,13 @@ class TestOvnOctaviaProviderDriver(ovn_base.TestOvnOctaviaBase):
         self._test_cascade_delete()
 
     def test_hm_unsupported_protocol(self):
-        lb_data = self._create_load_balancer_and_validate(
-            {'vip_network': 'vip_network',
-             'cidr': '10.0.0.0/24'})
+        r1_id = self._create_router('r' + uuidutils.generate_uuid()[:4])
+        network_N1 = self._create_net('N' + uuidutils.generate_uuid()[:4])
+        sbnet_info = self._create_subnet_from_net(network_N1, '10.0.0.0/24',
+                                                  router_id=r1_id)
+        # Create LB
+        lb_data = self._create_load_balancer_and_validate(sbnet_info,
+                                                          router_id=r1_id)
 
         self._create_pool_and_validate(lb_data, "p_SCTP",
                                        protocol=o_constants.PROTOCOL_SCTP)
@@ -405,9 +469,13 @@ class TestOvnOctaviaProviderDriver(ovn_base.TestOvnOctaviaBase):
         self._delete_load_balancer_and_validate(lb_data)
 
     def test_for_unsupported_options(self):
-        lb_data = self._create_load_balancer_and_validate(
-            {'vip_network': 'vip_network',
-             'cidr': '10.0.0.0/24'})
+        r1_id = self._create_router('r' + uuidutils.generate_uuid()[:4])
+        network_N1 = self._create_net('N' + uuidutils.generate_uuid()[:4])
+        sbnet_info = self._create_subnet_from_net(network_N1, '10.0.0.0/24',
+                                                  router_id=r1_id)
+        # Create LB
+        lb_data = self._create_load_balancer_and_validate(sbnet_info,
+                                                          router_id=r1_id)
 
         m_pool = self._create_pool_model(lb_data['model'].loadbalancer_id,
                                          'lb1')
@@ -428,9 +496,13 @@ class TestOvnOctaviaProviderDriver(ovn_base.TestOvnOctaviaBase):
         self._delete_load_balancer_and_validate(lb_data)
 
     def test_lb_listener_pool_workflow(self):
-        lb_data = self._create_load_balancer_and_validate(
-            {'vip_network': 'vip_network',
-             'cidr': '10.0.0.0/24'})
+        r1_id = self._create_router('r' + uuidutils.generate_uuid()[:4])
+        network_N1 = self._create_net('N' + uuidutils.generate_uuid()[:4])
+        sbnet_info = self._create_subnet_from_net(network_N1, '10.0.0.0/24',
+                                                  router_id=r1_id)
+        # Create LB
+        lb_data = self._create_load_balancer_and_validate(sbnet_info,
+                                                          router_id=r1_id)
         self._create_listener_and_validate(lb_data)
         self._create_pool_and_validate(
             lb_data, "p1", listener_id=lb_data['listeners'][0].listener_id)
@@ -441,9 +513,13 @@ class TestOvnOctaviaProviderDriver(ovn_base.TestOvnOctaviaBase):
 
     def test_lb_member_batch_update(self):
         # Create a LoadBalancer
-        lb_data = self._create_load_balancer_and_validate(
-            {'vip_network': 'vip_network',
-             'cidr': '10.0.0.0/24'})
+        r1_id = self._create_router('r' + uuidutils.generate_uuid()[:4])
+        network_N1 = self._create_net('N' + uuidutils.generate_uuid()[:4])
+        sbnet_info = self._create_subnet_from_net(network_N1, '10.0.0.0/24',
+                                                  router_id=r1_id)
+        # Create LB
+        lb_data = self._create_load_balancer_and_validate(sbnet_info,
+                                                          router_id=r1_id)
         # Create a pool
         self._create_pool_and_validate(lb_data, "p1")
         pool_id = lb_data['pools'][0].pool_id

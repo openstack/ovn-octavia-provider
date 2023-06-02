@@ -113,7 +113,7 @@ class TestOvnOctaviaBase(base.TestOVNFunctionalBase,
 
     def _create_lb_model(self, vip=None, vip_network_id=None,
                          vip_subnet_id=None, vip_port_id=None,
-                         admin_state_up=True):
+                         admin_state_up=True, additional_vips=[]):
         lb = octavia_data_model.LoadBalancer()
         lb.loadbalancer_id = uuidutils.generate_uuid()
 
@@ -128,6 +128,8 @@ class TestOvnOctaviaBase(base.TestOVNFunctionalBase,
             lb.vip_subnet_id = vip_subnet_id
         if vip_port_id:
             lb.vip_port_id = vip_port_id
+        if additional_vips:
+            lb.additional_vips = additional_vips
         lb.admin_state_up = admin_state_up
         return lb
 
@@ -277,28 +279,42 @@ class TestOvnOctaviaBase(base.TestOVNFunctionalBase,
         router = self.l3_plugin.create_router(self.context, router)
         return router['id']
 
+    def _create_net(self, name):
+        n1 = self._make_network(self.fmt, name, True)
+        return n1
+
+    def _create_subnet_from_net(self, net, cidr, router_id=None):
+        res = self._create_subnet(self.fmt, net['network']['id'],
+                                  cidr)
+        subnet = self.deserialize(self.fmt, res)['subnet']
+        self._local_net_cache[subnet['id']] = net['network']['id']
+        self._local_cidr_cache[subnet['id']] = subnet['cidr']
+        if router_id:
+            self._attach_router_to_subnet(subnet['id'], router_id)
+        port_address, port_id = self._create_port_on_network(net)
+        return (net['network']['id'], subnet['id'], port_address, port_id)
+
     @tenacity.retry(
         retry=tenacity.retry_if_exception_type(odb_exc.DBError),
         wait=tenacity.wait_exponential(),
         stop=tenacity.stop_after_attempt(3),
         reraise=True)
-    def _create_net(self, name, cidr, router_id=None):
-        n1 = self._make_network(self.fmt, name, True)
-        res = self._create_subnet(self.fmt, n1['network']['id'],
-                                  cidr)
-        subnet = self.deserialize(self.fmt, res)['subnet']
-        self._local_net_cache[subnet['id']] = n1['network']['id']
-        self._local_cidr_cache[subnet['id']] = subnet['cidr']
-
-        port = self._make_port(self.fmt, n1['network']['id'])
+    def _attach_router_to_subnet(self, subnet_id, router_id):
         if router_id:
             self.l3_plugin.add_router_interface(
-                self.context, router_id, {'subnet_id': subnet['id']})
+                self.context, router_id, {'subnet_id': subnet_id})
+
+    @tenacity.retry(
+        retry=tenacity.retry_if_exception_type(odb_exc.DBError),
+        wait=tenacity.wait_exponential(),
+        stop=tenacity.stop_after_attempt(3),
+        reraise=True)
+    def _create_port_on_network(self, net):
+        port = self._make_port(self.fmt, net['network']['id'])
         self._local_port_cache['ports'].append(
             self._port_dict_to_mock(port['port']))
-        vip_port_address = port['port']['fixed_ips'][0]['ip_address']
-        return (n1['network']['id'], subnet['id'], vip_port_address,
-                port['port']['id'])
+        port_address = port['port']['fixed_ips'][0]['ip_address']
+        return (port_address, port['port']['id'])
 
     def _update_ls_refs(self, lb_data, net_id, add_ref=True):
         if not net_id.startswith(ovn_const.LR_REF_KEY_HEADER):
@@ -367,12 +383,22 @@ class TestOvnOctaviaBase(base.TestOVNFunctionalBase,
             force_retry_ls_to_lr_assoc=True):
 
         self._o_driver_lib.update_loadbalancer_status.reset_mock()
-        r_id = self._create_router('r1') if create_router else None
+        r_id = self._create_router(
+            'r' + uuidutils.generate_uuid()[:4]) if create_router else None
 
         net_info = []
-        net_info.append(self._create_net("n1", "10.0.1.0/24", r_id))
-        net_info.append(self._create_net("n2", "10.0.2.0/24", r_id))
-        net_info.append(self._create_net("n3", "10.0.3.0/24", r_id))
+        net = self._create_net('n' + uuidutils.generate_uuid()[:4])
+        subnet_info = self._create_subnet_from_net(
+            net, '10.0.1.0/24', router_id=r_id)
+        net_info.append(subnet_info)
+        net = self._create_net('n' + uuidutils.generate_uuid()[:4])
+        subnet_info = self._create_subnet_from_net(
+            net, '10.0.2.0/24', router_id=r_id)
+        net_info.append(subnet_info)
+        net = self._create_net('n' + uuidutils.generate_uuid()[:4])
+        subnet_info = self._create_subnet_from_net(
+            net, '10.0.3.0/24', router_id=r_id)
+        net_info.append(subnet_info)
 
         lb_data = {}
         lb_data['model'] = self._create_lb_model(
@@ -433,29 +459,26 @@ class TestOvnOctaviaBase(base.TestOVNFunctionalBase,
 
         return lb_data
 
-    def _create_load_balancer_and_validate(self, lb_info,
+    def _create_load_balancer_and_validate(self, subnet_info,
                                            admin_state_up=True,
                                            only_model=False,
-                                           create_router=True,
-                                           multiple_lb=False):
+                                           router_id=None,
+                                           multiple_lb=False,
+                                           additional_vips=[]):
         self._o_driver_lib.update_loadbalancer_status.reset_mock()
         lb_data = {}
-        r_id = self._create_router("r1") if create_router else None
-        if r_id:
+        if router_id:
             lb_data[ovn_const.LB_EXT_IDS_LR_REF_KEY] = (
-                ovn_const.LR_REF_KEY_HEADER + r_id)
-        net_info = self._create_net(lb_info['vip_network'], lb_info['cidr'],
-                                    router_id=r_id)
-        lb_data['vip_net_info'] = net_info
-        lb_data['model'] = self._create_lb_model(vip=net_info[2],
-                                                 vip_network_id=net_info[0],
-                                                 vip_subnet_id=net_info[1],
-                                                 vip_port_id=net_info[3],
-                                                 admin_state_up=admin_state_up)
+                ovn_const.LR_REF_KEY_HEADER + router_id)
+        lb_data['vip_net_info'] = subnet_info
+        lb_data['model'] = self._create_lb_model(
+            vip=subnet_info[2], vip_network_id=subnet_info[0],
+            vip_subnet_id=subnet_info[1], vip_port_id=subnet_info[3],
+            admin_state_up=admin_state_up, additional_vips=additional_vips)
         lb_data[ovn_const.LB_EXT_IDS_LS_REFS_KEY] = {}
         lb_data['listeners'] = []
         lb_data['pools'] = []
-        self._update_ls_refs(lb_data, net_info[0])
+        self._update_ls_refs(lb_data, subnet_info[0])
         if only_model:
             return lb_data
 
@@ -464,7 +487,16 @@ class TestOvnOctaviaBase(base.TestOVNFunctionalBase,
         name = '%s%s' % (ovn_const.LB_VIP_PORT_PREFIX,
                          lb_data['model'].loadbalancer_id)
         self.driver.update_port(
-            self.context, net_info[3], {'port': {'name': name}})
+            self.context, subnet_info[3], {'port': {'name': name}})
+
+        if additional_vips:
+            for index, add_vip in enumerate(additional_vips, start=1):
+                name = name = '%s%s-%s' % (
+                    ovn_const.LB_VIP_ADDIT_PORT_PREFIX,
+                    index,
+                    lb_data['model'].loadbalancer_id)
+                self.driver.update_port(
+                    self.context, add_vip['port_id'], {'port': {'name': name}})
 
         if lb_data['model'].admin_state_up:
             expected_status = {
@@ -488,7 +520,7 @@ class TestOvnOctaviaBase(base.TestOVNFunctionalBase,
         self.assertTrue(
             self._is_lb_associated_to_ls(
                 lb_data['model'].loadbalancer_id,
-                ovn_const.LR_REF_KEY_HEADER + net_info[0]))
+                ovn_const.LR_REF_KEY_HEADER + subnet_info[0]))
         return lb_data
 
     def _update_load_balancer_and_validate(self, lb_data,
@@ -572,6 +604,21 @@ class TestOvnOctaviaBase(base.TestOVNFunctionalBase,
                         'neutron:vip': lb_data['model'].vip_address,
                         'neutron:vip_port_id': vip_net_info[3],
                         'enabled': str(lb_data['model'].admin_state_up)}
+
+        # if there are any additional_vip on model
+        if lb_data['model'].additional_vips:
+            external_ids[ovn_const.LB_EXT_IDS_ADDIT_VIP_KEY] = ''
+            external_ids[ovn_const.LB_EXT_IDS_ADDIT_VIP_PORT_ID_KEY] = ''
+            for addi_vip in lb_data['model'].additional_vips:
+                external_ids[ovn_const.LB_EXT_IDS_ADDIT_VIP_KEY] += \
+                    addi_vip['ip_address'] + ','
+                external_ids[ovn_const.LB_EXT_IDS_ADDIT_VIP_PORT_ID_KEY] += \
+                    addi_vip['port_id'] + ','
+            external_ids[ovn_const.LB_EXT_IDS_ADDIT_VIP_KEY] = \
+                external_ids[ovn_const.LB_EXT_IDS_ADDIT_VIP_KEY][:-1]
+            external_ids[ovn_const.LB_EXT_IDS_ADDIT_VIP_PORT_ID_KEY] = \
+                external_ids[ovn_const.LB_EXT_IDS_ADDIT_VIP_PORT_ID_KEY][:-1]
+
         # NOTE(mjozefcz): By default we don't set protocol. We don't know if
         # listener/pool would be TCP, UDP or SCTP, so do not set it.
         expected_protocols = set()
@@ -607,6 +654,10 @@ class TestOvnOctaviaBase(base.TestOVNFunctionalBase,
                 if net_id == 'neutron-%s' % lb_data['model'].vip_network_id:
                     lb.get('external_ids')[
                         ovn_const.LB_EXT_IDS_LS_REFS_KEY][net_id] = 1
+                    if lb_data['model'].additional_vips:
+                        lb.get('external_ids')[
+                            ovn_const.LB_EXT_IDS_LS_REFS_KEY][net_id] += \
+                            len(lb_data['model'].additional_vips)
 
         # For every connected router set it here.
         if lb_data.get(ovn_const.LB_EXT_IDS_LR_REF_KEY):
@@ -632,16 +683,20 @@ class TestOvnOctaviaBase(base.TestOVNFunctionalBase,
                     p_members = m_info
                 # Bump up LS refs counter if needed.
                 if m.subnet_id:
+                    found = False
                     # Need to get the network_id.
                     for port in self._local_port_cache['ports']:
-                        for fixed_ip in port.fixed_ips:
-                            if fixed_ip['subnet_id'] == m.subnet_id:
-                                ex = external_ids[
-                                    ovn_const.LB_EXT_IDS_LS_REFS_KEY]
-                                act = ex.get(
-                                    'neutron-%s' % port.network_id, 0)
-                                ex['neutron-%s' % port.network_id] = act + 1
-                                break
+                        if not found:
+                            for fixed_ip in port.fixed_ips:
+                                if fixed_ip['subnet_id'] == m.subnet_id:
+                                    ex = external_ids[
+                                        ovn_const.LB_EXT_IDS_LS_REFS_KEY]
+                                    act = ex.get(
+                                        'neutron-%s' % port.network_id, 0)
+                                    ex['neutron-%s' % port.network_id] = \
+                                        act + 1
+                                    found = True
+
                 if p.healthmonitor:
                     member_status[m.member_id] = o_constants.ONLINE
                     external_ids[ovn_const.LB_EXT_IDS_HMS_KEY] = \
@@ -668,13 +723,19 @@ class TestOvnOctaviaBase(base.TestOVNFunctionalBase,
                 field='external_ids')
             listener_k = 'listener_' + str(listener.listener_id)
             if lb_data['model'].admin_state_up and listener.admin_state_up:
-                vip_k = lb_data['model'].vip_address + ":" + str(
-                    listener.protocol_port)
+                vips_k = [lb_data['model'].vip_address + ":" + str(
+                    listener.protocol_port)]
+                # idem for additional vips if exists
+                if lb_data['model'].additional_vips:
+                    for addi_vip in lb_data['model'].additional_vips:
+                        vips_k.append(addi_vip['ip_address'] + ":" + str(
+                            listener.protocol_port))
                 if not isinstance(listener.default_pool_id,
                                   octavia_data_model.UnsetType) and pool_info[
                                       listener.default_pool_id]:
-                    expected_vips[vip_k] = self._extract_member_info(
-                        pool_info[listener.default_pool_id])
+                    for vip_k in vips_k:
+                        expected_vips[vip_k] = self._extract_member_info(
+                            pool_info[listener.default_pool_id])
             else:
                 listener_k += ':D'
             external_ids[listener_k] = str(listener.protocol_port) + ":"
@@ -721,7 +782,6 @@ class TestOvnOctaviaBase(base.TestOVNFunctionalBase,
                  'provisioning_status': 'ACTIVE'}]
 
         self._wait_for_status_and_validate(lb_data, [expected_status])
-
         expected_lbs = self._make_expected_lbs(lb_data)
         self._validate_loadbalancers(expected_lbs)
 

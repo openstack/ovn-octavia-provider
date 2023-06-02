@@ -188,6 +188,15 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
             project_id=self.project_id,
             vip_address=self.vip_address,
             vip_network_id=self.vip_network_id)
+        self.ref_lb2 = data_models.LoadBalancer(
+            admin_state_up=False,
+            listeners=[self.ref_listener],
+            loadbalancer_id=self.loadbalancer_id,
+            name='additional_vips_lb2',
+            project_id=self.project_id,
+            vip_address=self.vip_address,
+            vip_network_id=self.vip_network_id,
+            additional_vips=self.additional_vips)
         self.fail_health_monitor = data_models.HealthMonitor(
             admin_state_up=True,
             name='UnHealthy',
@@ -739,6 +748,19 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
         self.driver.loadbalancer_create(self.ref_lb0)
         self.mock_add_request.assert_has_calls(calls)
 
+    def test_loadbalancer_create_additional_vips(self):
+        info = {'id': self.ref_lb2.loadbalancer_id,
+                'vip_address': self.ref_lb2.vip_address,
+                'vip_network_id': self.ref_lb2.vip_network_id,
+                'additional_vips': self.ref_lb2.additional_vips,
+                'admin_state_up': self.ref_lb2.admin_state_up}
+        expected_dict = {
+            'type': ovn_const.REQ_TYPE_LB_CREATE,
+            'info': info}
+        calls = [mock.call(expected_dict)]
+        self.driver.loadbalancer_create(self.ref_lb2)
+        self.mock_add_request.assert_has_calls(calls)
+
     def test_loadbalancer_create_member_without_subnet_id(self):
         self.ref_member.subnet_id = data_models.UnsetType()
         info = {
@@ -1036,6 +1058,25 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
             self.assertIsNotNone(port_dict.pop('vip_address', None))
             self.assertIsNotNone(port_dict.pop('vip_port_id', None))
             self.assertEqual(len(add_vip_dicts), 0)
+            # The network_driver function is mocked, therefore the
+            # created port vip_address and vip_port_id are also mocked.
+            # Check if it exists and move on.
+            # The finally output is include vip_address, vip_port_id,
+            # vip_network_id and vip_subnet_id.
+            for key, value in port_dict.items():
+                self.assertEqual(value, self.vip_output[key])
+
+    def test_create_vip_port_additional_vips(self):
+        with mock.patch.object(clients, 'get_neutron_client'):
+            port_dict, add_vip_dicts = (
+                self.driver.create_vip_port(self.loadbalancer_id,
+                                            self.project_id,
+                                            self.vip_dict,
+                                            self.additional_vips))
+            self.assertIsNotNone(port_dict.pop('vip_address', None))
+            self.assertIsNotNone(port_dict.pop('vip_port_id', None))
+            self.assertIsNotNone(add_vip_dicts)
+            self.assertEqual(len(add_vip_dicts), 1)
             # The network_driver function is mocked, therefore the
             # created port vip_address and vip_port_id are also mocked.
             # Check if it exists and move on.

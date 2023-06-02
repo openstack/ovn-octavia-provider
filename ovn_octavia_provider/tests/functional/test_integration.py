@@ -22,6 +22,7 @@ from neutron_lib.utils import runtime
 from oslo_config import cfg
 from oslo_log import log as logging
 from oslo_utils import excutils
+from oslo_utils import uuidutils
 
 LOG = logging.getLogger(__name__)
 
@@ -70,8 +71,12 @@ class TestOvnOctaviaProviderIntegration(ovn_base.TestOvnOctaviaBase):
     def _loadbalancer_operation(self, lb_data=None, update=False,
                                 delete=False):
         if not lb_data:
+            r1_id = self._create_router('r' + uuidutils.generate_uuid()[:4])
+            network_N1 = self._create_net('N' + uuidutils.generate_uuid()[:4])
+            sbnet_info = self._create_subnet_from_net(
+                network_N1, '10.0.0.0/24', router_id=r1_id)
             lb_data = self._create_load_balancer_and_validate(
-                {'vip_network': 'vip_network', 'cidr': '10.0.0.0/24'})
+                sbnet_info, router_id=r1_id)
         if update:
             self._update_load_balancer_and_validate(lb_data,
                                                     admin_state_up=False)
@@ -108,8 +113,9 @@ class TestOvnOctaviaProviderIntegration(ovn_base.TestOvnOctaviaBase):
         router_id = self._create_router('routertest', gw_info=gw_info)
 
         # Create Network N2, connect it to router
-        n2_id, sub2_id, p1_ip, p1_id = self._create_net(
-            "N2", "10.0.1.0/24", router_id)
+        network_N1 = self._create_net('N' + uuidutils.generate_uuid()[:4])
+        n2_id, sub2_id, p1_ip, p1_id = self._create_subnet_from_net(
+            network_N1, "10.0.1.0/24", router_id)
 
         fip_info = {'floatingip': {
             'tenant_id': self._tenant_id,

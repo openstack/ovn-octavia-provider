@@ -342,7 +342,12 @@ class OvnProviderHelper():
         """
 
         port_name = vip_lp.external_ids.get(ovn_const.OVN_PORT_NAME_EXT_ID_KEY)
-        lb_id = port_name[len(ovn_const.LB_VIP_PORT_PREFIX):]
+        additional_vip = False
+        if port_name.startswith(ovn_const.LB_VIP_ADDIT_PORT_PREFIX):
+            lb_id = utils.get_uuid(port_name)
+            additional_vip = True
+        else:
+            lb_id = port_name[len(ovn_const.LB_VIP_PORT_PREFIX):]
         try:
             ovn_lbs = self._find_ovn_lbs_with_retry(lb_id)
         except idlutils.RowNotFound:
@@ -351,10 +356,18 @@ class OvnProviderHelper():
 
         # Loop over all defined LBs with given ID, because it is possible
         # than there is more than one (for more than 1 L4 protocol).
+        neutron_client = clients.get_neutron_client()
+
         for lb in ovn_lbs:
+            port = neutron_client.get_port(vip_lp.name)
             request_info = {'ovn_lb': lb,
                             'vip_fip': fip,
+                            'vip_related': [],
+                            'additional_vip_fip': additional_vip,
                             'action': action}
+            if port:
+                request_info['vip_related'] = [
+                    ip['ip_address'] for ip in port.fixed_ips]
             self.add_request({'type': ovn_const.REQ_TYPE_HANDLE_VIP_FIP,
                               'info': request_info})
 
@@ -534,12 +547,20 @@ class OvnProviderHelper():
                 ovn_const.LB_EXT_IDS_LS_REFS_KEY:
                     ovn_lbs[0].external_ids.get(
                         ovn_const.LB_EXT_IDS_LS_REFS_KEY),
+                constants.ADDITIONAL_VIPS:
+                    self._get_additional_vips_from_loadbalancer_id(lb_id),
                 'admin_state_up': admin_state_up}
             # NOTE(mjozefcz): Handle vip_fip info if exists.
             vip_fip = ovn_lbs[0].external_ids.get(
                 ovn_const.LB_EXT_IDS_VIP_FIP_KEY)
             if vip_fip:
                 lb_info.update({ovn_const.LB_EXT_IDS_VIP_FIP_KEY: vip_fip})
+            additional_vip_fip = ovn_lbs[0].external_ids.get(
+                ovn_const.LB_EXT_IDS_ADDIT_VIP_FIP_KEY, None)
+            if additional_vip_fip:
+                lb_info.update({
+                    ovn_const.LB_EXT_IDS_ADDIT_VIP_FIP_KEY:
+                        additional_vip_fip})
             self.lb_create(lb_info, protocol=protocol)
         # Looks like we've just added new LB
         # or updated exising, empty one.
@@ -596,17 +617,20 @@ class OvnProviderHelper():
         reraise=True)
     def _update_lb_to_ls_association(self, ovn_lb, network_id=None,
                                      subnet_id=None, associate=True,
-                                     update_ls_ref=True):
+                                     update_ls_ref=True,
+                                     additional_vips=False):
         # Note(froyo): Large topologies can change from the time we
         # list the ls association commands and the execution, retry
         # if this situation arises.
         commands = self._get_lb_to_ls_association_commands(
-            ovn_lb, network_id, subnet_id, associate, update_ls_ref)
+            ovn_lb, network_id, subnet_id, associate, update_ls_ref,
+            additional_vips)
         self._execute_commands(commands)
 
     def _get_lb_to_ls_association_commands(self, ovn_lb, network_id=None,
                                            subnet_id=None, associate=True,
-                                           update_ls_ref=True):
+                                           update_ls_ref=True,
+                                           additional_vips=True):
         """Update LB association with Logical Switch
 
            This function deals with updating the References of Logical Switch
@@ -658,6 +682,14 @@ class OvnProviderHelper():
                 ls_refs[ls_name] = ref_ct + 1
             else:
                 ls_refs[ls_name] = 1
+                # NOTE(froyo): To cover the initial lb to ls association, where
+                # additional vips shall be in the same network as VIP port,
+                # and the ls_ref[vip_network_id] should take them into account.
+                if additional_vips:
+                    addi_vips = ovn_lb.external_ids.get(
+                        ovn_const.LB_EXT_IDS_ADDIT_VIP_KEY, '')
+                    if addi_vips:
+                        ls_refs[ls_name] += len(addi_vips.split(','))
                 if ovn_ls:
                     commands.append(self.ovn_nbdb_api.ls_lb_add(
                         ovn_ls.uuid, ovn_lb.uuid, may_exist=True))
@@ -913,9 +945,16 @@ class OvnProviderHelper():
         # If load balancer is disabled, return
         if lb_external_ids.get('enabled') == 'False':
             return vip_ips
+        lb_vips = []
+        if ovn_const.LB_EXT_IDS_VIP_KEY in lb_external_ids:
+            lb_vips.append(lb_external_ids.get(ovn_const.LB_EXT_IDS_VIP_KEY))
+        if ovn_const.LB_EXT_IDS_ADDIT_VIP_KEY in lb_external_ids:
+            lb_vips.extend(lb_external_ids.get(
+                ovn_const.LB_EXT_IDS_ADDIT_VIP_KEY).split(','))
 
-        lb_vip = lb_external_ids[ovn_const.LB_EXT_IDS_VIP_KEY]
         vip_fip = lb_external_ids.get(ovn_const.LB_EXT_IDS_VIP_FIP_KEY)
+        additional_vip_fips = lb_external_ids.get(
+            ovn_const.LB_EXT_IDS_ADDIT_VIP_FIP_KEY)
 
         for k, v in lb_external_ids.items():
             if (ovn_const.LB_EXT_IDS_LISTENER_PREFIX not in k or
@@ -937,17 +976,22 @@ class OvnProviderHelper():
                         ips.append(f'[{mb_ip}]:{mb_port}')
                     else:
                         ips.append(f'{mb_ip}:{mb_port}')
-
             if ips:
-                if netaddr.IPNetwork(lb_vip).version == 6:
-                    lb_vip = f'[{lb_vip}]'
-                vip_ips[lb_vip + ':' + vip_port] = ','.join(ips)
+                for lb_vip in lb_vips:
+                    if netaddr.IPNetwork(lb_vip).version == 6:
+                        lb_vip = f'[{lb_vip}]'
+                    vip_ips[lb_vip + ':' + vip_port] = ','.join(ips)
 
                 if vip_fip:
                     if netaddr.IPNetwork(vip_fip).version == 6:
                         vip_fip = f'[{vip_fip}]'
                     vip_ips[vip_fip + ':' + vip_port] = ','.join(ips)
 
+                if additional_vip_fips:
+                    for addi_vip_fip in additional_vip_fips.split(','):
+                        if netaddr.IPNetwork(addi_vip_fip).version == 6:
+                            addi_vip_fip = f'[{addi_vip_fip}]'
+                        vip_ips[addi_vip_fip + ':' + vip_port] = ','.join(ips)
         return vip_ips
 
     def _refresh_lb_vips(self, ovn_lb, lb_external_ids):
@@ -981,33 +1025,50 @@ class OvnProviderHelper():
         else:
             return str(listener_protocol).lower() in ovn_lb.protocol
 
+    def _get_port_from_info(self, neutron_client, port_id, network_id,
+                            address, subnet_required=True):
+        port = None
+        subnet = None
+        if port_id:
+            port = neutron_client.get_port(port_id)
+            for ip in port.fixed_ips:
+                if ip['ip_address'] == address:
+                    if subnet_required:
+                        subnet = neutron_client.get_subnet(ip['subnet_id'])
+                    break
+        elif network_id and address:
+            ports = self._neutron_list_ports(neutron_client,
+                                             network_id=network_id)
+            for p in ports:
+                for ip in p.fixed_ips:
+                    if ip['ip_address'] == address:
+                        port = p
+                        if subnet_required:
+                            subnet = neutron_client.get_subnet(ip['subnet_id'])
+                        break
+        return port, subnet
+
     def lb_create(self, loadbalancer, protocol=None):
         port = None
         subnet = None
+        additional_ports = []
         try:
             neutron_client = clients.get_neutron_client()
-            if loadbalancer.get(constants.VIP_PORT_ID):
-                # In case we don't have vip_network_id
-                port = neutron_client.get_port(
-                    loadbalancer[constants.VIP_PORT_ID])
-                for ip in port.fixed_ips:
-                    if ip['ip_address'] == loadbalancer[constants.VIP_ADDRESS]:
-                        subnet = neutron_client.get_subnet(
-                            ip['subnet_id'])
-                        break
-            elif (loadbalancer.get(constants.VIP_NETWORK_ID) and
-                  loadbalancer.get(constants.VIP_ADDRESS)):
-                ports = self._neutron_list_ports(
-                    neutron_client,
-                    network_id=loadbalancer[constants.VIP_NETWORK_ID])
-                for p in ports:
-                    for ip in p.fixed_ips:
-                        if ip['ip_address'] == loadbalancer[
-                                constants.VIP_ADDRESS]:
-                            port = p
-                            subnet = neutron_client.get_subnet(
-                                ip['subnet_id'])
-                            break
+            port, subnet = self._get_port_from_info(
+                neutron_client,
+                loadbalancer.get(constants.VIP_PORT_ID, None),
+                loadbalancer.get(constants.VIP_NETWORK_ID, None),
+                loadbalancer.get(constants.VIP_ADDRESS, None))
+
+            if loadbalancer.get(constants.ADDITIONAL_VIPS):
+                for additional_vip_port in loadbalancer.get(
+                        constants.ADDITIONAL_VIPS):
+                    ad_port, ad_subnet = self._get_port_from_info(
+                        neutron_client,
+                        additional_vip_port.get('port_id', None),
+                        additional_vip_port.get(constants.NETWORK_ID, None),
+                        additional_vip_port.get('ip_address', None), False)
+                    additional_ports.append(ad_port)
         except Exception:
             LOG.error('Cannot get info from neutron client')
             LOG.exception(ovn_const.EXCEPTION_MSG, "creation of loadbalancer")
@@ -1022,6 +1083,18 @@ class OvnProviderHelper():
                                   "loadbalancer %s creation failure",
                                   str(port.id),
                                   str(loadbalancer[constants.ID]))
+            for addi_port in additional_ports:
+                try:
+                    self.delete_port(addi_port.id)
+                    LOG.warning("Deleting the additional VIP port %s "
+                                "since LB went into ERROR state",
+                                str(addi_port.id))
+                except Exception:
+                    LOG.exception("Error deleting the additional VIP port "
+                                  "%s upon loadbalancer %s creation "
+                                  "failure", str(addi_port.id),
+                                  str(loadbalancer[constants.ID]))
+
             status = {
                 constants.LOADBALANCERS: [
                     {constants.ID: loadbalancer[constants.ID],
@@ -1038,10 +1111,30 @@ class OvnProviderHelper():
             ovn_const.LB_EXT_IDS_VIP_PORT_ID_KEY:
                 loadbalancer.get(constants.VIP_PORT_ID) or port.id,
             'enabled': str(loadbalancer[constants.ADMIN_STATE_UP])}
+
+        # In case additional_vips was passed
+        if loadbalancer.get(constants.ADDITIONAL_VIPS):
+            addi_vip = [x['ip_address']
+                        for x in loadbalancer.get(constants.ADDITIONAL_VIPS)]
+            addi_vip_port_id = [x['port_id']
+                                for x in loadbalancer.get(
+                                    constants.ADDITIONAL_VIPS)]
+            addi_vip = ','.join(addi_vip)
+            addi_vip_port_id = ','.join(addi_vip_port_id)
+            external_ids[ovn_const.LB_EXT_IDS_ADDIT_VIP_KEY] = addi_vip
+            external_ids[ovn_const.LB_EXT_IDS_ADDIT_VIP_PORT_ID_KEY] = \
+                addi_vip_port_id
+
         # In case vip_fip was passed - use it.
         vip_fip = loadbalancer.get(ovn_const.LB_EXT_IDS_VIP_FIP_KEY)
         if vip_fip:
             external_ids[ovn_const.LB_EXT_IDS_VIP_FIP_KEY] = vip_fip
+        # In case additional_vip_fip was passed - use it.
+        additional_vip_fip = loadbalancer.get(
+            ovn_const.LB_EXT_IDS_ADDIT_VIP_FIP_KEY)
+        if additional_vip_fip:
+            external_ids[ovn_const.LB_EXT_IDS_ADDIT_VIP_FIP_KEY] = \
+                additional_vip_fip
         # In case of lr_ref passed - use it.
         lr_ref = loadbalancer.get(ovn_const.LB_EXT_IDS_LR_REF_KEY)
         if lr_ref:
@@ -1068,10 +1161,12 @@ class OvnProviderHelper():
             network = neutron_client.get_network(port.network_id)
             if not network.provider_physical_network:
                 # NOTE(froyo): This is the association of the lb to the VIP ls
-                # so this is executed right away
+                # so this is executed right away. For the additional vip ports
+                # this step is not required since all subnets must belong to
+                # the same subnet, so just for the VIP LB port is enough.
                 self._update_lb_to_ls_association(
                     ovn_lb, network_id=port.network_id,
-                    associate=True, update_ls_ref=True)
+                    associate=True, update_ls_ref=True, additional_vips=True)
             ls_name = utils.ovn_name(port.network_id)
             ovn_ls = self.ovn_nbdb_api.ls_get(ls_name).execute(
                 check_error=True)
@@ -1138,6 +1233,17 @@ class OvnProviderHelper():
                                   "loadbalancer %s creation failure",
                                   str(port.id),
                                   str(loadbalancer[constants.ID]))
+            for addi_port in additional_ports:
+                try:
+                    self.delete_port(addi_port.id)
+                    LOG.warning("Deleting the additional VIP port %s "
+                                "since LB went into ERROR state",
+                                str(addi_port.id))
+                except Exception:
+                    LOG.exception("Error deleting the additional VIP port "
+                                  "%s upon loadbalancer %s creation "
+                                  "failure", str(addi_port.id),
+                                  str(loadbalancer[constants.ID]))
             status = {
                 constants.LOADBALANCERS: [
                     {constants.ID: loadbalancer[constants.ID],
@@ -1169,6 +1275,7 @@ class OvnProviderHelper():
             # action failed at VIP deletion step, this ensures the VIP
             # is not leaked
             try:
+                # from api to clean also those ports
                 vip_port_id = self._get_vip_port_from_loadbalancer_id(
                     loadbalancer[constants.ID])
                 if vip_port_id:
@@ -1181,11 +1288,30 @@ class OvnProviderHelper():
                 lbalancer_status[constants.PROVISIONING_STATUS] = (
                     constants.ERROR)
                 lbalancer_status[constants.OPERATING_STATUS] = constants.ERROR
+            try:
+                additional_vip_port_ids = \
+                    self._get_additional_vips_from_loadbalancer_id(
+                        loadbalancer[constants.ID])
+                addi_port_id = ''
+                for additional_port in additional_vip_port_ids:
+                    addi_port_id = additional_port['port_id']
+                    LOG.warning("Deleting additional VIP port %s "
+                                "associated to LB missing in OVN DBs",
+                                str(addi_port_id))
+                    self.delete_port(addi_port_id)
+            except Exception:
+                LOG.exception("Error deleting the additional VIP port %s",
+                              str(addi_port_id))
+                lbalancer_status[constants.PROVISIONING_STATUS] = (
+                    constants.ERROR)
+                lbalancer_status[constants.OPERATING_STATUS] = constants.ERROR
             return status
 
         try:
             port_id = ovn_lbs[0].external_ids[
                 ovn_const.LB_EXT_IDS_VIP_PORT_ID_KEY]
+            additional_vip_port_ids = ovn_lbs[0].external_ids.get(
+                ovn_const.LB_EXT_IDS_ADDIT_VIP_PORT_ID_KEY, None)
             for ovn_lb in ovn_lbs:
                 status = self._lb_delete(loadbalancer, ovn_lb, status)
             # Clear the status dict of any key having [] value
@@ -1195,6 +1321,10 @@ class OvnProviderHelper():
             status = {key: value for key, value in status.items() if value}
             # Delete VIP port from neutron.
             self.delete_port(port_id)
+            # Also delete additional_vip ports from neutron.
+            if additional_vip_port_ids:
+                for addit_vip_port_id in additional_vip_port_ids.split(','):
+                    self.delete_port(addit_vip_port_id)
         except Exception:
             LOG.exception(ovn_const.EXCEPTION_MSG, "deletion of loadbalancer")
             lbalancer_status[constants.PROVISIONING_STATUS] = constants.ERROR
@@ -1360,8 +1490,21 @@ class OvnProviderHelper():
 
     def _get_vip_port_from_loadbalancer_id(self, lb_id):
         lb = self._octavia_driver_lib.get_loadbalancer(lb_id)
-        if lb and lb.vip_port_id:
-            return lb.vip_port_id
+        lb_vip_port_id = lb.vip_port_id if lb and lb.vip_port_id else None
+        return lb_vip_port_id
+
+    def _get_additional_vips_from_loadbalancer_id(self, lb_id):
+        lb = self._octavia_driver_lib.get_loadbalancer(lb_id)
+        additional_vips = []
+        if lb and lb.additional_vips:
+            for vip in lb.additional_vips:
+                additional_vips.append({
+                    'ip_address': vip['ip_address'],
+                    constants.NETWORK_ID: vip[constants.NETWORK_ID],
+                    'port_id': vip['port_id'],
+                    constants.SUBNET_ID: vip[constants.SUBNET_ID]
+                })
+        return additional_vips
 
     def listener_create(self, listener):
         ovn_lb = self._get_or_create_ovn_lb(
@@ -2145,18 +2288,16 @@ class OvnProviderHelper():
             if mem_addr_port == meminf.split('_')[2]:
                 return meminf.split('_')[1]
 
-    def create_vip_port(self, project_id, lb_id, vip_d):
-        port = {'name': ovn_const.LB_VIP_PORT_PREFIX + str(lb_id),
-                'network_id': vip_d[constants.VIP_NETWORK_ID],
-                'fixed_ips': [{'subnet_id': vip_d['vip_subnet_id']}],
+    def _create_neutron_port(self, neutron_client, name, project_id, net_id,
+                             subnet_id, address=None):
+        port = {'name': name,
+                'network_id': net_id,
+                'fixed_ips': [{'subnet_id': subnet_id}],
                 'admin_state_up': True,
                 'project_id': project_id}
-        try:
-            port['fixed_ips'][0]['ip_address'] = (
-                vip_d[constants.VIP_ADDRESS])
-        except KeyError:
-            pass
-        neutron_client = clients.get_neutron_client()
+        if address:
+            port['fixed_ips'][0]['ip_address'] = address
+
         try:
             return neutron_client.create_port(**port)
         except openstack.exceptions.ConflictException as e:
@@ -2164,25 +2305,54 @@ class OvnProviderHelper():
             # Lets get the it from Neutron API.
             port = self._neutron_find_port(
                 neutron_client,
-                network_id=vip_d[constants.VIP_NETWORK_ID],
-                name_or_id=f'{ovn_const.LB_VIP_PORT_PREFIX}{lb_id}')
+                network_id=net_id,
+                name_or_id=f'{name}')
             if not port:
                 LOG.error('Cannot create/get LoadBalancer VIP port with '
-                          'fixed IP: %s', vip_d[constants.VIP_ADDRESS])
+                          'fixed IP: %s', address)
                 raise e
             LOG.debug('VIP Port already exists, uuid: %s', port.id)
             return port
         except openstack.exceptions.HttpException as e:
+            raise e
+
+    def create_vip_port(self, project_id, lb_id, vip_d,
+                        additional_vip_dicts=None):
+        neutron_client = clients.get_neutron_client()
+        additional_vip_ports = []
+        vip_port = None
+        try:
+            vip_port = self._create_neutron_port(
+                neutron_client,
+                f'{ovn_const.LB_VIP_PORT_PREFIX}{lb_id}',
+                project_id,
+                vip_d.get(constants.VIP_NETWORK_ID),
+                vip_d.get('vip_subnet_id'),
+                vip_d.get(constants.VIP_ADDRESS, None))
+            if additional_vip_dicts:
+                for index, additional_vip in enumerate(additional_vip_dicts,
+                                                       start=1):
+                    additional_vip_ports.append(self._create_neutron_port(
+                        neutron_client,
+                        f'{ovn_const.LB_VIP_ADDIT_PORT_PREFIX}{index}-{lb_id}',
+                        project_id,
+                        additional_vip.get(constants.NETWORK_ID),
+                        additional_vip.get('subnet_id'),
+                        additional_vip.get('ip_address', None)))
+            return vip_port, additional_vip_ports
+
+        except openstack.exceptions.HttpException as e:
             # NOTE (froyo): whatever other exception as e.g. Timeout
             # we should try to ensure no leftover port remains
-            port = self._neutron_find_port(
-                neutron_client,
-                network_id=vip_d[constants.VIP_NETWORK_ID],
-                name_or_id=f'{ovn_const.LB_VIP_PORT_PREFIX}{lb_id}')
-            if port:
+            if vip_port:
                 LOG.debug('Leftover port %s has been found. Trying to '
-                          'delete it', port.id)
-                self.delete_port(port.id)
+                          'delete it', vip_port.id)
+                self.delete_port(vip_port.id)
+
+            for additional_vip in additional_vip_ports:
+                LOG.debug('Leftover port %s has been found. Trying to '
+                          'delete it', additional_vip.id)
+                self.delete_port(additional_vip.id)
             raise e
 
     @tenacity.retry(
@@ -2210,54 +2380,107 @@ class OvnProviderHelper():
                 return True
         return False
 
+    def _get_vip_lbhc(self, lbhc):
+        vip = lbhc.external_ids.get(ovn_const.LB_EXT_IDS_HM_VIP, '')
+        if vip:
+            return vip
+        else:
+            if lbhc.vip:
+                ip_port = lbhc.vip.rsplit(':', 1)
+                if len(ip_port) == 2:
+                    return ip_port[0]
+        return ''
+
     def handle_vip_fip(self, fip_info):
         ovn_lb = fip_info['ovn_lb']
+        additional_vip_fip = fip_info.get('additional_vip_fip', False)
         external_ids = copy.deepcopy(ovn_lb.external_ids)
         commands = []
 
         if fip_info['action'] == ovn_const.REQ_INFO_ACTION_ASSOCIATE:
-            external_ids[ovn_const.LB_EXT_IDS_VIP_FIP_KEY] = (
-                fip_info['vip_fip'])
-            vip_fip_info = {
-                ovn_const.LB_EXT_IDS_VIP_FIP_KEY: fip_info['vip_fip']}
+            if additional_vip_fip:
+                existing_addi_vip_fip = external_ids.get(
+                    ovn_const.LB_EXT_IDS_ADDIT_VIP_FIP_KEY, [])
+                if existing_addi_vip_fip:
+                    existing_addi_vip_fip = existing_addi_vip_fip.split(',')
+                existing_addi_vip_fip.append(fip_info['vip_fip'])
+                external_ids[ovn_const.LB_EXT_IDS_ADDIT_VIP_FIP_KEY] = (
+                    ','.join(existing_addi_vip_fip))
+                vip_fip_info = {
+                    ovn_const.LB_EXT_IDS_ADDIT_VIP_FIP_KEY:
+                        ','.join(existing_addi_vip_fip)}
+            else:
+                external_ids[ovn_const.LB_EXT_IDS_VIP_FIP_KEY] = (
+                    fip_info['vip_fip'])
+                vip_fip_info = {
+                    ovn_const.LB_EXT_IDS_VIP_FIP_KEY: fip_info['vip_fip']}
             commands.append(
                 self.ovn_nbdb_api.db_set('Load_Balancer', ovn_lb.uuid,
                                          ('external_ids', vip_fip_info)))
             for lb_hc in ovn_lb.health_check:
-                vip = fip_info['vip_fip']
-                lb_hc_external_ids = copy.deepcopy(lb_hc.external_ids)
-                lb_hc_external_ids[ovn_const.LB_EXT_IDS_HM_VIP] = vip
-                if self._check_lbhc_vip_format(lb_hc.vip):
-                    port = lb_hc.vip.rsplit(':')[-1]
-                    vip += ':' + port
-                else:
-                    vip = ''
-                kwargs = {
-                    'vip': vip,
-                    'options': lb_hc.options,
-                    'external_ids': lb_hc_external_ids}
-                with self.ovn_nbdb_api.transaction(check_error=True) as txn:
-                    fip_lbhc = txn.add(self.ovn_nbdb_api.db_create(
-                        'Load_Balancer_Health_Check', **kwargs))
-                    txn.add(self.ovn_nbdb_api.db_add(
-                        'Load_Balancer', ovn_lb.uuid,
-                        'health_check', fip_lbhc))
+                if self._get_vip_lbhc(lb_hc) in fip_info['vip_related']:
+                    vip = fip_info['vip_fip']
+                    lb_hc_external_ids = copy.deepcopy(lb_hc.external_ids)
+                    lb_hc_external_ids[ovn_const.LB_EXT_IDS_HM_VIP] = vip
+                    if self._check_lbhc_vip_format(lb_hc.vip):
+                        port = lb_hc.vip.rsplit(':')[-1]
+                        vip += ':' + port
+                    else:
+                        vip = ''
+                    kwargs = {
+                        'vip': vip,
+                        'options': lb_hc.options,
+                        'external_ids': lb_hc_external_ids}
+                    with self.ovn_nbdb_api.transaction(
+                            check_error=True) as txn:
+                        fip_lbhc = txn.add(self.ovn_nbdb_api.db_create(
+                            'Load_Balancer_Health_Check', **kwargs))
+                        txn.add(self.ovn_nbdb_api.db_add(
+                            'Load_Balancer', ovn_lb.uuid,
+                            'health_check', fip_lbhc))
         else:
-            external_ids.pop(ovn_const.LB_EXT_IDS_VIP_FIP_KEY)
-            commands.append(
-                self.ovn_nbdb_api.db_remove(
-                    'Load_Balancer', ovn_lb.uuid, 'external_ids',
-                    (ovn_const.LB_EXT_IDS_VIP_FIP_KEY)))
-            for lbhc in ovn_lb.health_check:
+            existing_addi_vip_fip_need_updated = False
+            existing_addi_vip_fip = external_ids.get(
+                ovn_const.LB_EXT_IDS_ADDIT_VIP_FIP_KEY, [])
+            if existing_addi_vip_fip:
+                existing_addi_vip_fip = existing_addi_vip_fip.split(',')
+            if fip_info['vip_fip'] in existing_addi_vip_fip:
+                existing_addi_vip_fip.remove(fip_info['vip_fip'])
+                existing_addi_vip_fip_need_updated = True
+
+            if existing_addi_vip_fip_need_updated:
+                if existing_addi_vip_fip:
+                    vip_fip_info = {
+                        ovn_const.LB_EXT_IDS_ADDIT_VIP_FIP_KEY:
+                            ','.join(existing_addi_vip_fip)}
+                    commands.append(
+                        self.ovn_nbdb_api.db_set(
+                            'Load_Balancer', ovn_lb.uuid,
+                            ('external_ids', vip_fip_info)))
+                else:
+                    external_ids.pop(ovn_const.LB_EXT_IDS_ADDIT_VIP_FIP_KEY)
+                    commands.append(
+                        self.ovn_nbdb_api.db_remove(
+                            'Load_Balancer', ovn_lb.uuid, 'external_ids',
+                            (ovn_const.LB_EXT_IDS_ADDIT_VIP_FIP_KEY)))
+            if fip_info['vip_fip'] == external_ids.get(
+                    ovn_const.LB_EXT_IDS_VIP_FIP_KEY):
+                external_ids.pop(ovn_const.LB_EXT_IDS_VIP_FIP_KEY)
+                commands.append(
+                    self.ovn_nbdb_api.db_remove(
+                        'Load_Balancer', ovn_lb.uuid, 'external_ids',
+                        (ovn_const.LB_EXT_IDS_VIP_FIP_KEY)))
+
+            for lb_hc in ovn_lb.health_check:
                 # FIPs can only be ipv4, so not dealing with ipv6 [] here
-                if lbhc.vip.split(":")[0] == fip_info['vip_fip']:
+                if self._get_vip_lbhc(lb_hc) == fip_info['vip_fip']:
                     commands.append(
                         self.ovn_nbdb_api.db_remove('Load_Balancer',
                                                     ovn_lb.uuid,
                                                     'health_check',
-                                                    lbhc.uuid))
+                                                    lb_hc.uuid))
                     commands.append(self.ovn_nbdb_api.db_destroy(
-                        'Load_Balancer_Health_Check', lbhc.uuid))
+                        'Load_Balancer_Health_Check', lb_hc.uuid))
                     break
 
         commands.extend(self._refresh_lb_vips(ovn_lb, external_ids))
@@ -2265,7 +2488,9 @@ class OvnProviderHelper():
 
     def handle_member_dvr(self, info):
         pool_key, ovn_lb = self._find_ovn_lb_by_pool_id(info['pool_id'])
-        if not ovn_lb.external_ids.get(ovn_const.LB_EXT_IDS_VIP_FIP_KEY):
+        if ((not ovn_lb.external_ids.get(ovn_const.LB_EXT_IDS_VIP_FIP_KEY)) and
+                (not ovn_lb.external_ids.get(
+                    ovn_const.LB_EXT_IDS_ADDIT_VIP_FIP_KEY))):
             LOG.debug("LB %(lb)s has no FIP on VIP configured. "
                       "There is no need to centralize member %(member)s "
                       "traffic.",
@@ -2375,9 +2600,20 @@ class OvnProviderHelper():
         # ID=$(ovn-nbctl --bare --column _uuid find
         #    Load_Balancer_Health_Check vip="${LB_VIP_ADDR}\:${MONITOR_PRT}")
         # In our case the monitor port will be the members protocol port
-        vip = ovn_lb.external_ids.get(ovn_const.LB_EXT_IDS_VIP_KEY)
-        fip = ovn_lb.external_ids.get(ovn_const.LB_EXT_IDS_VIP_FIP_KEY)
-        if not vip:
+        vips = []
+        if ovn_const.LB_EXT_IDS_VIP_KEY in ovn_lb.external_ids:
+            vips.append(ovn_lb.external_ids.get(ovn_const.LB_EXT_IDS_VIP_KEY))
+        if ovn_const.LB_EXT_IDS_ADDIT_VIP_KEY in ovn_lb.external_ids:
+            vips.extend(ovn_lb.external_ids.get(
+                ovn_const.LB_EXT_IDS_ADDIT_VIP_KEY).split(','))
+        fips = []
+        if ovn_const.LB_EXT_IDS_VIP_FIP_KEY in ovn_lb.external_ids:
+            fips.append(ovn_lb.external_ids.get(
+                ovn_const.LB_EXT_IDS_VIP_FIP_KEY))
+        if ovn_const.LB_EXT_IDS_ADDIT_VIP_FIP_KEY in ovn_lb.external_ids:
+            fips.extend(ovn_lb.external_ids.get(
+                ovn_const.LB_EXT_IDS_ADDIT_VIP_FIP_KEY).split(','))
+        if not vips:
             LOG.error("Could not find VIP for HM %s, LB external_ids: %s",
                       hm_id, ovn_lb.external_ids)
             return status
@@ -2386,82 +2622,76 @@ class OvnProviderHelper():
         # This is to enable lookups by Octavia DB ID value
         external_ids = {
             ovn_const.LB_EXT_IDS_HM_KEY: hm_id,
-            ovn_const.LB_EXT_IDS_HM_VIP: vip,
             ovn_const.LB_EXT_IDS_HM_POOL_KEY: pool_key[
                 len(ovn_const.LB_EXT_IDS_POOL_PREFIX):],
         }
+        operating_status = constants.ONLINE
+        if not info['admin_state_up']:
+            operating_status = constants.OFFLINE
 
-        if fip:
-            external_ids_fip = copy.deepcopy(external_ids)
-            external_ids_fip[ovn_const.LB_EXT_IDS_HM_VIP] = fip
-
-        if not vip_port:
-            # This is not fatal as we can add it when a listener is created
-            vip = []
-            if fip:
-                fip = []
-        else:
-            vip = vip + ':' + vip_port
-            if fip:
-                fip = fip + ':' + vip_port
-
-        # ovn-nbctl --wait=sb --
-        #  set Load_Balancer_Health_Check ${ID} options:\"interval\"=6 --
-        #  set Load_Balancer_Health_Check ${ID} options:\"timeoutl\"=2 --
-        #  set Load_Balancer_Health_Check ${ID} options:\"success_count\"=1 --
-        #  set Load_Balancer_Health_Check ${ID} options:\"failure_count\"=3
         options = {
             'interval': str(info['interval']),
             'timeout': str(info['timeout']),
             'success_count': str(info['success_count']),
             'failure_count': str(info['failure_count'])}
 
-        # Just seems like this needs ovsdbapp support, see:
-        #  ovsdbapp/schema/ovn_northbound/impl_idl.py - lb_add()
-        #  ovsdbapp/schema/ovn_northbound/commands.py - LbAddCommand()
-        # then this could just be self.ovn_nbdb_api.lb_hm_add()
-        kwargs = {
-            'vip': vip,
-            'options': options,
-            'external_ids': external_ids}
-        if fip is not None:
-            fip_kwargs = {
-                'vip': fip,
-                'options': options,
-                'external_ids': external_ids_fip}
-
-        operating_status = constants.ONLINE
-        if not info['admin_state_up']:
-            operating_status = constants.OFFLINE
-
-        hms_key = ovn_lb.external_ids.get(ovn_const.LB_EXT_IDS_HMS_KEY, [])
-        if hms_key:
-            hms_key = jsonutils.loads(hms_key)
         try:
             with self.ovn_nbdb_api.transaction(check_error=True) as txn:
-                health_check = txn.add(
-                    self.ovn_nbdb_api.db_create(
-                        'Load_Balancer_Health_Check',
-                        **kwargs))
-                txn.add(self.ovn_nbdb_api.db_add(
-                    'Load_Balancer', ovn_lb.uuid,
-                    'health_check', health_check))
-                if fip is not None:
-                    fip_health_check = txn.add(
+                for vip in vips:
+                    # Just seems like this needs ovsdbapp support, see:
+                    #  ovsdbapp/schema/ovn_northbound/impl_idl.py
+                    #      - lb_add()
+                    #  ovsdbapp/schema/ovn_northbound/commands.py
+                    #      - LbAddCommand()
+                    # then this could just be self.ovn_nbdb_api.lb_hm_add()
+                    external_ids_vip = copy.deepcopy(external_ids)
+                    external_ids_vip[ovn_const.LB_EXT_IDS_HM_VIP] = vip
+                    if netaddr.IPNetwork(vip).version == 6:
+                        vip = f'[{vip}]'
+                    kwargs = {
+                        'vip': vip + ':' + str(vip_port) if vip_port else '',
+                        'options': options,
+                        'external_ids': external_ids_vip}
+
+                    hms_key = ovn_lb.external_ids.get(
+                        ovn_const.LB_EXT_IDS_HMS_KEY, [])
+                    if hms_key:
+                        hms_key = jsonutils.loads(hms_key)
+                    health_check = txn.add(
                         self.ovn_nbdb_api.db_create(
                             'Load_Balancer_Health_Check',
-                            **fip_kwargs))
+                            **kwargs))
                     txn.add(self.ovn_nbdb_api.db_add(
                         'Load_Balancer', ovn_lb.uuid,
-                        'health_check', fip_health_check))
-                hms_key.append(hm_id)
-                txn.add(self.ovn_nbdb_api.db_set(
-                    'Load_Balancer', ovn_lb.uuid,
-                    ('external_ids', {ovn_const.LB_EXT_IDS_HMS_KEY:
-                                      jsonutils.dumps(hms_key)})))
-            status = {constants.ID: hm_id,
-                      constants.PROVISIONING_STATUS: constants.ACTIVE,
-                      constants.OPERATING_STATUS: operating_status}
+                        'health_check', health_check))
+                    hms_key.append(hm_id)
+                    txn.add(self.ovn_nbdb_api.db_set(
+                        'Load_Balancer', ovn_lb.uuid,
+                        ('external_ids', {ovn_const.LB_EXT_IDS_HMS_KEY:
+                            jsonutils.dumps(hms_key)})))
+                if fips:
+                    external_ids_fip = copy.deepcopy(external_ids)
+                    for fip in fips:
+                        external_ids_fip[ovn_const.LB_EXT_IDS_HM_VIP] = fip
+                        if netaddr.IPNetwork(fip).version == 6:
+                            fip = f'[{fip}]'
+                        fip_kwargs = {
+                            'vip': fip + ':' + str(vip_port)
+                            if vip_port
+                            else '',
+                            'options': options,
+                            'external_ids': external_ids_fip}
+
+                        fip_health_check = txn.add(
+                            self.ovn_nbdb_api.db_create(
+                                'Load_Balancer_Health_Check',
+                                **fip_kwargs))
+                        txn.add(self.ovn_nbdb_api.db_add(
+                            'Load_Balancer', ovn_lb.uuid,
+                            'health_check', fip_health_check))
+                status = {constants.ID: hm_id,
+                          constants.PROVISIONING_STATUS: constants.ACTIVE,
+                          constants.OPERATING_STATUS: operating_status}
         except Exception:
             # Any Exception will return ERROR status
             LOG.exception(ovn_const.EXCEPTION_MSG, "set of health check")
@@ -2475,6 +2705,8 @@ class OvnProviderHelper():
             # will be empty, so get it from lbhc external_ids
             vip = lbhc.external_ids.get(ovn_const.LB_EXT_IDS_HM_VIP, '')
             if vip:
+                if netaddr.IPNetwork(vip).version == 6:
+                    vip = f'[{vip}]'
                 vip = vip + ':' + str(vip_port)
         commands = []
         commands.append(
