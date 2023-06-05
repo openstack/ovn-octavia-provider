@@ -464,4 +464,14 @@ class TestOvnOctaviaProviderDriver(ovn_base.TestOvnOctaviaBase):
         # Deleting one member, while keeping the other member available
         self._update_members_in_batch_and_validate(lb_data, pool_id,
                                                    [m_member])
+        # Create Member-3 with monitor options
+        m_member = self._create_member_model(pool_id,
+                                             lb_data['vip_net_info'][1],
+                                             '10.0.0.12')
+        m_member.monitor_port = 8080
+        members = [m_member]
+        self.assertRaises(o_exceptions.UnsupportedOptionError,
+                          self.ovn_driver.member_batch_update,
+                          pool_id,
+                          members)
         self._delete_load_balancer_and_validate(lb_data)
