@@ -112,3 +112,7 @@ HM_EVENT_MEMBER_PORT_OFFLINE = ['offline']
 
 # max timeout for request
 MAX_TIMEOUT_REQUEST = 5
+
+AFFINITY_TIMEOUT = "affinity_timeout"
+# This driver only supports SOURCE_IP sesssion persistency option
+OVN_NATIVE_SESSION_PERSISTENCE = [constants.SESSION_PERSISTENCE_SOURCE_IP]

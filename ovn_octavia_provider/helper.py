@@ -1605,10 +1605,25 @@ class OvnProviderHelper():
             if listener_key in ovn_lb.external_ids:
                 external_ids[listener_key] = str(
                     external_ids[listener_key]) + str(pool_key)
+        persistence_timeout = None
+        if pool.get(constants.SESSION_PERSISTENCE):
+            persistence_timeout = pool[constants.SESSION_PERSISTENCE].get(
+                constants.PERSISTENCE_TIMEOUT, '360')
         try:
-            self.ovn_nbdb_api.db_set(
+            commands = []
+            commands.append(self.ovn_nbdb_api.db_set(
                 'Load_Balancer', ovn_lb.uuid,
-                ('external_ids', external_ids)).execute(check_error=True)
+                ('external_ids', external_ids)))
+
+            if persistence_timeout:
+                options = copy.deepcopy(ovn_lb.options)
+                options[ovn_const.AFFINITY_TIMEOUT] = str(persistence_timeout)
+
+                commands.append(self.ovn_nbdb_api.db_set(
+                    'Load_Balancer', ovn_lb.uuid,
+                    ('options', options)))
+
+            self._execute_commands(commands)
 
             # Pool status will be set to Online after a member is added to it
             # or when it is created with listener.
@@ -1693,6 +1708,11 @@ class OvnProviderHelper():
                         'Load_Balancer', ovn_lb.uuid,
                         'external_ids', (pool_key_when_disabled)))
 
+            if ovn_const.AFFINITY_TIMEOUT in ovn_lb.options:
+                commands.append(
+                    self.ovn_nbdb_api.db_remove('Load_Balancer', ovn_lb.uuid,
+                                                'options',
+                                                (ovn_const.AFFINITY_TIMEOUT)))
             commands.extend(
                 self._clean_lb_if_empty(
                     ovn_lb, pool[constants.LOADBALANCER_ID], external_ids)[0])
@@ -1725,7 +1745,8 @@ class OvnProviderHelper():
         status = {
             constants.POOLS: [pool_status],
             constants.LOADBALANCERS: [lbalancer_status]}
-        if constants.ADMIN_STATE_UP not in pool:
+        if (constants.ADMIN_STATE_UP not in pool and
+                constants.SESSION_PERSISTENCE not in pool):
             return status
         try:
             ovn_lb = self._find_ovn_lbs(
@@ -1746,37 +1767,54 @@ class OvnProviderHelper():
         p_key_to_add = {}
 
         pool_listeners = []
+        commands = []
 
         try:
             pool_listeners = self._get_pool_listeners(ovn_lb, pool_key)
-            if pool[constants.ADMIN_STATE_UP]:
-                if p_key_when_disabled in external_ids:
-                    p_key_to_add[pool_key] = external_ids[p_key_when_disabled]
-                    external_ids[pool_key] = external_ids[p_key_when_disabled]
-                    del external_ids[p_key_when_disabled]
-                    p_key_to_remove = p_key_when_disabled
-            else:
-                if pool_key in external_ids:
-                    p_key_to_add[p_key_when_disabled] = external_ids[pool_key]
-                    external_ids[p_key_when_disabled] = external_ids[pool_key]
-                    del external_ids[pool_key]
-                    p_key_to_remove = pool_key
+            admin_state_up = pool.get(constants.ADMIN_STATE_UP)
+            if admin_state_up is not None:
+                if admin_state_up:
+                    if p_key_when_disabled in external_ids:
+                        p_key_to_add[pool_key] = external_ids[
+                            p_key_when_disabled]
+                        external_ids[pool_key] = external_ids[
+                            p_key_when_disabled]
+                        del external_ids[p_key_when_disabled]
+                        p_key_to_remove = p_key_when_disabled
+                else:
+                    if pool_key in external_ids:
+                        p_key_to_add[p_key_when_disabled] = external_ids[
+                            pool_key]
+                        external_ids[p_key_when_disabled] = external_ids[
+                            pool_key]
+                        del external_ids[pool_key]
+                        p_key_to_remove = pool_key
 
-            if p_key_to_remove:
-                commands = []
-                commands.append(
-                    self.ovn_nbdb_api.db_remove(
-                        'Load_Balancer', ovn_lb.uuid, 'external_ids',
-                        (p_key_to_remove)))
+                if p_key_to_remove:
+                    commands.append(
+                        self.ovn_nbdb_api.db_remove(
+                            'Load_Balancer', ovn_lb.uuid, 'external_ids',
+                            (p_key_to_remove)))
 
-                commands.append(
-                    self.ovn_nbdb_api.db_set(
-                        'Load_Balancer', ovn_lb.uuid,
-                        ('external_ids', p_key_to_add)))
+                    commands.append(
+                        self.ovn_nbdb_api.db_set(
+                            'Load_Balancer', ovn_lb.uuid,
+                            ('external_ids', p_key_to_add)))
 
-                commands.extend(
-                    self._refresh_lb_vips(ovn_lb, external_ids))
-                self._execute_commands(commands)
+                    commands.extend(
+                        self._refresh_lb_vips(ovn_lb, external_ids))
+
+            if pool.get(constants.SESSION_PERSISTENCE):
+                new_timeout = pool[constants.SESSION_PERSISTENCE].get(
+                    constants.PERSISTENCE_TIMEOUT, '360')
+                options = copy.deepcopy(ovn_lb.options)
+                options[ovn_const.AFFINITY_TIMEOUT] = str(new_timeout)
+                commands.append(self.ovn_nbdb_api.db_set(
+                    'Load_Balancer', ovn_lb.uuid,
+                    ('options', options)))
+
+            self._execute_commands(commands)
+
             if pool[constants.ADMIN_STATE_UP]:
                 operating_status = constants.ONLINE
             else:

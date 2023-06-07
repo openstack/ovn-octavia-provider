@@ -1,0 +1,7 @@
+---
+features:
+  - |
+    Now the OVN Octavia provider uses the affinity_timeout option of OVN
+    Load Balancers to support pools sessions persistence. It only supports
+    the SOURCE_IP option type. If not timeout is set, by default 360 seconds
+    is set if the session persistence is enabled.

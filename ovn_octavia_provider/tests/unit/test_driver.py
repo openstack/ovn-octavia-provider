@@ -89,7 +89,7 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
             members=[self.ref_member],
             pool_id=self.pool_id,
             protocol='TCP',
-            session_persistence={'type': 'fix'})
+            session_persistence={'type': 'SOURCE_IP'})
         self.ref_pool = data_models.Pool(
             admin_state_up=True,
             description='pool',
@@ -100,7 +100,7 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
             members=[self.ref_member],
             pool_id=self.pool_id,
             protocol='TCP',
-            session_persistence={'type': 'fix'})
+            session_persistence={'type': 'SOURCE_IP'})
         self.ref_http_pool = data_models.Pool(
             admin_state_up=True,
             description='pool',
@@ -689,7 +689,8 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
             'listener_id': self.ref_pool.listener_id,
             'protocol': self.ref_pool.protocol,
             'lb_algorithm': constants.LB_ALGORITHM_SOURCE_IP_PORT,
-            'admin_state_up': self.ref_pool.admin_state_up}
+            'admin_state_up': self.ref_pool.admin_state_up,
+            'session_persistence': {'type': 'SOURCE_IP'}}
         info_member = {
             'id': self.ref_member.member_id,
             'address': self.ref_member.address,
@@ -758,7 +759,8 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
             'listener_id': self.ref_pool.listener_id,
             'protocol': self.ref_pool.protocol,
             'lb_algorithm': constants.LB_ALGORITHM_SOURCE_IP_PORT,
-            'admin_state_up': self.ref_pool.admin_state_up}
+            'admin_state_up': self.ref_pool.admin_state_up,
+            'session_persistence': {'type': 'SOURCE_IP'}}
         info_member = {
             'id': self.ref_member.member_id,
             'address': self.ref_member.address,
@@ -866,7 +868,8 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
                 'listener_id': self.ref_pool.listener_id,
                 'protocol': self.ref_pool.protocol,
                 'lb_algorithm': constants.LB_ALGORITHM_SOURCE_IP_PORT,
-                'admin_state_up': self.ref_pool.admin_state_up}
+                'admin_state_up': self.ref_pool.admin_state_up,
+                'session_persistence': {'type': 'SOURCE_IP'}}
         expected_dict = {'type': ovn_const.REQ_TYPE_POOL_CREATE,
                          'info': info}
         self.driver.pool_create(self.ref_pool)
@@ -879,7 +882,8 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
                 'listener_id': self.ref_pool.listener_id,
                 'protocol': self.ref_pool.protocol,
                 'lb_algorithm': constants.LB_ALGORITHM_SOURCE_IP_PORT,
-                'admin_state_up': self.ref_pool.admin_state_up}
+                'admin_state_up': self.ref_pool.admin_state_up,
+                'session_persistence': {'type': 'SOURCE_IP'}}
         info_hm = {'id': self.ref_health_monitor.healthmonitor_id,
                    'pool_id': self.ref_health_monitor.pool_id,
                    'type': self.ref_health_monitor.type,
@@ -905,7 +909,21 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
                 'protocol': self.ref_pool.protocol,
                 'lb_algorithm': constants.LB_ALGORITHM_SOURCE_IP_PORT,
                 'listener_id': self.ref_pool.listener_id,
-                'admin_state_up': True}
+                'admin_state_up': True,
+                'session_persistence': {'type': 'SOURCE_IP'}}
+        expected_dict = {'type': ovn_const.REQ_TYPE_POOL_CREATE,
+                         'info': info}
+        self.driver.pool_create(self.ref_pool)
+        self.mock_add_request.assert_called_once_with(expected_dict)
+
+    def test_pool_create_unset_session_persistence(self):
+        self.ref_pool.session_persistence = data_models.UnsetType()
+        info = {'id': self.ref_pool.pool_id,
+                'loadbalancer_id': self.ref_pool.loadbalancer_id,
+                'protocol': self.ref_pool.protocol,
+                'lb_algorithm': constants.LB_ALGORITHM_SOURCE_IP_PORT,
+                'listener_id': self.ref_pool.listener_id,
+                'admin_state_up': self.ref_pool.admin_state_up}
         expected_dict = {'type': ovn_const.REQ_TYPE_POOL_CREATE,
                          'info': info}
         self.driver.pool_create(self.ref_pool)
@@ -956,7 +974,8 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
         info = {'id': self.ref_update_pool.pool_id,
                 'loadbalancer_id': self.ref_update_pool.loadbalancer_id,
                 'protocol': self.ref_pool.protocol,
-                'admin_state_up': self.ref_update_pool.admin_state_up}
+                'admin_state_up': self.ref_update_pool.admin_state_up,
+                'session_persistence': {'type': 'SOURCE_IP'}}
         expected_dict = {'type': ovn_const.REQ_TYPE_POOL_UPDATE,
                          'info': info}
         self.driver.pool_update(self.ref_pool, self.ref_update_pool)
@@ -967,7 +986,8 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
         info = {'id': self.ref_update_pool.pool_id,
                 'loadbalancer_id': self.ref_update_pool.loadbalancer_id,
                 'protocol': self.ref_pool.protocol,
-                'admin_state_up': self.ref_update_pool.admin_state_up}
+                'admin_state_up': self.ref_update_pool.admin_state_up,
+                'session_persistence': {'type': 'SOURCE_IP'}}
         expected_dict = {'type': ovn_const.REQ_TYPE_POOL_UPDATE,
                          'info': info}
         self.driver.pool_update(self.ref_pool, self.ref_update_pool)
@@ -978,7 +998,8 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
         info = {'id': self.ref_update_pool.pool_id,
                 'loadbalancer_id': self.ref_update_pool.loadbalancer_id,
                 'protocol': self.ref_pool.protocol,
-                'admin_state_up': self.ref_update_pool.admin_state_up}
+                'admin_state_up': self.ref_update_pool.admin_state_up,
+                'session_persistence': {'type': 'SOURCE_IP'}}
         expected_dict = {'type': ovn_const.REQ_TYPE_POOL_UPDATE,
                          'info': info}
         self.driver.pool_update(self.ref_pool, self.ref_update_pool)
@@ -988,7 +1009,19 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
         self.ref_update_pool.admin_state_up = data_models.UnsetType()
         info = {'id': self.ref_update_pool.pool_id,
                 'loadbalancer_id': self.ref_update_pool.loadbalancer_id,
-                'protocol': self.ref_pool.protocol}
+                'protocol': self.ref_pool.protocol,
+                'session_persistence': {'type': 'SOURCE_IP'}}
+        expected_dict = {'type': ovn_const.REQ_TYPE_POOL_UPDATE,
+                         'info': info}
+        self.driver.pool_update(self.ref_pool, self.ref_update_pool)
+        self.mock_add_request.assert_called_once_with(expected_dict)
+
+    def test_pool_update_unset_new_session_timeout(self):
+        self.ref_update_pool.session_persistence = data_models.UnsetType()
+        info = {'id': self.ref_update_pool.pool_id,
+                'loadbalancer_id': self.ref_update_pool.loadbalancer_id,
+                'protocol': self.ref_pool.protocol,
+                'admin_state_up': self.ref_update_pool.admin_state_up}
         expected_dict = {'type': ovn_const.REQ_TYPE_POOL_UPDATE,
                          'info': info}
         self.driver.pool_update(self.ref_pool, self.ref_update_pool)

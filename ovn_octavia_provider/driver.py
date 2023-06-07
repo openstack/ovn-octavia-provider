@@ -68,6 +68,16 @@ class OvnProviderDriver(driver_base.ProviderDriver):
                 user_fault_string=msg,
                 operator_fault_string=msg)
 
+    def _check_for_supported_session_persistence(self, session):
+        if (session and
+                session.get("type") not in
+                ovn_const.OVN_NATIVE_SESSION_PERSISTENCE):
+            msg = _('OVN provider does not support %s session persistence. '
+                    'Only SOURCE_IP type is supported.') % session.type
+            raise driver_exceptions.UnsupportedOptionError(
+                user_fault_string=msg,
+                operator_fault_string=msg)
+
     def _check_for_allowed_cidrs(self, allowed_cidrs):
         # TODO(haleyb): add support for this
         if isinstance(allowed_cidrs, o_datamodels.UnsetType):
@@ -140,6 +150,11 @@ class OvnProviderDriver(driver_base.ProviderDriver):
                         'admin_state_up': admin_state_up}
         request = {'type': ovn_const.REQ_TYPE_POOL_CREATE,
                    'info': request_info}
+        if not isinstance(
+                pool.session_persistence, o_datamodels.UnsetType):
+            self._check_for_supported_session_persistence(
+                pool.session_persistence)
+            request['info']['session_persistence'] = pool.session_persistence
         self._ovn_helper.add_request(request)
         if pool.healthmonitor is not None and not isinstance(
                 pool.healthmonitor, o_datamodels.UnsetType):
@@ -170,6 +185,12 @@ class OvnProviderDriver(driver_base.ProviderDriver):
 
         if not isinstance(new_pool.admin_state_up, o_datamodels.UnsetType):
             request_info['admin_state_up'] = new_pool.admin_state_up
+        if not isinstance(
+                new_pool.session_persistence, o_datamodels.UnsetType):
+            self._check_for_supported_session_persistence(
+                new_pool.session_persistence)
+            request_info['session_persistence'] = (
+                new_pool.session_persistence)
         request = {'type': ovn_const.REQ_TYPE_POOL_UPDATE,
                    'info': request_info}
         self._ovn_helper.add_request(request)
