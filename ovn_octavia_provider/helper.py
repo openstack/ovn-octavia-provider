@@ -1408,10 +1408,14 @@ class OvnProviderHelper():
         if not listener.get(constants.ADMIN_STATE_UP, True):
             operating_status = constants.OFFLINE
 
-        if (ovn_lb.health_check and
-                not self._update_lbhc_vip(ovn_lb,
-                                          listener[constants.PROTOCOL_PORT])):
-            operating_status = constants.ERROR
+        if pool_key:
+            for lb_hc in ovn_lb.health_check:
+                if pool_key[len(ovn_const.LB_EXT_IDS_POOL_PREFIX):] == (
+                    lb_hc.external_ids.get(
+                        ovn_const.LB_EXT_IDS_HM_POOL_KEY)):
+                    if not self._update_lbhc_vip_port(
+                            lb_hc, listener[constants.PROTOCOL_PORT]):
+                        operating_status = constants.ERROR
 
         status = {
             constants.LISTENERS: [
@@ -1578,8 +1582,6 @@ class OvnProviderHelper():
                 constants.LOADBALANCERS: [
                     {constants.ID: listener[constants.LOADBALANCER_ID],
                      constants.PROVISIONING_STATUS: constants.ACTIVE}]}
-        if ovn_lb.health_check:
-            self._update_lbhc_vip(ovn_lb, listener[constants.PROTOCOL_PORT])
         return status
 
     def pool_create(self, pool):
@@ -2229,6 +2231,16 @@ class OvnProviderHelper():
                         "check Neutron logs. Perhaps port "
                         "was already deleted.", port_id)
 
+    # NOTE(froyo): This could be removed in some cycles after Bobcat, this
+    # check is created to ensure that LB HC vip field is correctly format like
+    # IP:PORT
+    def _check_lbhc_vip_format(self, vip):
+        if vip:
+            ip_port = vip.rsplit(':', 1)
+            if len(ip_port) == 2 and ip_port[1].isdigit():
+                return True
+        return False
+
     def handle_vip_fip(self, fip_info):
         ovn_lb = fip_info['ovn_lb']
         external_ids = copy.deepcopy(ovn_lb.external_ids)
@@ -2242,15 +2254,22 @@ class OvnProviderHelper():
             commands.append(
                 self.ovn_nbdb_api.db_set('Load_Balancer', ovn_lb.uuid,
                                          ('external_ids', vip_fip_info)))
-            if ovn_lb.health_check:
+            for lb_hc in ovn_lb.health_check:
+                vip = fip_info['vip_fip']
+                lb_hc_external_ids = copy.deepcopy(lb_hc.external_ids)
+                lb_hc_external_ids[ovn_const.LB_EXT_IDS_HM_VIP] = vip
+                if self._check_lbhc_vip_format(lb_hc.vip):
+                    port = lb_hc.vip.rsplit(':')[-1]
+                    vip += ':' + port
+                else:
+                    vip = ''
                 kwargs = {
-                    'vip': fip_info['vip_fip'],
-                    'options': ovn_lb.health_check[0].options,
-                    'external_ids': ovn_lb.health_check[0].external_ids}
+                    'vip': vip,
+                    'options': lb_hc.options,
+                    'external_ids': lb_hc_external_ids}
                 with self.ovn_nbdb_api.transaction(check_error=True) as txn:
-                    fip_lbhc = txn.add(
-                        self.ovn_nbdb_api.db_create(
-                            'Load_Balancer_Health_Check', **kwargs))
+                    fip_lbhc = txn.add(self.ovn_nbdb_api.db_create(
+                        'Load_Balancer_Health_Check', **kwargs))
                     txn.add(self.ovn_nbdb_api.db_add(
                         'Load_Balancer', ovn_lb.uuid,
                         'health_check', fip_lbhc))
@@ -2396,6 +2415,19 @@ class OvnProviderHelper():
                       hm_id, ovn_lb.external_ids)
             return status
         vip_port = self._get_pool_listener_port(ovn_lb, pool_key)
+
+        # This is to enable lookups by Octavia DB ID value
+        external_ids = {
+            ovn_const.LB_EXT_IDS_HM_KEY: hm_id,
+            ovn_const.LB_EXT_IDS_HM_VIP: vip,
+            ovn_const.LB_EXT_IDS_HM_POOL_KEY: pool_key[
+                len(ovn_const.LB_EXT_IDS_POOL_PREFIX):],
+        }
+
+        if fip:
+            external_ids_fip = copy.deepcopy(external_ids)
+            external_ids_fip[ovn_const.LB_EXT_IDS_HM_VIP] = fip
+
         if not vip_port:
             # This is not fatal as we can add it when a listener is created
             vip = []
@@ -2417,9 +2449,6 @@ class OvnProviderHelper():
             'success_count': str(info['success_count']),
             'failure_count': str(info['failure_count'])}
 
-        # This is to enable lookups by Octavia DB ID value
-        external_ids = {ovn_const.LB_EXT_IDS_HM_KEY: hm_id}
-
         # Just seems like this needs ovsdbapp support, see:
         #  ovsdbapp/schema/ovn_northbound/impl_idl.py - lb_add()
         #  ovsdbapp/schema/ovn_northbound/commands.py - LbAddCommand()
@@ -2432,7 +2461,7 @@ class OvnProviderHelper():
             fip_kwargs = {
                 'vip': fip,
                 'options': options,
-                'external_ids': external_ids}
+                'external_ids': external_ids_fip}
 
         operating_status = constants.ONLINE
         if not info['admin_state_up']:
@@ -2471,60 +2500,20 @@ class OvnProviderHelper():
             LOG.exception(ovn_const.EXCEPTION_MSG, "set of health check")
         return status
 
-    def _update_lbhc_vip(self, ovn_lb, vip_port):
-        vip = ovn_lb.external_ids.get(ovn_const.LB_EXT_IDS_VIP_KEY)
-        if not vip:
-            LOG.error("Could not find VIP for LB external_ids: %s",
-                      ovn_lb.external_ids)
-            return False
-
-        vip_version = netaddr.IPAddress(vip).version
-        if vip_version == 6:
-            vip_lbhc = [lbhc for lbhc in ovn_lb.health_check
-                        if lbhc.vip == [] or lbhc.vip[1:].split("]")[0] == vip]
+    def _update_lbhc_vip_port(self, lbhc, vip_port):
+        if lbhc.vip:
+            vip = lbhc.vip.rsplit(":")[0] + ':' + str(vip_port)
         else:
-            vip_lbhc = [lbhc for lbhc in ovn_lb.health_check
-                        if lbhc.vip == [] or lbhc.vip.split(":")[0] == vip]
-        if not vip_lbhc:
-            LOG.error("Could not find HC associated to VIP: %s", vip)
-            return False
-
-        vip = vip + ':' + str(vip_port)
-        fip = ovn_lb.external_ids.get(ovn_const.LB_EXT_IDS_VIP_FIP_KEY)
-        create_fip_lbhc = False
-        if fip:
-            fip = fip + ':' + str(vip_port)
-            if len(ovn_lb.health_check) != 2:
-                LOG.warning("There should be two HCs associated to the Load "
-                            "Balancer %s as it has a FIP associated to it",
-                            ovn_lb.uuid)
-                create_fip_lbhc = True
-
+            # If initially the lbhc was created with no port info, vip field
+            # will be empty, so get it from lbhc external_ids
+            vip = lbhc.external_ids.get(ovn_const.LB_EXT_IDS_HM_VIP, '')
+            if vip:
+                vip = vip + ':' + str(vip_port)
         commands = []
         commands.append(
             self.ovn_nbdb_api.db_set(
-                'Load_Balancer_Health_Check', ovn_lb.health_check[0].uuid,
+                'Load_Balancer_Health_Check', lbhc.uuid,
                 ('vip', vip)))
-        if fip:
-            if create_fip_lbhc:
-                # For upgrades purposes we need to recover from this situation
-                # and create the health_check for the FIP
-                kwargs = {
-                    'vip': fip,
-                    'options': vip_lbhc[0].options,
-                    'external_ids': vip_lbhc[0].external_ids}
-                with self.ovn_nbdb_api.transaction(check_error=True) as txn:
-                    fip_lbhc = txn.add(
-                        self.ovn_nbdb_api.db_create(
-                            'Load_Balancer_Health_Check', **kwargs))
-                    txn.add(self.ovn_nbdb_api.db_add(
-                        'Load_Balancer', ovn_lb.uuid,
-                        'health_check', fip_lbhc))
-            else:
-                commands.append(
-                    self.ovn_nbdb_api.db_set(
-                        'Load_Balancer_Health_Check',
-                        ovn_lb.health_check[1].uuid, ('vip', fip)))
         self._execute_commands(commands)
         return True
 
