@@ -1,0 +1,16 @@
+---
+issues:
+  - |
+    Load Balancer Health Check for Floating IPs are not populated with the
+    protocol port. At this way, when a backend is detected on ERROR state
+    requests to the Floating IP are still distribute to the ERROR'ed members.
+    In order to fix the existing Load Balancer Health Checks it is required to
+    recreate the entire Octavia Health Monitor, which will recreate the
+    associated OVN Load Balancer Health Check(s).
+fixes:
+  - |
+    [`bug 1997418 <https://bugs.launchpad.net/neutron/+bug/1997418>`_]
+    Added the protocol port to the Load Balancer Health Check associated with
+    the Floating IP, additional fields have been introduced to the external_ids
+    to provide more accuracy information about the entities affected by any
+    change over the Floating IP or LB VIP.
