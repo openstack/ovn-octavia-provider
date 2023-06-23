@@ -4059,6 +4059,39 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
             expected_destroy_calls)
 
     @mock.patch.object(ovn_helper.OvnProviderHelper, '_clean_up_hm_port')
+    def test_hm_delete_multiples_pools_sharing_members(self, del_hm_port):
+        self._get_pool_listeners.stop()
+        pool_key = 'pool_%s' % self.pool_id
+        self.ovn_hm_lb.external_ids[pool_key] = self.member_line
+        self.ovn_hm_lb.external_ids['pool_fake'] = self.member_line
+        self.helper.ovn_nbdb_api.db_list_rows.return_value.\
+            execute.side_effect = [[self.ovn_hm_lb], [self.ovn_hm]]
+        status = self.helper.hm_delete(self.health_monitor)
+        self.assertEqual(status['healthmonitors'][0]['provisioning_status'],
+                         constants.DELETED)
+        self.assertEqual(status['healthmonitors'][0]['operating_status'],
+                         constants.NO_MONITOR)
+        self.assertEqual(status['loadbalancers'][0]['provisioning_status'],
+                         constants.ACTIVE)
+        self.assertEqual(status['pools'][0]['provisioning_status'],
+                         constants.ACTIVE)
+        self.assertEqual(status['pools'][0]['id'], self.pool_id)
+        self.assertEqual(status['listeners'][0]['provisioning_status'],
+                         constants.ACTIVE)
+        expected_remove_calls = [
+            mock.call('Load_Balancer', self.ovn_hm_lb.uuid, 'health_check',
+                      self.ovn_hm.uuid),
+            mock.call('Load_Balancer', self.ovn_hm_lb.uuid,
+                      'external_ids', ovn_const.LB_EXT_IDS_HMS_KEY)]
+        expected_destroy_calls = [
+            mock.call('Load_Balancer_Health_Check', self.ovn_hm.uuid)]
+        del_hm_port.assert_called_once_with(self.member_subnet_id)
+        self.helper.ovn_nbdb_api.db_remove.assert_has_calls(
+            expected_remove_calls)
+        self.helper.ovn_nbdb_api.db_destroy.assert_has_calls(
+            expected_destroy_calls)
+
+    @mock.patch.object(ovn_helper.OvnProviderHelper, '_clean_up_hm_port')
     def test_hm_delete_without_members_in_pool(self, del_hm_port):
         self._get_pool_listeners.stop()
         pool_key = 'pool_%s' % self.pool_id
