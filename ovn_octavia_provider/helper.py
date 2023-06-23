@@ -1217,6 +1217,25 @@ class OvnProviderHelper():
                     if value and len(value.split(',')) > 0:
                         for mem_info in value.split(','):
                             member_subnets.append(mem_info.split('_')[3])
+                            member_id = mem_info.split("_")[1]
+                            member_ip = mem_info.split('_')[2].split(":")[0]
+                            member_port = mem_info.split('_')[2].split(":")[1]
+                            member_subnet = mem_info.split("_")[3]
+                            member = {
+                                'id': member_id,
+                                'address': member_ip,
+                                'protocol_port': member_port,
+                                'pool_id': pool_id,
+                                'subnet_id': member_subnet}
+                            self.member_delete(member)
+                            member_info = {
+                                'id': member_id,
+                                'address': member_ip,
+                                'pool_id': pool_id,
+                                'subnet_id': member_subnet,
+                                'action': ovn_const.REQ_INFO_MEMBER_DELETED}
+                            self.handle_member_dvr(member_info)
+
                             status[constants.MEMBERS].append({
                                 constants.ID: mem_info.split('_')[1],
                                 constants.PROVISIONING_STATUS:
