@@ -422,6 +422,19 @@ class OvnProviderDriver(driver_base.ProviderDriver):
                        'info': request_info}
             request_list.append(request)
 
+            # NOTE(mjozefcz): If LB has FIP on VIP
+            # and member had FIP we can decentralize
+            # the traffic now.
+            request_info = {'id': member_id,
+                            'address': member_ip,
+                            'pool_id': pool_id,
+                            'action': ovn_const.REQ_INFO_MEMBER_DELETED}
+            if len(member_info) == 4:
+                request_info['subnet_id'] = subnet_id
+            request = {'type': ovn_const.REQ_TYPE_HANDLE_MEMBER_DVR,
+                       'info': request_info}
+            request_list.append(request)
+
         for request in request_list:
             self._ovn_helper.add_request(request)
 
