@@ -413,7 +413,7 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
     def test_member_batch_update(self):
         self.driver.member_batch_update(self.pool_id,
                                         [self.ref_member, self.update_member])
-        self.assertEqual(self.mock_add_request.call_count, 3)
+        self.assertEqual(self.mock_add_request.call_count, 4)
 
     def test_member_batch_update_member_delete(self):
         info_md = {
@@ -428,7 +428,7 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
         expected = [
             mock.call(expected_dict_md)]
         self.driver.member_batch_update(self.pool_id, [])
-        self.assertEqual(self.mock_add_request.call_count, 1)
+        self.assertEqual(self.mock_add_request.call_count, 2)
         self.mock_add_request.assert_has_calls(expected)
 
     def test_member_batch_update_no_members(self):
@@ -457,7 +457,7 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
     def test_member_batch_update_unset_admin_state_up(self):
         self.ref_member.admin_state_up = data_models.UnsetType()
         self.driver.member_batch_update(self.pool_id, [self.ref_member])
-        self.assertEqual(self.mock_add_request.call_count, 2)
+        self.assertEqual(self.mock_add_request.call_count, 3)
 
     def test_member_batch_update_toggle_admin_state_up(self):
         info_mu = {
