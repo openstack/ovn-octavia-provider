@@ -2795,7 +2795,7 @@ class OvnProviderHelper():
 
     def hm_delete(self, info):
         hm_id = info[constants.ID]
-        pool_id_related = info[constants.POOL_ID]
+        pool_id = info[constants.POOL_ID]
 
         status = {
             constants.HEALTHMONITORS: [
@@ -2814,17 +2814,15 @@ class OvnProviderHelper():
         # the LB should have this info. Also in order to delete the hm port
         # used for health checks we need to get all subnets from the members
         # on the pool
-        pool_id = None
         pool_listeners = []
         member_subnets = []
         for k, v in ovn_lb.external_ids.items():
-            if ovn_const.LB_EXT_IDS_POOL_PREFIX in k:
+            if self._get_pool_key(pool_id) == k:
                 members = self._extract_member_info(ovn_lb.external_ids[k])
                 member_subnets = list(
                     set([mb_subnet
                          for (mb_ip, mb_port, mb_subnet, mb_id) in members])
                 )
-                pool_id = k.split('_')[1]
                 pool_listeners = self._get_pool_listeners(
                     ovn_lb, self._get_pool_key(pool_id))
                 break
@@ -2835,7 +2833,7 @@ class OvnProviderHelper():
         hms_key = ovn_lb.external_ids.get(ovn_const.LB_EXT_IDS_HMS_KEY, [])
 
         # Update status for members in the pool related to HM
-        member_status = self._update_member_statuses(ovn_lb, pool_id_related,
+        member_status = self._update_member_statuses(ovn_lb, pool_id,
                                                      constants.ACTIVE,
                                                      constants.NO_MONITOR)
 
@@ -2845,7 +2843,7 @@ class OvnProviderHelper():
                 hms_key.remove(hm_id)
 
         self._clean_ip_port_mappings(ovn_lb, ovn_const.LB_EXT_IDS_POOL_PREFIX +
-                                     str(pool_id_related))
+                                     str(pool_id))
 
         commands = []
         for lbhc in lbhcs:
@@ -2878,26 +2876,22 @@ class OvnProviderHelper():
             constants.LOADBALANCERS: [
                 {constants.ID: ovn_lb.name,
                  constants.PROVISIONING_STATUS: constants.ACTIVE}],
+            constants.POOLS: [
+                {constants.ID: pool_id,
+                 constants.PROVISIONING_STATUS: constants.ACTIVE}],
             constants.HEALTHMONITORS: [
                 {constants.ID: info[constants.ID],
                  constants.OPERATING_STATUS: constants.NO_MONITOR,
                  constants.PROVISIONING_STATUS: constants.DELETED}]}
-        if pool_id:
-            status[constants.POOLS] = [
-                {constants.ID: pool_id,
-                 constants.PROVISIONING_STATUS: constants.ACTIVE}]
 
-            if member_status:
-                status[constants.MEMBERS] = member_status
+        if member_status:
+            status[constants.MEMBERS] = member_status
 
-            status[constants.LISTENERS] = []
-            for listener in pool_listeners:
-                status[constants.LISTENERS].append(
-                    {constants.ID: listener,
-                     constants.PROVISIONING_STATUS: constants.ACTIVE})
-        else:
-            LOG.warning('Pool not found for load balancer %s, status '
-                        'update will have incomplete data', ovn_lb.name)
+        status[constants.LISTENERS] = []
+        for listener in pool_listeners:
+            status[constants.LISTENERS].append(
+                {constants.ID: listener,
+                    constants.PROVISIONING_STATUS: constants.ACTIVE})
         return status
 
     def _get_lbs_on_hm_event(self, row):
