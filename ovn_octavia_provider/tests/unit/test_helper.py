@@ -953,8 +953,9 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
             self.ovn_lb.uuid)
         del_port.assert_called_once_with('foo_port')
 
+    @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
     @mock.patch.object(ovn_helper.OvnProviderHelper, 'delete_port')
-    def test_lb_delete_port_exception(self, del_port):
+    def test_lb_delete_port_exception(self, del_port, net_cli):
         del_port.side_effect = [Exception]
         status = self.helper.lb_delete(self.ovn_lb)
         self.assertEqual(status['loadbalancers'][0]['provisioning_status'],
