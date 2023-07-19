@@ -328,7 +328,7 @@ class OvnProviderHelper():
                             lb.uuid, utils.ovn_uuid(info['network'].name))
                 pass
 
-    def vip_port_update_handler(self, vip_lp):
+    def vip_port_update_handler(self, vip_lp, fip, action):
         """Handler for VirtualIP port updates.
 
         If a floating ip is associated to a vip port, then networking-ovn sets
@@ -351,16 +351,9 @@ class OvnProviderHelper():
         # Loop over all defined LBs with given ID, because it is possible
         # than there is more than one (for more than 1 L4 protocol).
         for lb in ovn_lbs:
-            fip = vip_lp.external_ids.get(ovn_const.OVN_PORT_FIP_EXT_ID_KEY)
-            lb_vip_fip = lb.external_ids.get(ovn_const.LB_EXT_IDS_VIP_FIP_KEY)
             request_info = {'ovn_lb': lb,
-                            'vip_fip': fip}
-            if fip and fip != lb_vip_fip:
-                request_info['action'] = ovn_const.REQ_INFO_ACTION_ASSOCIATE
-            elif fip is None and fip != lb_vip_fip:
-                request_info['action'] = ovn_const.REQ_INFO_ACTION_DISASSOCIATE
-            else:
-                continue
+                            'vip_fip': fip,
+                            'action': action}
             self.add_request({'type': ovn_const.REQ_TYPE_HANDLE_VIP_FIP,
                               'info': request_info})
 
@@ -2323,10 +2316,9 @@ class OvnProviderHelper():
                 self.ovn_nbdb_api.db_remove(
                     'Load_Balancer', ovn_lb.uuid, 'external_ids',
                     (ovn_const.LB_EXT_IDS_VIP_FIP_KEY)))
-            old_fip = ovn_lb.external_ids.get(ovn_const.LB_EXT_IDS_VIP_FIP_KEY)
             for lbhc in ovn_lb.health_check:
                 # FIPs can only be ipv4, so not dealing with ipv6 [] here
-                if lbhc.vip.split(":")[0] == old_fip:
+                if lbhc.vip.split(":")[0] == fip_info['vip_fip']:
                     commands.append(
                         self.ovn_nbdb_api.db_remove('Load_Balancer',
                                                     ovn_lb.uuid,

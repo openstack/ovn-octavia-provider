@@ -51,19 +51,29 @@ class LogicalSwitchPortUpdateEvent(row_event.RowEvent):
         self.event_name = 'LogicalSwitchPortUpdateEvent'
         self.driver = driver
 
+    def match_fn(self, event, row, old):
+        port_name = row.external_ids.get(
+            ovn_const.OVN_PORT_NAME_EXT_ID_KEY, '')
+        if hasattr(old, 'external_ids') and port_name.startswith(
+                ovn_const.LB_VIP_PORT_PREFIX):
+            return True
+        return False
+
     def run(self, event, row, old):
         LOG.debug('LogicalSwitchPortUpdateEvent logged, '
                   '%(event)s, %(row)s',
                   {'event': event,
                    'row': row})
-        # Get the neutron:port_name from external_ids and check if
-        # it's a vip port or not.
-        port_name = row.external_ids.get(
-            ovn_const.OVN_PORT_NAME_EXT_ID_KEY, '')
-        if port_name.startswith(ovn_const.LB_VIP_PORT_PREFIX):
-            # Handle port update only for vip ports created by
-            # this driver.
-            self.driver.vip_port_update_handler(row)
+        fip_old = old.external_ids.get(ovn_const.OVN_PORT_FIP_EXT_ID_KEY)
+        fip_new = row.external_ids.get(ovn_const.OVN_PORT_FIP_EXT_ID_KEY)
+        if fip_old != fip_new:
+            if fip_old and fip_new is None:
+                action = ovn_const.REQ_INFO_ACTION_DISASSOCIATE
+                fip = fip_old
+            else:
+                action = ovn_const.REQ_INFO_ACTION_ASSOCIATE
+                fip = fip_new
+            self.driver.vip_port_update_handler(row, fip, action)
 
 
 class ServiceMonitorUpdateEvent(row_event.RowEvent):
