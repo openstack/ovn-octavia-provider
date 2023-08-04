@@ -2973,21 +2973,27 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
             self.ref_lb1,
             network_id=self.network.uuid)
 
-    def test_logical_switch_port_update_event_vip_port(self):
+    def test_logical_switch_port_update_event_vip_port_associate(self):
         self.switch_port_event = ovn_event.LogicalSwitchPortUpdateEvent(
             self.helper)
         port_name = '%s%s' % (ovn_const.LB_VIP_PORT_PREFIX, 'foo')
+        fip = '10.0.0.1'
         attrs = {
             'external_ids':
             {ovn_const.OVN_PORT_NAME_EXT_ID_KEY: port_name,
-             ovn_const.OVN_PORT_FIP_EXT_ID_KEY: '10.0.0.1'}}
+             ovn_const.OVN_PORT_FIP_EXT_ID_KEY: fip}}
         row = fakes.FakeOvsdbRow.create_one_ovsdb_row(
             attrs=attrs)
-        self.switch_port_event.run(mock.ANY, row, mock.ANY)
+        attrs_old = {
+            'external_ids':
+            {ovn_const.OVN_PORT_NAME_EXT_ID_KEY: port_name}}
+        old = fakes.FakeOvsdbRow.create_one_ovsdb_row(
+            attrs=attrs_old)
+        self.switch_port_event.run(mock.ANY, row, old)
         expected_call = {
             'info':
                 {'action': 'associate',
-                 'vip_fip': '10.0.0.1',
+                 'vip_fip': fip,
                  'ovn_lb': self.ovn_lb},
             'type': 'handle_vip_fip'}
         self.mock_add_request.assert_called_once_with(expected_call)
@@ -2998,34 +3004,75 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         attrs = {'external_ids': {}}
         row = fakes.FakeOvsdbRow.create_one_ovsdb_row(
             attrs=attrs)
-        self.switch_port_event.run(mock.ANY, row, mock.ANY)
+        self.assertFalse(self.switch_port_event.match_fn(
+            mock.ANY, row, mock.ANY))
         self.mock_add_request.assert_not_called()
 
-    def test_logical_switch_port_update_event_empty_fip(self):
+    def test_logical_switch_port_update_event_disassociate(self):
         self.switch_port_event = ovn_event.LogicalSwitchPortUpdateEvent(
             self.helper)
         port_name = '%s%s' % (ovn_const.LB_VIP_PORT_PREFIX, 'foo')
+        fip = '172.24.4.4'
         attrs = {'external_ids':
                  {ovn_const.OVN_PORT_NAME_EXT_ID_KEY: port_name}}
         row = fakes.FakeOvsdbRow.create_one_ovsdb_row(
             attrs=attrs)
-        self.switch_port_event.run(mock.ANY, row, mock.ANY)
+        attrs_old = {'external_ids':
+                     {ovn_const.OVN_PORT_NAME_EXT_ID_KEY: port_name,
+                      ovn_const.OVN_PORT_FIP_EXT_ID_KEY: fip}}
+        old = fakes.FakeOvsdbRow.create_one_ovsdb_row(
+            attrs=attrs_old)
+        self.switch_port_event.run(mock.ANY, row, old)
         expected_call = {
             'info':
                 {'action': 'disassociate',
-                 'vip_fip': None,
+                 'vip_fip': fip,
                  'ovn_lb': self.ovn_lb},
             'type': 'handle_vip_fip'}
         self.mock_add_request.assert_called_once_with(expected_call)
 
-    def test_logical_switch_port_update_event_not_vip_port(self):
+    def test_logical_switch_port_update_event_update_unrelated(self):
+        self.switch_port_event = ovn_event.LogicalSwitchPortUpdateEvent(
+            self.helper)
+        port_name = '%s%s' % (ovn_const.LB_VIP_PORT_PREFIX, 'foo')
+        fip = '172.24.4.4'
+        attrs = {'external_ids':
+                 {ovn_const.OVN_PORT_NAME_EXT_ID_KEY: port_name,
+                  ovn_const.OVN_PORT_FIP_EXT_ID_KEY: fip}}
+        row = fakes.FakeOvsdbRow.create_one_ovsdb_row(
+            attrs=attrs)
+        attrs_old = {'external_ids':
+                     {ovn_const.OVN_PORT_NAME_EXT_ID_KEY: port_name,
+                      ovn_const.OVN_PORT_FIP_EXT_ID_KEY: fip}}
+        old = fakes.FakeOvsdbRow.create_one_ovsdb_row(
+            attrs=attrs_old)
+        self.switch_port_event.run(mock.ANY, row, old)
+        self.mock_add_request.assert_not_called()
+
+    def test_logical_switch_port_update_event_without_external_ids(self):
+        self.switch_port_event = ovn_event.LogicalSwitchPortUpdateEvent(
+            self.helper)
+        attrs = {}
+        row = fakes.FakeOvsdbRow.create_one_ovsdb_row(
+            attrs=attrs)
+        old = fakes.FakeOvsdbRow.create_one_ovsdb_row(
+            attrs=attrs)
+        self.switch_port_event.run(mock.ANY, row, old)
+        self.mock_add_request.assert_not_called()
+
+    def test_logical_switch_port_update_event_wrong_vip_port_name(self):
         self.switch_port_event = ovn_event.LogicalSwitchPortUpdateEvent(
             self.helper)
         port_name = 'foo'
         row = fakes.FakeOvsdbRow.create_one_ovsdb_row(
             attrs={'external_ids':
                    {ovn_const.OVN_PORT_NAME_EXT_ID_KEY: port_name}})
-        self.switch_port_event.run(mock.ANY, row, mock.ANY)
+        attrs_old = {'external_ids':
+                     {ovn_const.OVN_PORT_NAME_EXT_ID_KEY: port_name,
+                      ovn_const.OVN_PORT_FIP_EXT_ID_KEY: 'foo'}}
+        old = fakes.FakeOvsdbRow.create_one_ovsdb_row(
+            attrs=attrs_old)
+        self.assertFalse(self.switch_port_event.match_fn(mock.ANY, row, old))
         self.mock_add_request.assert_not_called()
 
     @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
@@ -3045,7 +3092,12 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
                  {ovn_const.OVN_PORT_NAME_EXT_ID_KEY: port_name}}
         row = fakes.FakeOvsdbRow.create_one_ovsdb_row(
             attrs=attrs)
-        self.switch_port_event.run(mock.ANY, row, mock.ANY)
+        attrs_old = {'external_ids':
+                     {ovn_const.OVN_PORT_NAME_EXT_ID_KEY: port_name,
+                      ovn_const.OVN_PORT_FIP_EXT_ID_KEY: '172.24.4.40'}}
+        old = fakes.FakeOvsdbRow.create_one_ovsdb_row(
+            attrs=attrs_old)
+        self.switch_port_event.run(mock.ANY, row, old)
         self.mock_add_request.assert_not_called()
 
     @mock.patch.object(ovn_helper.OvnProviderHelper, '_execute_commands')
@@ -3101,13 +3153,18 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
                  {ovn_const.OVN_PORT_NAME_EXT_ID_KEY: port_name}}
         row = fakes.FakeOvsdbRow.create_one_ovsdb_row(
             attrs=attrs)
-        self.switch_port_event.run(mock.ANY, row, mock.ANY)
+        attrs_old = {'external_ids':
+                     {ovn_const.OVN_PORT_NAME_EXT_ID_KEY: port_name,
+                      ovn_const.OVN_PORT_FIP_EXT_ID_KEY: '172.24.4.40'}}
+        old = fakes.FakeOvsdbRow.create_one_ovsdb_row(
+            attrs=attrs_old)
+        self.switch_port_event.run(mock.ANY, row, old)
 
         def expected_call(lb):
             return {'type': 'handle_vip_fip',
                     'info':
                         {'action': mock.ANY,
-                         'vip_fip': None,
+                         'vip_fip': '172.24.4.40',
                          'ovn_lb': lb}}
 
         self.mock_add_request.assert_has_calls([
