@@ -8,7 +8,7 @@
 
 keystoneauth1>=3.14.0 # Apache-2.0
 netaddr>=0.7.18 # BSD
-neutron-lib>=2.16.0 # Apache-2.0
+neutron-lib>=3.8.0 # Apache-2.0
 openstacksdk>=0.103.0 # Apache-2.0
 oslo.config>=8.0.0 # Apache-2.0
 oslo.log>=4.3.0 # Apache-2.0
