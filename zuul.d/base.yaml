@@ -51,9 +51,8 @@
       Q_BUILD_OVS_FROM_GIT: True
       INSTALL_OVN: True
       OVN_BRANCH: main
-      # TODO(ykarel) move to master once OVN main branch is fixed to
-      # work with https://github.com/openvswitch/ovs/commit/07cf5810de
-      OVS_BRANCH: e90a0727f17f6ad915a32735a8c0b282f2c8cd6f
+      # NOTE(froyo): OVN main branch following OVS stable branch
+      OVS_BRANCH: branch-3.2
 
 - job:
     name: ovn-octavia-provider-tempest-base
@@ -185,6 +184,5 @@
         Q_BUILD_OVS_FROM_GIT: True
         INSTALL_OVN: True
         OVN_BRANCH: main
-        # TODO(ykarel) move to master once OVN main branch is fixed to
-        # work with https://github.com/openvswitch/ovs/commit/07cf5810de
-        OVS_BRANCH: e90a0727f17f6ad915a32735a8c0b282f2c8cd6f
+        # NOTE(froyo): OVN main branch following OVS stable branch
+        OVS_BRANCH: branch-3.2
