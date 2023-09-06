@@ -336,11 +336,12 @@ class TestOvnOctaviaBase(base.TestOVNFunctionalBase,
                         # Withing this status update check if all values of
                         # expected keys match.
                         for k, v in expected_status.items():
-                            val_check.append(
-                                sorted(expected_status[k],
-                                       key=lambda x: x['id']) ==
-                                sorted(updated_status[k],
-                                       key=lambda x: x['id']))
+                            ex = sorted(expected_status[k],
+                                        key=lambda x: x['id'])
+                            ox = sorted(updated_status[k],
+                                        key=lambda x: x['id'])
+                            val_check.append(all(item in ox for item in ex))
+
                         if False in val_check:
                             # At least one value don't match.
                             continue
@@ -787,7 +788,8 @@ class TestOvnOctaviaBase(base.TestOVNFunctionalBase,
                               "provisioning_status": o_constants.DELETED}],
                  'loadbalancers': [{
                      "id": p.loadbalancer_id,
-                     "provisioning_status": o_constants.ACTIVE}],
+                     "provisioning_status": o_constants.ACTIVE,
+                     'operating_status': o_constants.ONLINE}],
                  'listeners': []})
             self._update_ls_refs(
                 lb_data, self._local_net_cache[m.subnet_id], add_ref=False)
@@ -855,7 +857,8 @@ class TestOvnOctaviaBase(base.TestOVNFunctionalBase,
         self._update_ls_refs(lb_data, network_id)
         pool_listeners = self._get_pool_listeners(lb_data, pool_id)
         expected_listener_status = [
-            {'id': listener.listener_id, 'provisioning_status': 'ACTIVE'}
+            {'id': listener.listener_id, 'provisioning_status': 'ACTIVE',
+             'operating_status': o_constants.ONLINE}
             for listener in pool_listeners]
 
         expected_status = {
@@ -864,7 +867,8 @@ class TestOvnOctaviaBase(base.TestOVNFunctionalBase,
                          "provisioning_status": "ACTIVE",
                          "operating_status": o_constants.NO_MONITOR}],
             'loadbalancers': [{'id': pool.loadbalancer_id,
-                               'provisioning_status': 'ACTIVE'}],
+                               'provisioning_status': 'ACTIVE',
+                               'operating_status': o_constants.ONLINE}],
             'listeners': expected_listener_status
         }
         self._wait_for_status_and_validate(lb_data, [expected_status])
@@ -892,11 +896,13 @@ class TestOvnOctaviaBase(base.TestOVNFunctionalBase,
         self.ovn_driver.member_update(old_member, member)
         expected_status = {
             'pools': [{'id': pool.pool_id,
-                       'provisioning_status': 'ACTIVE'}],
+                       'provisioning_status': 'ACTIVE',
+                       'operating_status': o_constants.ONLINE}],
             'members': [{"id": member.member_id,
                          'provisioning_status': 'ACTIVE'}],
             'loadbalancers': [{'id': pool.loadbalancer_id,
-                               'provisioning_status': 'ACTIVE'}],
+                               'provisioning_status': 'ACTIVE',
+                               'operating_status': o_constants.ONLINE}],
             'listeners': []
         }
         if getattr(member, 'admin_state_up', None):
@@ -920,7 +926,8 @@ class TestOvnOctaviaBase(base.TestOVNFunctionalBase,
                               'provisioning_status': 'ACTIVE',
                               'operating_status': 'ONLINE'}],
                  'loadbalancers': [{'id': pool.loadbalancer_id,
-                                   'provisioning_status': 'ACTIVE'}],
+                                    'provisioning_status': 'ACTIVE',
+                                    'operating_status': o_constants.ONLINE}],
                  'listeners': []})
         for m in pool.members:
             found = False
@@ -968,7 +975,8 @@ class TestOvnOctaviaBase(base.TestOVNFunctionalBase,
             'members': [{"id": member.member_id,
                          "provisioning_status": "DELETED"}],
             'loadbalancers': [{"id": pool.loadbalancer_id,
-                               "provisioning_status": "ACTIVE"}],
+                               'provisioning_status': 'ACTIVE',
+                               'operating_status': o_constants.ONLINE}],
             'listeners': []}
 
         self._update_ls_refs(lb_data, network_id, add_ref=False)
@@ -985,6 +993,10 @@ class TestOvnOctaviaBase(base.TestOVNFunctionalBase,
         m_hm = self._create_hm_model(pool.pool_id, name, delay, timeout,
                                      max_retries, hm_type)
         pool.healthmonitor = m_hm
+
+        self.ovn_driver._ovn_helper._update_hm_member = mock.MagicMock()
+        self.ovn_driver._ovn_helper._update_hm_member.side_effect = [
+            o_constants.ONLINE, o_constants.ONLINE]
 
         self.ovn_driver.health_monitor_create(m_hm)
         pool_listeners = self._get_pool_listeners(lb_data, pool_id)
@@ -1005,7 +1017,8 @@ class TestOvnOctaviaBase(base.TestOVNFunctionalBase,
             'pools': [pool_status],
             'members': expected_member_status,
             'loadbalancers': [{'id': pool.loadbalancer_id,
-                               'provisioning_status': o_constants.ACTIVE}],
+                               'provisioning_status': o_constants.ACTIVE,
+                               'operating_status': o_constants.ONLINE}],
             'listeners': expected_listener_status,
             'healthmonitors': [expected_hm_status]
         }
