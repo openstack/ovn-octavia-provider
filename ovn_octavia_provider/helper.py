@@ -801,10 +801,12 @@ class OvnProviderHelper():
                         ovn_const.OVN_DEVICE_OWNER_EXT_ID_KEY) ==
                     n_const.DEVICE_OWNER_ROUTER_INTF):
                 if subnet_gateway_ip:
-                    port_cidr = netaddr.IPNetwork(
-                        port.external_ids[
-                            ovn_const.OVN_PORT_CIDR_EXT_ID_KEY]).ip
-                    if netaddr.IPAddress(subnet_gateway_ip) != port_cidr:
+                    for port_cidr in port.external_ids[
+                            ovn_const.OVN_PORT_CIDR_EXT_ID_KEY].split():
+                        port_ip = netaddr.IPNetwork(port_cidr).ip
+                        if netaddr.IPAddress(subnet_gateway_ip) == port_ip:
+                            break
+                    else:
                         continue
                 lsp_router_port = port
                 break

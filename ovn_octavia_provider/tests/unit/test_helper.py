@@ -2598,6 +2598,70 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         returned_lr = self.helper._find_lr_of_ls(ls, '10.10.10.1')
         self.assertEqual(lr, returned_lr)
 
+    def test__find_lr_of_ls_multiple_address_ipv4(self):
+        lsp = fakes.FakeOvsdbRow.create_one_ovsdb_row(
+            attrs={
+                'external_ids': {
+                    ovn_const.OVN_ROUTER_NAME_EXT_ID_KEY: 'router1',
+                    'neutron:cidrs': (
+                        '10.10.10.1/24 10.10.20.1/24'
+                    ),
+                    ovn_const.OVN_DEVICE_OWNER_EXT_ID_KEY:
+                        n_const.DEVICE_OWNER_ROUTER_INTF},
+                'type': 'router',
+                'options': {
+                    'router-port': 'lrp-foo-name'},
+            })
+        lrp = fakes.FakeOvsdbRow.create_one_ovsdb_row(
+            attrs={
+                'name': 'lrp-foo-name',
+            })
+        lr = fakes.FakeOVNRouter.create_one_router(
+            attrs={
+                'name': 'router1',
+                'ports': [lrp]})
+
+        ls = fakes.FakeOvsdbRow.create_one_ovsdb_row(
+            attrs={'ports': [lsp]})
+
+        (self.helper.ovn_nbdb_api.get_lrs.return_value.
+            execute.return_value) = [lr]
+        returned_lr = self.helper._find_lr_of_ls(ls, '10.10.20.1')
+        self.assertEqual(lr, returned_lr)
+
+    def test__find_lr_of_ls_multiple_address_ipv6(self):
+        lsp = fakes.FakeOvsdbRow.create_one_ovsdb_row(
+            attrs={
+                'external_ids': {
+                    ovn_const.OVN_ROUTER_NAME_EXT_ID_KEY: 'router1',
+                    'neutron:cidrs': (
+                        'fd61:5fe4:978c:a334:0:3eff:24ab:f816/64 '
+                        'fd8b:8a01:ab1d:0:f816:3eff:fe3d:24ab/64'
+                    ),
+                    ovn_const.OVN_DEVICE_OWNER_EXT_ID_KEY:
+                        n_const.DEVICE_OWNER_ROUTER_INTF},
+                'type': 'router',
+                'options': {
+                    'router-port': 'lrp-foo-name'},
+            })
+        lrp = fakes.FakeOvsdbRow.create_one_ovsdb_row(
+            attrs={
+                'name': 'lrp-foo-name',
+            })
+        lr = fakes.FakeOVNRouter.create_one_router(
+            attrs={
+                'name': 'router1',
+                'ports': [lrp]})
+
+        ls = fakes.FakeOvsdbRow.create_one_ovsdb_row(
+            attrs={'ports': [lsp]})
+
+        (self.helper.ovn_nbdb_api.get_lrs.return_value.
+            execute.return_value) = [lr]
+        returned_lr = self.helper._find_lr_of_ls(
+            ls, 'fd61:5fe4:978c:a334:0:3eff:24ab:f816')
+        self.assertEqual(lr, returned_lr)
+
     def test__find_lr_of_ls_no_lrs(self):
         lsp = fakes.FakeOvsdbRow.create_one_ovsdb_row(
             attrs={
@@ -2661,6 +2725,22 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
                     ovn_const.OVN_DEVICE_OWNER_EXT_ID_KEY:
                         n_const.DEVICE_OWNER_ROUTER_INTF},
                 'type': 'router',
+                'options': {
+                    'router-port': None}
+            })
+        ls = fakes.FakeOvsdbRow.create_one_ovsdb_row(
+            attrs={'ports': [lsp]})
+        returned_lr = self.helper._find_lr_of_ls(ls)
+        self.assertIsNone(returned_lr)
+
+    def test__find_lr_of_ls_no_router_type_port(self):
+        lsp = fakes.FakeOvsdbRow.create_one_ovsdb_row(
+            attrs={
+                'external_ids': {
+                    ovn_const.OVN_ROUTER_NAME_EXT_ID_KEY: 'router1',
+                    ovn_const.OVN_DEVICE_OWNER_EXT_ID_KEY:
+                        n_const.DEVICE_OWNER_ROUTER_INTF},
+                'type': 'foo',
                 'options': {
                     'router-port': None}
             })
