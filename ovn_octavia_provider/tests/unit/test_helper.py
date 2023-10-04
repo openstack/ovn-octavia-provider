@@ -4507,7 +4507,9 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
                                     self.vip_dict['vip_subnet_id']}],
                      'admin_state_up': True,
                      'port_security_enabled': False,
-                     'device_owner': n_const.DEVICE_OWNER_DISTRIBUTED,
+                     'device_owner': ovn_const.OVN_LB_HM_PORT_DISTRIBUTED,
+                     'device_id': '%s%s' % (ovn_const.LB_HM_PORT_PREFIX,
+                                            self.vip_dict['vip_subnet_id']),
                      'project_id': self.project_id
                      }}
         with mock.patch.object(clients, 'get_neutron_client') as net_cli:
@@ -4535,7 +4537,9 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
                                     self.vip_dict['vip_subnet_id']}],
                      'admin_state_up': True,
                      'port_security_enabled': False,
-                     'device_owner': n_const.DEVICE_OWNER_DISTRIBUTED,
+                     'device_owner': ovn_const.OVN_LB_HM_PORT_DISTRIBUTED,
+                     'device_id': '%s%s' % (ovn_const.LB_HM_PORT_PREFIX,
+                                            self.vip_dict['vip_subnet_id']),
                      'project_id': self.project_id
                      }}
         hm_port = self.helper._create_hm_port(
@@ -4571,7 +4575,9 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
                          'subnet_id': self.vip_dict['vip_subnet_id']}],
                      'admin_state_up': True,
                      'port_security_enabled': False,
-                     'device_owner': n_const.DEVICE_OWNER_DISTRIBUTED,
+                     'device_owner': ovn_const.OVN_LB_HM_PORT_DISTRIBUTED,
+                     'device_id': '%s%s' % (ovn_const.LB_HM_PORT_PREFIX,
+                                            self.vip_dict['vip_subnet_id']),
                      'project_id': self.project_id
                      }}
         hm_port = self.helper._create_hm_port(

@@ -1,0 +1,6 @@
+---
+upgrade:
+  - |
+    In order to support the new 'device_owner' for OVN
+    Load Balancer Health Monitor ports this version
+    requires a Neutron version > 23.0.0rc2

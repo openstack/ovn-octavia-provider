@@ -33,6 +33,9 @@ OVN_GW_PORT_EXT_ID_KEY = 'neutron:gw_port_id'
 OVN_PORT_CIDR_EXT_ID_KEY = 'neutron:cidrs'
 OVN_MEMBER_STATUS_KEY = 'neutron:member_status'
 
+# TODO(froyo): Use from neutron-lib once released.
+OVN_LB_HM_PORT_DISTRIBUTED = 'ovn-lb-hm:distributed'
+
 LB_EXT_IDS_LS_REFS_KEY = 'ls_refs'
 LB_EXT_IDS_LR_REF_KEY = 'lr_ref'
 LB_EXT_IDS_POOL_PREFIX = 'pool_'
