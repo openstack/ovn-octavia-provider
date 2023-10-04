@@ -140,7 +140,8 @@ class OvnProviderHelper():
                 'fixed_ips': [{'subnet_id': subnet_id}],
                 'admin_state_up': True,
                 'port_security_enabled': False,
-                'device_owner': n_const.DEVICE_OWNER_DISTRIBUTED,
+                'device_owner': ovn_const.OVN_LB_HM_PORT_DISTRIBUTED,
+                'device_id': ovn_const.LB_HM_PORT_PREFIX + str(subnet_id),
                 'project_id': project_id}
         neutron_client = clients.get_neutron_client()
         try:
