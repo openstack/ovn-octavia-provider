@@ -17,6 +17,7 @@ from oslo_log import log as logging
 from ovn_octavia_provider.common import config as ovn_conf
 from ovn_octavia_provider import event as ovn_event
 from ovn_octavia_provider import helper as ovn_helper
+from ovn_octavia_provider import maintenance
 from ovn_octavia_provider.ovsdb import impl_idl_ovn
 
 
@@ -50,6 +51,15 @@ def OvnProviderAgent(exit_event):
     ovn_sb_idl_for_events.notify_handler.watch_events(sb_events)
     ovn_sb_idl_for_events.start()
 
+    # NOTE(froyo): Maintenance task initialization added here
+    # as it will be a long life task managed through the Octavia
+    # driver agent -- unlike the OVNProviderDriver which is a
+    # short life service invocated by Octavia API.
+    maintenance_thread = maintenance.MaintenanceThread()
+    maintenance_thread.add_periodics(
+        maintenance.DBInconsistenciesPeriodics())
+    maintenance_thread.start()
+
     LOG.info('OVN provider agent has started.')
     exit_event.wait()
     LOG.info('OVN provider agent is exiting.')
@@ -57,3 +67,4 @@ def OvnProviderAgent(exit_event):
     ovn_nb_idl_for_events.stop()
     ovn_sb_idl_for_events.notify_handler.unwatch_events(sb_events)
     ovn_sb_idl_for_events.stop()
+    maintenance_thread.stop()
