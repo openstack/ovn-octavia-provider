@@ -1,0 +1,12 @@
+---
+fixes:
+  - |
+    A maintenance task process has been added to update the existing OVN LB HM
+    ports to the new behaviour defined. Specifically, the "device_owner" field
+    needs to be updated from network:distributed to ovn-lb-hm:distributed.
+    Additionally, the "device_id" will be populated during update action.
+other:
+  - |
+    A maintenance task thread has been added to work on periodic and one-shot
+    tasks that also allows the future changes to perform the needed upgrades
+    actions.
