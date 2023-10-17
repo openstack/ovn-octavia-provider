@@ -24,5 +24,5 @@ class TestOvnProviderAgent(ovn_base.TestOvnOctaviaBase):
         mock_exit_event.is_set.side_effect = [False, False, False, False, True]
         ovn_agent.OvnProviderAgent(mock_exit_event)
         self.assertEqual(1, mock_exit_event.wait.call_count)
-        self.assertEqual(2, self.mock_ovn_nb_idl.call_count)
+        self.assertEqual(3, self.mock_ovn_nb_idl.call_count)
         self.assertEqual(1, self.mock_ovn_sb_idl.call_count)
