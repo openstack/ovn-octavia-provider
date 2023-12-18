@@ -76,18 +76,21 @@ class DBInconsistenciesPeriodics(object):
         LOG.debug('Maintenance task: checking device_owner for OVN LB HM '
                   'ports.')
         neutron_client = clients.get_neutron_client()
-        ovn_lb_hm_ports = neutron_client.ports(
-            device_owner=n_const.DEVICE_OWNER_DISTRIBUTED)
+        ovn_lb_hm_ports = neutron_client.list_ports(**{
+            'device_owner': n_const.DEVICE_OWNER_DISTRIBUTED})
 
         check_neutron_support_new_device_owner = True
-        for port in ovn_lb_hm_ports:
-            if port.name.startswith('ovn-lb-hm'):
+        for port in ovn_lb_hm_ports['ports']:
+            if port['name'].startswith('ovn-lb-hm'):
                 LOG.debug('Maintenance task: updating device_owner and '
-                          'adding device_id for port id %s', port.id)
-                neutron_client.update_port(
-                    port.id, device_owner=ovn_const.OVN_LB_HM_PORT_DISTRIBUTED,
-                    device_id=port.name)
-
+                          'adding device_id for port id %s', port['id'])
+                update_port_info = {
+                    'port': {
+                        'device_owner': ovn_const.OVN_LB_HM_PORT_DISTRIBUTED,
+                        'device_id': port['name']
+                    }
+                }
+                neutron_client.update_port(port['id'], update_port_info)
                 # NOTE(froyo): Check that the port is now of type LOCALPORT in
                 # the OVN NB DB or perform a rollback in other cases. Such
                 # cases could indicate that Neutron is in the process of being
@@ -95,19 +98,24 @@ class DBInconsistenciesPeriodics(object):
                 # version that supports this change
                 if check_neutron_support_new_device_owner:
                     port_ovn = self.ovn_nbdb_api.db_find_rows(
-                        "Logical_Switch_Port", ("name", "=", port.id)).execute(
-                        check_error=True)
+                        "Logical_Switch_Port",
+                        ("name", "=", port['id'])).execute(check_error=True)
                     if len(port_ovn) and port_ovn[0].type != 'localport':
                         LOG.debug('Maintenance task: port %s updated but '
                                   'looks like Neutron does not support this '
                                   'new device_owner, or maybe is updating '
                                   'version, so restoring to old values and '
                                   'waiting another iteration of this task',
-                                  port.id)
-                        neutron_client.update_port(
-                            port.id,
-                            device_owner=n_const.DEVICE_OWNER_DISTRIBUTED,
-                            device_id='')
+                                  port['id'])
+                        update_port_info = {
+                            'port': {
+                                'device_owner':
+                                    n_const.DEVICE_OWNER_DISTRIBUTED,
+                                'device_id': ''
+                            }
+                        }
+                        neutron_client.update_port(port['id'],
+                                                   update_port_info)
                         # Break the loop as do not make sense change the rest
                         break
                     check_neutron_support_new_device_owner = False

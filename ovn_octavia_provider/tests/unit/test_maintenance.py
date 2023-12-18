@@ -37,39 +37,41 @@ class TestDBInconsistenciesPeriodics(ovn_base.TestOvnOctaviaBase):
 
     @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
     def test_change_device_owner_lb_hm_ports(self, net_cli):
-        ovn_lb_hm_ports = [
-            fakes.FakePort.create_one_port(
-                attrs={
-                    'id': 'foo',
-                    'device_owner': n_const.DEVICE_OWNER_DISTRIBUTED,
-                    'name': 'ovn-metadata-foo'}),
-            fakes.FakePort.create_one_port(
-                attrs={
-                    'id': 'foo1',
-                    'device_owner': n_const.DEVICE_OWNER_DISTRIBUTED,
-                    'name': 'ovn-lb-hm-foo1'}),
-            fakes.FakePort.create_one_port(
-                attrs={
-                    'id': 'foo2',
-                    'device_owner': n_const.DEVICE_OWNER_DISTRIBUTED,
-                    'name': 'ovn-lb-hm-foo2'})]
+        ovn_lb_hm_ports = {
+            'ports': [
+                fakes.FakePort.create_one_port(
+                    attrs={
+                        'id': 'foo',
+                        'device_owner': n_const.DEVICE_OWNER_DISTRIBUTED,
+                        'name': 'ovn-metadata-foo'}),
+                fakes.FakePort.create_one_port(
+                    attrs={
+                        'id': 'foo1',
+                        'device_owner': n_const.DEVICE_OWNER_DISTRIBUTED,
+                        'name': 'ovn-lb-hm-foo1'}),
+                fakes.FakePort.create_one_port(
+                    attrs={
+                        'id': 'foo2',
+                        'device_owner': n_const.DEVICE_OWNER_DISTRIBUTED,
+                        'name': 'ovn-lb-hm-foo2'})]}
 
-        net_cli.return_value.ports.return_value = ovn_lb_hm_ports
+        net_cli.return_value.list_ports.return_value = ovn_lb_hm_ports
         self.assertRaises(periodics.NeverAgain,
                           self.maint.change_device_owner_lb_hm_ports)
         expected_dict_1 = {
-            'device_owner': ovn_const.OVN_LB_HM_PORT_DISTRIBUTED,
-            'device_id': 'ovn-lb-hm-foo1',
-        }
+            'port': {
+                'device_owner': ovn_const.OVN_LB_HM_PORT_DISTRIBUTED,
+                'device_id': 'ovn-lb-hm-foo1'}}
         expected_dict_2 = {
-            'device_owner': ovn_const.OVN_LB_HM_PORT_DISTRIBUTED,
-            'device_id': 'ovn-lb-hm-foo2',
-        }
+            'port': {
+                'device_owner': ovn_const.OVN_LB_HM_PORT_DISTRIBUTED,
+                'device_id': 'ovn-lb-hm-foo2'}}
         expected_call = [
             mock.call(),
-            mock.call().ports(device_owner=n_const.DEVICE_OWNER_DISTRIBUTED),
-            mock.call().update_port('foo1', **expected_dict_1),
-            mock.call().update_port('foo2', **expected_dict_2)]
+            mock.call().list_ports(
+                device_owner=n_const.DEVICE_OWNER_DISTRIBUTED),
+            mock.call().update_port('foo1', expected_dict_1),
+            mock.call().update_port('foo2', expected_dict_2)]
         net_cli.assert_has_calls(expected_call)
         self.maint.ovn_nbdb_api.db_find_rows.assert_called_once_with(
             "Logical_Switch_Port", ("name", "=", 'foo1'))
@@ -77,24 +79,25 @@ class TestDBInconsistenciesPeriodics(ovn_base.TestOvnOctaviaBase):
     @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
     def test_change_device_owner_lb_hm_ports_neutron_version_doesnt_match(
             self, net_cli):
-        ovn_lb_hm_ports = [
-            fakes.FakePort.create_one_port(
-                attrs={
-                    'id': 'foo',
-                    'device_owner': n_const.DEVICE_OWNER_DISTRIBUTED,
-                    'name': 'ovn-metadata-foo'}),
-            fakes.FakePort.create_one_port(
-                attrs={
-                    'id': 'foo1',
-                    'device_owner': n_const.DEVICE_OWNER_DISTRIBUTED,
-                    'name': 'ovn-lb-hm-foo1'}),
-            fakes.FakePort.create_one_port(
-                attrs={
-                    'id': 'foo2',
-                    'device_owner': n_const.DEVICE_OWNER_DISTRIBUTED,
-                    'name': 'ovn-lb-hm-foo2'})]
+        ovn_lb_hm_ports = {
+            'ports': [
+                fakes.FakePort.create_one_port(
+                    attrs={
+                        'id': 'foo',
+                        'device_owner': n_const.DEVICE_OWNER_DISTRIBUTED,
+                        'name': 'ovn-metadata-foo'}),
+                fakes.FakePort.create_one_port(
+                    attrs={
+                        'id': 'foo1',
+                        'device_owner': n_const.DEVICE_OWNER_DISTRIBUTED,
+                        'name': 'ovn-lb-hm-foo1'}),
+                fakes.FakePort.create_one_port(
+                    attrs={
+                        'id': 'foo2',
+                        'device_owner': n_const.DEVICE_OWNER_DISTRIBUTED,
+                        'name': 'ovn-lb-hm-foo2'})]}
 
-        net_cli.return_value.ports.return_value = ovn_lb_hm_ports
+        net_cli.return_value.list_ports.return_value = ovn_lb_hm_ports
         self.maint.ovn_nbdb_api.db_find_rows.return_value.\
             execute.return_value = [
                 fakes.FakeOvsdbRow.create_one_ovsdb_row(
@@ -103,32 +106,34 @@ class TestDBInconsistenciesPeriodics(ovn_base.TestOvnOctaviaBase):
                         'type': 'foo'})]
         self.maint.change_device_owner_lb_hm_ports()
         expected_dict_change = {
-            'device_owner': ovn_const.OVN_LB_HM_PORT_DISTRIBUTED,
-            'device_id': 'ovn-lb-hm-foo1',
-        }
+            'port': {
+                'device_owner': ovn_const.OVN_LB_HM_PORT_DISTRIBUTED,
+                'device_id': 'ovn-lb-hm-foo1'}}
         expected_dict_rollback = {
-            'device_owner': n_const.DEVICE_OWNER_DISTRIBUTED,
-            'device_id': '',
-        }
+            'port': {
+                'device_owner': n_const.DEVICE_OWNER_DISTRIBUTED,
+                'device_id': ''}}
         expected_call = [
             mock.call(),
-            mock.call().ports(device_owner=n_const.DEVICE_OWNER_DISTRIBUTED),
-            mock.call().update_port('foo1', **expected_dict_change),
-            mock.call().update_port('foo1', **expected_dict_rollback)]
+            mock.call().list_ports(
+                device_owner=n_const.DEVICE_OWNER_DISTRIBUTED),
+            mock.call().update_port('foo1', expected_dict_change),
+            mock.call().update_port('foo1', expected_dict_rollback)]
         net_cli.assert_has_calls(expected_call)
         self.maint.ovn_nbdb_api.db_find_rows.assert_called_once_with(
             "Logical_Switch_Port", ("name", "=", 'foo1'))
 
     @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
     def test_change_device_owner_lb_hm_ports_no_ports_to_change(self, net_cli):
-        ovn_lb_hm_ports = []
-        net_cli.return_value.ports.return_value = ovn_lb_hm_ports
+        ovn_lb_hm_ports = {'ports': []}
+        net_cli.return_value.list_ports.return_value = ovn_lb_hm_ports
 
         self.assertRaises(periodics.NeverAgain,
                           self.maint.change_device_owner_lb_hm_ports)
         expected_call = [
             mock.call(),
-            mock.call().ports(device_owner=n_const.DEVICE_OWNER_DISTRIBUTED),
+            mock.call().list_ports(
+                device_owner=n_const.DEVICE_OWNER_DISTRIBUTED),
         ]
         net_cli.assert_has_calls(expected_call)
         self.maint.ovn_nbdb_api.db_find_rows.assert_not_called()
