@@ -13,9 +13,9 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+from neutron_lib import constants as n_const
 from octavia_lib.api.drivers import exceptions as o_exceptions
 from octavia_lib.common import constants as o_constants
-
 from oslo_utils import uuidutils
 
 from ovn_octavia_provider.tests.functional import base as ovn_base
@@ -29,7 +29,8 @@ class TestOvnOctaviaProviderDriver(ovn_base.TestOvnOctaviaBase):
         sbnet_info = self._create_subnet_from_net(network_N1, '10.0.0.0/24',
                                                   router_id=r1_id)
         sbnet_additional_info = self._create_subnet_from_net(
-            network_N1, '10.0.1.0/24', router_id=r1_id)
+            network_N1, '2001:db8:0:1::/64', router_id=r1_id,
+            ip_version=n_const.IP_VERSION_6)
         additional_vips_list = [{
             'ip_address': sbnet_additional_info[2],
             'port_id': sbnet_additional_info[3],
@@ -266,7 +267,8 @@ class TestOvnOctaviaProviderDriver(ovn_base.TestOvnOctaviaBase):
         sbnet_info = self._create_subnet_from_net(network_N1, '10.0.0.0/24',
                                                   router_id=r1_id)
         sbnet_additional_info = self._create_subnet_from_net(
-            network_N1, '10.1.1.0/24', router_id=r1_id)
+            network_N1, '2001:db8:0:1::/64', router_id=r1_id,
+            ip_version=n_const.IP_VERSION_6)
         additional_vips_list = [{
             'ip_address': sbnet_additional_info[2],
             'port_id': sbnet_additional_info[3],

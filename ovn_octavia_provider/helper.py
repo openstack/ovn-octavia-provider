@@ -968,30 +968,36 @@ class OvnProviderHelper():
             if pool_id not in lb_external_ids or not lb_external_ids[pool_id]:
                 continue
 
-            ips = []
+            ips_v4 = []
+            ips_v6 = []
             for mb_ip, mb_port, mb_subnet, mb_id in self._extract_member_info(
                     lb_external_ids[pool_id]):
                 if not self._is_member_offline(ovn_lb, mb_id):
-                    if netaddr.IPNetwork(mb_ip).version == 6:
-                        ips.append(f'[{mb_ip}]:{mb_port}')
+                    if netaddr.IPNetwork(
+                            mb_ip).version == n_const.IP_VERSION_6:
+                        ips_v6.append(f'[{mb_ip}]:{mb_port}')
                     else:
-                        ips.append(f'{mb_ip}:{mb_port}')
-            if ips:
-                for lb_vip in lb_vips:
-                    if netaddr.IPNetwork(lb_vip).version == 6:
-                        lb_vip = f'[{lb_vip}]'
-                    vip_ips[lb_vip + ':' + vip_port] = ','.join(ips)
+                        ips_v4.append(f'{mb_ip}:{mb_port}')
 
-                if vip_fip:
-                    if netaddr.IPNetwork(vip_fip).version == 6:
-                        vip_fip = f'[{vip_fip}]'
-                    vip_ips[vip_fip + ':' + vip_port] = ','.join(ips)
+            for lb_vip in lb_vips:
+                if ips_v4 and netaddr.IPNetwork(
+                        lb_vip).version == n_const.IP_VERSION_4:
+                    vip_ips[lb_vip + ':' + vip_port] = ','.join(ips_v4)
+                if ips_v6 and netaddr.IPNetwork(
+                        lb_vip).version == n_const.IP_VERSION_6:
+                    lb_vip = f'[{lb_vip}]'
+                    vip_ips[lb_vip + ':' + vip_port] = ','.join(ips_v6)
 
-                if additional_vip_fips:
-                    for addi_vip_fip in additional_vip_fips.split(','):
-                        if netaddr.IPNetwork(addi_vip_fip).version == 6:
-                            addi_vip_fip = f'[{addi_vip_fip}]'
-                        vip_ips[addi_vip_fip + ':' + vip_port] = ','.join(ips)
+            if ips_v4 and vip_fip:
+                if netaddr.IPNetwork(vip_fip).version == n_const.IP_VERSION_4:
+                    vip_ips[vip_fip + ':' + vip_port] = ','.join(ips_v4)
+
+            if ips_v4 and additional_vip_fips:
+                for addi_vip_fip in additional_vip_fips.split(','):
+                    if netaddr.IPNetwork(
+                            addi_vip_fip).version == n_const.IP_VERSION_4:
+                        vip_ips[addi_vip_fip + ':' + vip_port] = ','.join(
+                            ips_v4)
         return vip_ips
 
     def _refresh_lb_vips(self, ovn_lb, lb_external_ids):
@@ -2646,7 +2652,7 @@ class OvnProviderHelper():
                     # then this could just be self.ovn_nbdb_api.lb_hm_add()
                     external_ids_vip = copy.deepcopy(external_ids)
                     external_ids_vip[ovn_const.LB_EXT_IDS_HM_VIP] = vip
-                    if netaddr.IPNetwork(vip).version == 6:
+                    if netaddr.IPNetwork(vip).version == n_const.IP_VERSION_6:
                         vip = f'[{vip}]'
                     kwargs = {
                         'vip': vip + ':' + str(vip_port) if vip_port else '',
@@ -2673,7 +2679,8 @@ class OvnProviderHelper():
                     external_ids_fip = copy.deepcopy(external_ids)
                     for fip in fips:
                         external_ids_fip[ovn_const.LB_EXT_IDS_HM_VIP] = fip
-                        if netaddr.IPNetwork(fip).version == 6:
+                        if netaddr.IPNetwork(
+                                fip).version == n_const.IP_VERSION_6:
                             fip = f'[{fip}]'
                         fip_kwargs = {
                             'vip': fip + ':' + str(vip_port)
@@ -2705,7 +2712,7 @@ class OvnProviderHelper():
             # will be empty, so get it from lbhc external_ids
             vip = lbhc.external_ids.get(ovn_const.LB_EXT_IDS_HM_VIP, '')
             if vip:
-                if netaddr.IPNetwork(vip).version == 6:
+                if netaddr.IPNetwork(vip).version == n_const.IP_VERSION_6:
                     vip = f'[{vip}]'
                 vip = vip + ':' + str(vip_port)
         commands = []
@@ -3100,11 +3107,11 @@ class OvnProviderHelper():
         hm_source_ip = str(row.src_ip)
         member_ip = str(row.ip)
         member_src = f'{row.logical_port}:'
-        if netaddr.IPNetwork(hm_source_ip).version == 6:
+        if netaddr.IPNetwork(hm_source_ip).version == n_const.IP_VERSION_6:
             member_src += f'[{hm_source_ip}]'
         else:
             member_src += f'{hm_source_ip}'
-        if netaddr.IPNetwork(member_ip).version == 6:
+        if netaddr.IPNetwork(member_ip).version == n_const.IP_VERSION_6:
             member_ip = f'[{member_ip}]'
         mappings[member_ip] = member_src
         lbs = self.ovn_nbdb_api.db_find_rows(

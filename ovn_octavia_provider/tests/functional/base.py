@@ -17,6 +17,7 @@ import copy
 from unittest import mock
 
 from neutron.common import utils as n_utils
+from neutron_lib import constants as n_const
 from neutron_lib.plugins import directory
 from octavia_lib.api.drivers import data_models as octavia_data_model
 from octavia_lib.api.drivers import driver_lib
@@ -283,9 +284,10 @@ class TestOvnOctaviaBase(base.TestOVNFunctionalBase,
         n1 = self._make_network(self.fmt, name, True)
         return n1
 
-    def _create_subnet_from_net(self, net, cidr, router_id=None):
+    def _create_subnet_from_net(self, net, cidr, router_id=None,
+                                ip_version=n_const.IP_VERSION_4):
         res = self._create_subnet(self.fmt, net['network']['id'],
-                                  cidr)
+                                  cidr, ip_version=ip_version)
         subnet = self.deserialize(self.fmt, res)['subnet']
         self._local_net_cache[subnet['id']] = net['network']['id']
         self._local_cidr_cache[subnet['id']] = subnet['cidr']

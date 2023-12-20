@@ -37,11 +37,23 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
             'member_%s_%s:%s_%s' %
             (self.member_id, self.member_address,
              self.member_port, self.member_subnet_id))
+        self.member_line_additional_vips = (
+            'member_%s_%s:%s_%s' %
+            (self.member_id, self.member_address,
+             self.member_port, self.member_subnet_id))
         self.ovn_lb = mock.MagicMock()
         self.ovn_lb.name = 'foo_ovn_lb'
         self.ovn_lb.external_ids = {
             ovn_const.LB_EXT_IDS_VIP_KEY: '10.22.33.4',
             'pool_%s' % self.pool_id: self.member_line,
+            'listener_%s' % self.listener_id: '80:pool_%s' % self.pool_id}
+        self.ovn_lb_addi_vips = mock.MagicMock()
+        self.ovn_lb_addi_vips.name = 'foo_ovn_lb_addi_vips'
+        self.ovn_lb_addi_vips.external_ids = {
+            ovn_const.LB_EXT_IDS_VIP_KEY: '10.22.33.4',
+            ovn_const.LB_EXT_IDS_ADDIT_VIP_KEY: '2001:db8:0:1::203',
+            'pool_%s' % self.pool_id: ','.join([
+                self.member_line, self.member_line_additional_vips]),
             'listener_%s' % self.listener_id: '80:pool_%s' % self.pool_id}
         self.mock_add_request = add_req_thread.start()
         self.project_id = uuidutils.generate_uuid()
@@ -250,6 +262,15 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
         self.assertFalse(self.driver._ip_version_differs(self.ref_member))
         self.ref_member.address = 'fc00::1'
         self.assertTrue(self.driver._ip_version_differs(self.ref_member))
+
+    def test__ip_version_differs_lb_additional_vips(self):
+        self.mock_find_ovn_lb_by_pool_id = mock.patch.object(
+            ovn_helper.OvnProviderHelper,
+            '_find_ovn_lb_by_pool_id').start()
+        self.mock_find_ovn_lb_by_pool_id.return_value = (_,
+                                                         self.ovn_lb_addi_vips)
+        self.ref_member.address = 'fc00::1'
+        self.assertFalse(self.driver._ip_version_differs(self.ref_member))
 
     def test__ip_version_differs_lb_not_found(self):
         self.mock_find_ovn_lb_by_pool_id = mock.patch.object(

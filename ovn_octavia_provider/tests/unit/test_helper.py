@@ -4165,24 +4165,45 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         expected = {'10.22.33.4:80': '192.168.2.149:1010'}
         self.assertEqual(expected, ret)
 
-    def test__frame_lb_vips_additional_vips(self):
+    def test__frame_lb_vips_additional_vips_only_member_ipv4(self):
         self.ovn_lb.external_ids[ovn_const.LB_EXT_IDS_ADDIT_VIP_KEY] = \
             '10.24.34.4,2001:db8::1'
         ret = self.helper._frame_vip_ips(self.ovn_lb, self.ovn_lb.external_ids)
         expected = {'10.22.33.4:80': '192.168.2.149:1010',
                     '10.24.34.4:80': '192.168.2.149:1010',
-                    '[2001:db8::1]:80': '192.168.2.149:1010',
                     '123.123.123.123:80': '192.168.2.149:1010'}
         self.assertEqual(expected, ret)
 
-    def test__frame_lb_vips_additional_vip_fips(self):
-        self.ovn_lb.external_ids[ovn_const.LB_EXT_IDS_ADDIT_VIP_FIP_KEY] = \
-            '172.24.34.4,2001:db8::1'
+    def test__frame_lb_vips_additional_vips_mixing_member_ipv4_ipv6(self):
+        self.ovn_lb.external_ids[ovn_const.LB_EXT_IDS_ADDIT_VIP_KEY] = \
+            '10.24.34.4,2001:db8::1'
+        self.member_address = '2001:db8::3'
+        self.member_line = (
+            'member_%s_%s:%s_%s' %
+            (self.member_id, self.member_address,
+             self.member_port, self.member_subnet_id))
+        self.ovn_lb.external_ids['pool_%s' % self.pool_id] = ','.join([
+            self.ovn_lb.external_ids['pool_%s' % self.pool_id],
+            self.member_line])
+
         ret = self.helper._frame_vip_ips(self.ovn_lb, self.ovn_lb.external_ids)
         expected = {'10.22.33.4:80': '192.168.2.149:1010',
-                    '172.24.34.4:80': '192.168.2.149:1010',
-                    '[2001:db8::1]:80': '192.168.2.149:1010',
-                    '123.123.123.123:80': '192.168.2.149:1010'}
+                    '10.24.34.4:80': '192.168.2.149:1010',
+                    '123.123.123.123:80': '192.168.2.149:1010',
+                    '[2001:db8::1]:80': '[2001:db8::3]:1010'}
+        self.assertEqual(expected, ret)
+
+    def test__frame_lb_vips_additional_vips_only_member_ipv6(self):
+        self.ovn_lb.external_ids[ovn_const.LB_EXT_IDS_ADDIT_VIP_KEY] = \
+            '10.24.34.4,2001:db8::1'
+        self.member_address = '2001:db8::3'
+        self.member_line = (
+            'member_%s_%s:%s_%s' %
+            (self.member_id, self.member_address,
+             self.member_port, self.member_subnet_id))
+        self.ovn_lb.external_ids['pool_%s' % self.pool_id] = self.member_line
+        ret = self.helper._frame_vip_ips(self.ovn_lb, self.ovn_lb.external_ids)
+        expected = {'[2001:db8::1]:80': '[2001:db8::3]:1010'}
         self.assertEqual(expected, ret)
 
     def test__frame_lb_vips_disabled(self):
@@ -4198,12 +4219,10 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
              self.member_port, self.member_subnet_id))
         self.ovn_lb.external_ids = {
             ovn_const.LB_EXT_IDS_VIP_KEY: 'fc00::',
-            ovn_const.LB_EXT_IDS_VIP_FIP_KEY: '2002::',
             'pool_%s' % self.pool_id: self.member_line,
             'listener_%s' % self.listener_id: '80:pool_%s' % self.pool_id}
         ret = self.helper._frame_vip_ips(self.ovn_lb, self.ovn_lb.external_ids)
-        expected = {'[2002::]:80': '[2001:db8::1]:1010',
-                    '[fc00::]:80': '[2001:db8::1]:1010'}
+        expected = {'[fc00::]:80': '[2001:db8::1]:1010'}
         self.assertEqual(expected, ret)
 
     def test_check_lb_protocol(self):

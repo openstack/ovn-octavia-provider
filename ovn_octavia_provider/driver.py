@@ -265,9 +265,22 @@ class OvnProviderDriver(driver_base.ProviderDriver):
         _, ovn_lb = self._ovn_helper._find_ovn_lb_by_pool_id(member.pool_id)
         if not ovn_lb:
             return False
-        lb_vip = ovn_lb.external_ids[ovn_const.LB_EXT_IDS_VIP_KEY]
-        return netaddr.IPNetwork(lb_vip).version != (
-            netaddr.IPNetwork(member.address).version)
+        lb_vips = [ovn_lb.external_ids.get(
+            ovn_const.LB_EXT_IDS_VIP_KEY)]
+        if ovn_const.LB_EXT_IDS_ADDIT_VIP_KEY in ovn_lb.external_ids:
+            lb_vips.extend(ovn_lb.external_ids.get(
+                ovn_const.LB_EXT_IDS_ADDIT_VIP_KEY).split(','))
+
+        # NOTE(froyo): Allow mixing member IP version when VIP LB and any
+        # additional vip is also mixing version
+        vip_version = netaddr.IPNetwork(lb_vips[0]).version
+        vips_mixed = any(netaddr.IPNetwork(vip).version != vip_version
+                         for vip in lb_vips if vip)
+
+        if vips_mixed:
+            return False
+        else:
+            return vip_version != (netaddr.IPNetwork(member.address).version)
 
     def member_create(self, member):
         # Validate monitoring options if present

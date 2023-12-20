@@ -50,7 +50,7 @@ class TestOvnOctaviaBase(base.BaseTestCase):
         self.vip_output = {'vip_network_id': self.vip_dict['vip_network_id'],
                            'vip_subnet_id': self.vip_dict['vip_subnet_id']}
         self.additional_vips = [{
-            'ip_address': '192.148.110.109',
+            'ip_address': '2001:db8:0:1::12',
             'network_id': self.vip_dict['vip_network_id'],
             'port_id': uuidutils.generate_uuid(),
             'subnet_id': uuidutils.generate_uuid()
