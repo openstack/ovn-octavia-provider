@@ -43,7 +43,7 @@ nosetests.xml
 # Translations
 *.mo
 
-etc/*.sample
+etc/octavia/conf.d/ovn.conf.sample
 
 # Complexity
 output/*.html
