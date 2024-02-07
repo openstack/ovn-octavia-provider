@@ -52,7 +52,7 @@
       INSTALL_OVN: True
       OVN_BRANCH: main
       # NOTE(froyo): OVN main branch following OVS stable branch
-      OVS_BRANCH: branch-3.2
+      OVS_BRANCH: branch-3.3
 
 - job:
     name: ovn-octavia-provider-tempest-base
@@ -178,4 +178,4 @@
         INSTALL_OVN: True
         OVN_BRANCH: main
         # NOTE(froyo): OVN main branch following OVS stable branch
-        OVS_BRANCH: branch-3.2
+        OVS_BRANCH: branch-3.3
