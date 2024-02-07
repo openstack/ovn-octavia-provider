@@ -926,20 +926,28 @@ class OvnProviderHelper():
             for mb_ip, mb_port, mb_subnet, mb_id in self._extract_member_info(
                     lb_external_ids[pool_id]):
                 if not self._is_member_offline(ovn_lb, mb_id):
-                    if netaddr.IPNetwork(mb_ip).version == 6:
-                        ips.append(f'[{mb_ip}]:{mb_port}')
-                    else:
-                        ips.append(f'{mb_ip}:{mb_port}')
+                    mb_ip_formatted = (
+                        f'[{mb_ip}]:{mb_port}'
+                        if netaddr.IPNetwork(mb_ip).version == 6
+                        else f'{mb_ip}:{mb_port}'
+                    )
+                    ips.append(mb_ip_formatted)
 
             if ips:
-                if netaddr.IPNetwork(lb_vip).version == 6:
-                    lb_vip = f'[{lb_vip}]'
-                vip_ips[lb_vip + ':' + vip_port] = ','.join(ips)
+                lb_vip_formatted = (
+                    f'[{lb_vip}]'
+                    if netaddr.IPNetwork(lb_vip).version == 6
+                    else lb_vip
+                )
+                vip_ips[lb_vip_formatted + ':' + vip_port] = ','.join(ips)
 
                 if vip_fip:
-                    if netaddr.IPNetwork(vip_fip).version == 6:
-                        vip_fip = f'[{vip_fip}]'
-                    vip_ips[vip_fip + ':' + vip_port] = ','.join(ips)
+                    vip_fip_formatted = (
+                        f'[{vip_fip}]'
+                        if netaddr.IPNetwork(vip_fip).version == 6
+                        else vip_fip
+                    )
+                    vip_ips[vip_fip_formatted + ':' + vip_port] = ','.join(ips)
 
         return vip_ips
 

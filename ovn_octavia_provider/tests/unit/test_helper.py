@@ -3722,6 +3722,33 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
                     '[fc00::]:80': '[2001:db8::1]:1010'}
         self.assertEqual(expected, ret)
 
+    def test__frame_lb_vips_ipv6_multiple_listener_pool_member(self):
+        listener2_id = uuidutils.generate_uuid()
+        pool2_id = uuidutils.generate_uuid()
+        member2_id = uuidutils.generate_uuid()
+        member2_port = '1011'
+        self.member_address = '2001:db8::1'
+        member2_line = (
+            'member_%s_%s:%s_%s' %
+            (member2_id, self.member_address,
+             member2_port, self.member_subnet_id))
+
+        self.member_line = (
+            'member_%s_%s:%s_%s' %
+            (self.member_id, self.member_address,
+             self.member_port, self.member_subnet_id))
+
+        self.ovn_lb.external_ids = {
+            ovn_const.LB_EXT_IDS_VIP_KEY: 'fc00::',
+            'pool_%s' % self.pool_id: self.member_line,
+            'pool_%s' % pool2_id: member2_line,
+            'listener_%s' % self.listener_id: '80:pool_%s' % self.pool_id,
+            'listener_%s' % listener2_id: '443:pool_%s' % pool2_id}
+        ret = self.helper._frame_vip_ips(self.ovn_lb, self.ovn_lb.external_ids)
+        expected = {'[fc00::]:80': '[2001:db8::1]:1010',
+                    '[fc00::]:443': '[2001:db8::1]:1011'}
+        self.assertEqual(expected, ret)
+
     def test_check_lb_protocol(self):
         self.ovn_lb.protocol = ['tcp']
         ret = self.helper.check_lb_protocol(self.listener_id, 'udp')
