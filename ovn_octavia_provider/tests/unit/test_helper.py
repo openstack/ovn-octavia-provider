@@ -326,25 +326,39 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
                               mock.call(self.ovn_hm_lb.uuid, 'address2'),
                               mock.ANY])
 
-    def test__update_ip_port_mappings(self):
+    def test__update_ip_port_mappings_del_backend_member(self):
         src_ip = '10.22.33.4'
-        fakes.FakeOvsdbRow.create_one_ovsdb_row(
-            attrs={'ip': self.member_address,
-                   'logical_port': 'a-logical-port',
-                   'src_ip': src_ip,
-                   'port': self.member_port,
-                   'protocol': self.ovn_hm_lb.protocol,
-                   'status': ovn_const.HM_EVENT_MEMBER_PORT_ONLINE})
-        self.helper._update_ip_port_mappings(
-            self.ovn_lb, self.member_address, 'a-logical-port', src_ip)
-        self.helper.ovn_nbdb_api.lb_add_ip_port_mapping.\
-            assert_called_once_with(self.ovn_lb.uuid, self.member_address,
-                                    'a-logical-port', src_ip)
         self.helper._update_ip_port_mappings(
             self.ovn_lb, self.member_address, 'a-logical-port', src_ip,
             delete=True)
         self.helper.ovn_nbdb_api.lb_del_ip_port_mapping.\
             assert_called_once_with(self.ovn_lb.uuid, self.member_address)
+
+    def test__update_ip_port_mappings_add_backend_member(self):
+        src_ip = '10.22.33.4'
+        self.helper._update_ip_port_mappings(
+            self.ovn_lb, self.member_address, 'a-logical-port', src_ip)
+        self.helper.ovn_nbdb_api.lb_add_ip_port_mapping.\
+            assert_called_once_with(self.ovn_lb.uuid, self.member_address,
+                                    'a-logical-port', src_ip)
+
+    def test__update_ip_port_mappings_del_backend_member_ipv6(self):
+        member_address = 'fda2:918e:5869:0:f816:3eff:feab:cdef'
+        src_ip = 'fda2:918e:5869:0:f816:3eff:fecd:398a'
+        self.helper._update_ip_port_mappings(
+            self.ovn_lb, member_address, 'a-logical-port', src_ip,
+            delete=True)
+        self.helper.ovn_nbdb_api.lb_del_ip_port_mapping.\
+            assert_called_once_with(self.ovn_lb.uuid, member_address)
+
+    def test__update_ip_port_mappings_add_backend_member_ipv6(self):
+        member_address = 'fda2:918e:5869:0:f816:3eff:feab:cdef'
+        src_ip = 'fda2:918e:5869:0:f816:3eff:fecd:398a'
+        self.helper._update_ip_port_mappings(
+            self.ovn_lb, member_address, 'a-logical-port', src_ip)
+        self.helper.ovn_nbdb_api.lb_add_ip_port_mapping.\
+            assert_called_once_with(
+                self.ovn_lb.uuid, member_address, 'a-logical-port', src_ip)
 
     def test__update_external_ids_member_status(self):
         self.helper._update_external_ids_member_status(
