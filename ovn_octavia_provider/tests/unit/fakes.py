@@ -245,6 +245,28 @@ class FakeOVNRouter():
         return type('Logical_Router', (object, ), router_attrs)
 
 
+class FakeOVNLB():
+
+    @staticmethod
+    def create_one_lb(attrs=None):
+        fake_uuid = uuidutils.generate_uuid()
+        lb_attrs = {
+            'uuid': fake_uuid,
+            'external_ids': {},
+            'health_check': [],
+            'ip_port_mappings': {},
+            'name': '',
+            'options': {},
+            'protocol': 'tcp',
+            'selection_fields': [],
+            'vips': {}
+        }
+
+        # Overwrite default attributes.
+        lb_attrs.update(attrs)
+        return type('Load_Balancer', (object, ), lb_attrs)
+
+
 class FakePort():
     """Fake one or more ports."""
 

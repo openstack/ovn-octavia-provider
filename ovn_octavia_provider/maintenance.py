@@ -16,6 +16,7 @@ import inspect
 import threading
 
 from futurist import periodics
+import netaddr
 from neutron_lib import constants as n_const
 from oslo_config import cfg
 from oslo_log import log as logging
@@ -126,3 +127,42 @@ class DBInconsistenciesPeriodics(object):
             raise periodics.NeverAgain()
         LOG.debug('Maintenance task: device_owner and device_id checked for '
                   'OVN LB HM ports.')
+
+    # TODO(froyo): Remove this in the Caracal+4 cycle
+    @periodics.periodic(spacing=600, run_immediately=True)
+    def format_ip_port_mappings_ipv6(self):
+        """Give correct format to `ip_port_mappings` for IPv6 backend members.
+
+        The `ip_port_mappings` field for OVN LBs should be a dictionary with
+        keys following the format:
+        `${MEMBER_IP}=${LSP_NAME_MEMBER}:${HEALTH_SRC_IP}`. However, when
+        `MEMBER_IP` and `HEALTH_SRC_IP` are IPv6 addresses, they should be
+        enclosed in `[]`.
+        """
+        LOG.debug('Maintenance task: Ensure correct formatting of '
+                  'ip_port_mappings for IPv6 backend members.')
+        ovn_lbs = self.ovn_nbdb_api.db_find_rows(
+            'Load_Balancer', ('ip_port_mappings', '!=', {})).execute()
+        for lb in ovn_lbs:
+            mappings = {}
+            for k, v in lb.ip_port_mappings.items():
+                try:
+                    # If first element is IPv4 (mixing IPv4 and IPv6 not
+                    # allowed) or get AddrFormatError (IPv6 already fixed) we
+                    # can jump to next item
+                    if netaddr.IPNetwork(k).version == n_const.IP_VERSION_4:
+                        break
+                except netaddr.AddrFormatError:
+                    break
+                port_uuid, src_ip = v.split(':', 1)
+                mappings[f'[{k}]'] = f'{port_uuid}:[{src_ip}]'
+            self.ovn_nbdb_api.db_clear('Load_Balancer', lb.uuid,
+                                       'ip_port_mappings').execute(
+                check_error=True)
+            self.ovn_nbdb_api.db_set('Load_Balancer', lb.uuid,
+                                     ('ip_port_mappings', mappings)).execute(
+                check_error=True)
+
+        LOG.debug('Maintenance task: no more ip_port_mappings to format, '
+                  'stopping the periodic task.')
+        raise periodics.NeverAgain()

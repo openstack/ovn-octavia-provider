@@ -15,6 +15,7 @@ import contextlib
 
 import netaddr
 
+from neutron_lib import constants as n_const
 from neutron_lib import exceptions as n_exc
 from oslo_log import log
 from ovsdbapp.backend import ovs_idl
@@ -139,33 +140,51 @@ class GetLrsCommand(command.ReadOnlyCommand):
             self.api.tables['Logical_Router'].rows.values()]
 
 
-class LbAddIpPortMappingCommand(command.BaseCommand):
+# NOTE(froyo): remove this class once ovsdbapp manages the IPv6 into [ ]
+# https://bugs.launchpad.net/ovsdbapp/+bug/2057471
+class DelBackendFromIPPortMapping(command.BaseCommand):
     table = 'Load_Balancer'
 
-    def __init__(self, api, lb, endpoint_ip, port_name, source_ip):
+    def __init__(self, api, lb, backend_ip):
         super().__init__(api)
         self.lb = lb
-        self.endpoint_ip = str(netaddr.IPAddress(endpoint_ip))
+        if netaddr.IPNetwork(backend_ip).version == n_const.IP_VERSION_6:
+            self.backend_ip = f'[{backend_ip}]'
+        else:
+            self.backend_ip = backend_ip
+
+    def run_idl(self, txn):
+        try:
+            ovn_lb = self.api.lookup(self.table, self.lb)
+            ovn_lb.delkey('ip_port_mappings', self.backend_ip)
+        except Exception:
+            LOG.exception("Error deleting backend %s from ip_port_mappings "
+                          "for LB uuid %s", str(self.backend_ip), str(self.lb))
+
+
+# NOTE(froyo): remove this class once ovsdbapp manages the IPv6 into [ ]
+# https://bugs.launchpad.net/ovsdbapp/+bug/2057471
+class AddBackendToIPPortMapping(command.BaseCommand):
+    table = 'Load_Balancer'
+
+    def __init__(self, api, lb, backend_ip, port_name, src_ip):
+        super().__init__(api)
+        self.lb = lb
+        self.backend_ip = backend_ip
         self.port_name = port_name
-        self.source_ip = str(netaddr.IPAddress(source_ip))
+        self.src_ip = src_ip
+        if netaddr.IPNetwork(backend_ip).version == n_const.IP_VERSION_6:
+            self.backend_ip = f'[{backend_ip}]'
+            self.src_ip = f'[{src_ip}]'
 
     def run_idl(self, txn):
-        lb = self.api.lookup(self.table, self.lb)
-        lb.setkey('ip_port_mappings', self.endpoint_ip,
-                  '%s:%s' % (self.port_name, self.source_ip))
-
-
-class LbDelIpPortMappingCommand(command.BaseCommand):
-    table = 'Load_Balancer'
-
-    def __init__(self, api, lb, endpoint_ip):
-        super().__init__(api)
-        self.lb = lb
-        self.endpoint_ip = str(netaddr.IPAddress(endpoint_ip))
-
-    def run_idl(self, txn):
-        lb = self.api.lookup(self.table, self.lb)
-        lb.delkey('ip_port_mappings', self.endpoint_ip)
+        try:
+            lb = self.api.lookup(self.table, self.lb)
+            lb.setkey('ip_port_mappings', self.backend_ip,
+                      '%s:%s' % (self.port_name, self.src_ip))
+        except Exception:
+            LOG.exception("Error adding backend %s to ip_port_mappings "
+                          "for LB uuid %s", str(self.backend_ip), str(self.lb))
 
 
 class OvsdbNbOvnIdl(nb_impl_idl.OvnNbApiIdlImpl, Backend):
@@ -203,20 +222,14 @@ class OvsdbNbOvnIdl(nb_impl_idl.OvnNbApiIdlImpl, Backend):
     def get_lrs(self):
         return GetLrsCommand(self)
 
-    # FIXME (froyo): Remove this method once the ovsdbapp version is upgraded
-    # to a version higher than 2.1.0, it will be possible to remove this method
-    # This is done due to some conflict on bumping the noted version. Also
-    # class LbDelIpPortMappingCommand shall be removed at the same time.
-    def lb_del_ip_port_mapping(self, lb, endpoint_ip):
-        return LbDelIpPortMappingCommand(self, lb, endpoint_ip)
+    # NOTE(froyo): remove this method once ovsdbapp manages the IPv6 into [ ]
+    def lb_del_ip_port_mapping(self, lb_uuid, backend_ip):
+        return DelBackendFromIPPortMapping(self, lb_uuid, backend_ip)
 
-    # FIXME (froyo): Remove this method once the ovsdbapp version is upgraded
-    # to a version higher than 2.1.0, it will be possible to remove this method
-    # This is done due to some conflict on bumping the noted version. Also
-    # class LbAddIpPortMappingCommand shall be removed at the same time.
-    def lb_add_ip_port_mapping(self, lb, endpoint_ip, port_name, source_ip):
-        return LbAddIpPortMappingCommand(self, lb, endpoint_ip, port_name,
-                                         source_ip)
+    # NOTE(froyo): remove this method once ovsdbapp manages the IPv6 into [ ]
+    def lb_add_ip_port_mapping(self, lb_uuid, backend_ip, port_name, src_ip):
+        return AddBackendToIPPortMapping(self, lb_uuid, backend_ip, port_name,
+                                         src_ip)
 
 
 class OvsdbSbOvnIdl(sb_impl_idl.OvnSbApiIdlImpl, Backend):

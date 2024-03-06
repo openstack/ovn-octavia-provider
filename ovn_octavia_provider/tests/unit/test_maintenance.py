@@ -137,3 +137,61 @@ class TestDBInconsistenciesPeriodics(ovn_base.TestOvnOctaviaBase):
         ]
         net_cli.assert_has_calls(expected_call)
         self.maint.ovn_nbdb_api.db_find_rows.assert_not_called()
+
+    def test_format_ip_port_mappings_ipv6_no_ip_port_mappings_to_change(self):
+        self.maint.ovn_nbdb_api.db_find_rows.return_value.\
+            execute.return_value = []
+
+        self.assertRaises(periodics.NeverAgain,
+                          self.maint.format_ip_port_mappings_ipv6)
+        self.maint.ovn_nbdb_api.db_clear.assert_not_called()
+        self.maint.ovn_nbdb_api.db_set.assert_not_called()
+
+    @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
+    def test_format_ip_port_mappings_ipv6(self, net_cli):
+        ovn_lbs = [
+            fakes.FakeOVNLB.create_one_lb(
+                attrs={
+                    'uuid': 'foo1',
+                    'ip_port_mappings': {
+                        'fda2:918e:5869:0:f816:3eff:fe64:adf7':
+                            'f2b97caf-da62-4db9-91da-bc11f2ac3934:'
+                            'fda2:918e:5869:0:f816:3eff:fe81:61d0',
+                        'fda2:918e:5869:0:f816:3eff:fe64:adf8':
+                            'f2b97caf-da62-4db9-91da-bc11f2ac3935:'
+                            'fda2:918e:5869:0:f816:3eff:fe81:61d0'}}),
+            fakes.FakeOVNLB.create_one_lb(
+                attrs={
+                    'uuid': 'foo2',
+                    'ip_port_mappings': {
+                        '192.168.1.50':
+                            'f2b97caf-da62-4db9-91da-bc11f2ac3934:'
+                            '192.168.1.3'}}),
+            fakes.FakeOVNLB.create_one_lb(
+                attrs={
+                    'uuid': 'foo3',
+                    'ip_port_mappings': {
+                        '[fda2:918e:5869:0:f816:3eff:fe64:adf7]':
+                            'f2b97caf-da62-4db9-91da-bc11f2ac3934:'
+                            '[fda2:918e:5869:0:f816:3eff:fe81:61d0]'}}),
+        ]
+
+        self.maint.ovn_nbdb_api.db_find_rows.return_value.\
+            execute.return_value = ovn_lbs
+        self.assertRaises(periodics.NeverAgain,
+                          self.maint.format_ip_port_mappings_ipv6)
+        mapping1 = {
+            '[fda2:918e:5869:0:f816:3eff:fe64:adf7]':
+                'f2b97caf-da62-4db9-91da-bc11f2ac3934:'
+                '[fda2:918e:5869:0:f816:3eff:fe81:61d0]',
+            '[fda2:918e:5869:0:f816:3eff:fe64:adf8]':
+                'f2b97caf-da62-4db9-91da-bc11f2ac3935:'
+                '[fda2:918e:5869:0:f816:3eff:fe81:61d0]'}
+        expected_call_db_clear = [
+            mock.call('Load_Balancer', 'foo1', 'ip_port_mappings')]
+        self.maint.ovn_nbdb_api.db_clear.assert_has_calls(
+            expected_call_db_clear)
+        expected_call_db_set = [
+            mock.call('Load_Balancer', 'foo1', ('ip_port_mappings', mapping1))]
+        self.maint.ovn_nbdb_api.db_set.assert_has_calls(
+            expected_call_db_set)
