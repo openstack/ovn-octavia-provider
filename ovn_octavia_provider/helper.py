@@ -27,6 +27,7 @@ import openstack
 from oslo_config import cfg
 from oslo_log import log as logging
 from oslo_serialization import jsonutils
+from oslo_utils import strutils
 from ovs.stream import Stream
 from ovsdbapp.backend.ovs_idl import idlutils
 from ovsdbapp.schema.ovn_northbound import commands as cmd
@@ -289,7 +290,9 @@ class OvnProviderHelper():
             return
         request_info = {'network': network,
                         'router': router,
-                        'gateway_chassis': row.gateway_chassis}
+                        'is_gw_port': strutils.bool_from_string(
+                            row.external_ids.get(
+                                ovn_const.OVN_ROUTER_IS_EXT_GW))}
         self.add_request({'type': ovn_const.REQ_TYPE_LB_CREATE_LRP_ASSOC,
                           'info': request_info})
 
@@ -306,13 +309,12 @@ class OvnProviderHelper():
                             lb.uuid, info['router'].uuid)
                 self._update_lb_to_lr_association_by_step(lb, info['router'])
 
-        # if gateway_chassis ports, there is no need to re-add the
+        # if lrp port is a gw port, there is no need to re-add the
         # loadbalancers from the router into the provider network.
         # This will be already done for loadbalancer created with VIPs on
-        # provider networks, regardless of the gateway_chassis lrp port
-        # existence. And it should never be there when the VIPs are on
-        # tenant networks.
-        if info['gateway_chassis']:
+        # provider networks. And it should never be True there when the VIPs
+        # are on tenant networks.
+        if info['is_gw_port']:
             return
 
         # Add those lb to the network which are unique to the router

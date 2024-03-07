@@ -18,7 +18,6 @@ import multiprocessing as mp
 
 from neutron.common import utils as n_utils
 from oslo_utils import uuidutils
-import testtools
 
 from ovn_octavia_provider import agent as ovn_agent
 from ovn_octavia_provider.common import config as ovn_config
@@ -153,11 +152,6 @@ class TestOvnOctaviaProviderAgent(ovn_base.TestOvnOctaviaBase):
     def test_lrp_event_handler_with_loadbalancer_cascade_delete(self):
         self._test_lrp_event_handler(cascade=True)
 
-    # NOTE(froyo): Test skipped by cross depedency among this patch with this
-    # https://review.opendev.org/c/openstack/ovn-octavia-provider/+/911701.
-    # The mentioned one will enable again this test.
-    @testtools.skip(
-        'https://review.opendev.org/c/openstack/ovn-octavia-provider/+/911701')
     def test_lrp_event_handler_lrp_with_external_gateway(self):
         # Create Network N1 on router R1 and LBA on N1
         network_N1 = self._create_net('N' + uuidutils.generate_uuid()[:4])
@@ -191,11 +185,6 @@ class TestOvnOctaviaProviderAgent(ovn_base.TestOvnOctaviaBase):
                 ovn_const.LR_REF_KEY_HEADER + provider_net['network']['id']),
             timeout=10)
 
-    # NOTE(froyo): Test skipped by cross depedency among this patch with this
-    # https://review.opendev.org/c/openstack/ovn-octavia-provider/+/911701.
-    # The mentioned one will enable again this test.
-    @testtools.skip(
-        'https://review.opendev.org/c/openstack/ovn-octavia-provider/+/911701')
     def test_fip_on_lb_vip(self):
         """This test checks if FIP on LB VIP is configured.
 
@@ -272,11 +261,6 @@ class TestOvnOctaviaProviderAgent(ovn_base.TestOvnOctaviaBase):
                 # Make sure that LB1 is not added to provider net - e1 LS
                 self.assertListEqual([], ls.load_balancer)
 
-    # NOTE(froyo): Test skipped by cross depedency among this patch with this
-    # https://review.opendev.org/c/openstack/ovn-octavia-provider/+/911701.
-    # The mentioned one will enable again this test.
-    @testtools.skip(
-        'https://review.opendev.org/c/openstack/ovn-octavia-provider/+/911701')
     def test_fip_on_lb_additional_vip(self):
         """This test checks if FIP on LB additional VIP is configured.
 

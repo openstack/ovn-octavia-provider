@@ -2196,13 +2196,13 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         self.router_port_event = ovn_event.LogicalRouterPortEvent(
             self.helper)
         row = fakes.FakeOvsdbRow.create_one_ovsdb_row(
-            attrs={'gateway_chassis': []})
+            attrs={'external_ids': {ovn_const.OVN_ROUTER_IS_EXT_GW: 'False'}})
         self.router_port_event.run('create', row, mock.ANY)
         expected = {
             'info':
                 {'router': self.router,
                  'network': self.network,
-                 'gateway_chassis': []},
+                 'is_gw_port': False},
             'type': 'lb_create_lrp_assoc'}
         self.mock_add_request.assert_called_once_with(expected)
 
@@ -2211,7 +2211,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         self.router_port_event = ovn_event.LogicalRouterPortEvent(
             self.helper)
         row = fakes.FakeOvsdbRow.create_one_ovsdb_row(
-            attrs={'gateway_chassis': []})
+            attrs={})
         self.router_port_event.run('delete', row, mock.ANY)
         expected = {
             'info':
@@ -2225,13 +2225,13 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         self.router_port_event = ovn_event.LogicalRouterPortEvent(
             self.helper)
         row = fakes.FakeOvsdbRow.create_one_ovsdb_row(
-            attrs={'gateway_chassis': ['temp-gateway-chassis']})
+            attrs={'external_ids': {ovn_const.OVN_ROUTER_IS_EXT_GW: 'True'}})
         self.router_port_event.run(mock.ANY, row, mock.ANY)
         expected = {
             'info':
                 {'router': self.router,
                  'network': self.network,
-                 'gateway_chassis': ['temp-gateway-chassis']},
+                 'is_gw_port': True},
             'type': 'lb_create_lrp_assoc'}
         self.mock_add_request.assert_called_once_with(expected)
 
@@ -2404,13 +2404,13 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
 
     def test_lb_create_lrp_assoc_handler(self):
         lrp = fakes.FakeOvsdbRow.create_one_ovsdb_row(
-            attrs={'gateway_chassis': []})
+            attrs={'external_ids': {ovn_const.OVN_ROUTER_IS_EXT_GW: 'False'}})
         self.helper.lb_create_lrp_assoc_handler(lrp)
         expected = {
             'info':
                 {'router': self.router,
                  'network': self.network,
-                 'gateway_chassis': []},
+                 'is_gw_port': False},
             'type': 'lb_create_lrp_assoc'}
         self.mock_add_request.assert_called_once_with(expected)
 
@@ -2429,7 +2429,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         info = {
             'network': self.network,
             'router': self.router,
-            'gateway_chassis': [],
+            'is_gw_port': False,
         }
         self.helper.lb_create_lrp_assoc(info)
         self.helper._update_lb_to_lr_association.assert_called_once_with(
@@ -2440,7 +2440,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         info = {
             'network': self.network,
             'router': self.router,
-            'gateway_chassis': [],
+            'is_gw_port': False,
         }
         self.helper._update_lb_to_ls_association.side_effect = [
             idlutils.RowNotFound]
@@ -2458,7 +2458,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         info = {
             'network': self.network,
             'router': self.router,
-            'gateway_chassis': 'fake-chassis',
+            'is_gw_port': True,
         }
         self.helper._update_lb_to_lr_association.side_effect = [
             idlutils.RowNotFound]
@@ -2475,7 +2475,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         info = {
             'network': self.network,
             'router': self.router,
-            'gateway_chassis': 'fake-chassis',
+            'is_gw_port': True,
         }
         # Make it already uniq.
         self.network.load_balancer = self.router.load_balancer
