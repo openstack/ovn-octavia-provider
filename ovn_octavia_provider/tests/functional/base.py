@@ -280,21 +280,28 @@ class TestOvnOctaviaBase(base.TestOVNFunctionalBase,
         router = self.l3_plugin.create_router(self.context, router)
         return router['id']
 
+    @tenacity.retry(
+        retry=tenacity.retry_if_exception_type(odb_exc.DBError),
+        wait=tenacity.wait_exponential(),
+        stop=tenacity.stop_after_attempt(3),
+        reraise=True)
     def _create_net(self, name):
         n1 = self._make_network(self.fmt, name, True)
         return n1
 
-    def _create_subnet_from_net(self, net, cidr, router_id=None,
+    @tenacity.retry(
+        retry=tenacity.retry_if_exception_type(odb_exc.DBError),
+        wait=tenacity.wait_exponential(),
+        stop=tenacity.stop_after_attempt(3),
+        reraise=True)
+    def _create_subnet_from_net(self, net, cidr,
                                 ip_version=n_const.IP_VERSION_4):
         res = self._create_subnet(self.fmt, net['network']['id'],
                                   cidr, ip_version=ip_version)
         subnet = self.deserialize(self.fmt, res)['subnet']
         self._local_net_cache[subnet['id']] = net['network']['id']
         self._local_cidr_cache[subnet['id']] = subnet['cidr']
-        if router_id:
-            self._attach_router_to_subnet(subnet['id'], router_id)
-        port_address, port_id = self._create_port_on_network(net)
-        return (net['network']['id'], subnet['id'], port_address, port_id)
+        return net['network']['id'], subnet['id']
 
     @tenacity.retry(
         retry=tenacity.retry_if_exception_type(odb_exc.DBError),
@@ -302,9 +309,8 @@ class TestOvnOctaviaBase(base.TestOVNFunctionalBase,
         stop=tenacity.stop_after_attempt(3),
         reraise=True)
     def _attach_router_to_subnet(self, subnet_id, router_id):
-        if router_id:
-            self.l3_plugin.add_router_interface(
-                self.context, router_id, {'subnet_id': subnet_id})
+        self.l3_plugin.add_router_interface(
+            self.context, router_id, {'subnet_id': subnet_id})
 
     @tenacity.retry(
         retry=tenacity.retry_if_exception_type(odb_exc.DBError),
@@ -325,6 +331,8 @@ class TestOvnOctaviaBase(base.TestOVNFunctionalBase,
         if add_ref:
             if net_id not in lb_data[ovn_const.LB_EXT_IDS_LS_REFS_KEY]:
                 lb_data[ovn_const.LB_EXT_IDS_LS_REFS_KEY][net_id] = 1
+            else:
+                lb_data[ovn_const.LB_EXT_IDS_LS_REFS_KEY][net_id] += 1
         else:
             ref_ct = lb_data[ovn_const.LB_EXT_IDS_LS_REFS_KEY][net_id]
             if ref_ct <= 0:
@@ -385,22 +393,29 @@ class TestOvnOctaviaBase(base.TestOVNFunctionalBase,
             force_retry_ls_to_lr_assoc=True):
 
         self._o_driver_lib.update_loadbalancer_status.reset_mock()
-        r_id = self._create_router(
-            'r' + uuidutils.generate_uuid()[:4]) if create_router else None
 
         net_info = []
-        net = self._create_net('n' + uuidutils.generate_uuid()[:4])
-        subnet_info = self._create_subnet_from_net(
-            net, '10.0.1.0/24', router_id=r_id)
-        net_info.append(subnet_info)
-        net = self._create_net('n' + uuidutils.generate_uuid()[:4])
-        subnet_info = self._create_subnet_from_net(
-            net, '10.0.2.0/24', router_id=r_id)
-        net_info.append(subnet_info)
-        net = self._create_net('n' + uuidutils.generate_uuid()[:4])
-        subnet_info = self._create_subnet_from_net(
-            net, '10.0.3.0/24', router_id=r_id)
-        net_info.append(subnet_info)
+        net1 = self._create_net('n' + uuidutils.generate_uuid()[:4])
+        network_id1, subnet_id1 = self._create_subnet_from_net(
+            net1, '10.0.1.0/24')
+        port_address1, port_id1 = self._create_port_on_network(net1)
+        net_info.append((network_id1, subnet_id1, port_address1, port_id1))
+        net2 = self._create_net('n' + uuidutils.generate_uuid()[:4])
+        network_id2, subnet_id2 = self._create_subnet_from_net(
+            net2, '10.0.2.0/24')
+        port_address2, port_id2 = self._create_port_on_network(net2)
+        net_info.append((network_id2, subnet_id2, port_address2, port_id2))
+        net3 = self._create_net('n' + uuidutils.generate_uuid()[:4])
+        network_id3, subnet_id3 = self._create_subnet_from_net(
+            net3, '10.0.3.0/24')
+        port_address3, port_id3 = self._create_port_on_network(net3)
+        net_info.append((network_id3, subnet_id3, port_address3, port_id3))
+
+        r_id = self._create_router(
+            'r' + uuidutils.generate_uuid()[:4]) if create_router else None
+        self._attach_router_to_subnet(subnet_id1, r_id)
+        self._attach_router_to_subnet(subnet_id2, r_id)
+        self._attach_router_to_subnet(subnet_id3, r_id)
 
         lb_data = {}
         lb_data['model'] = self._create_lb_model(
@@ -461,7 +476,8 @@ class TestOvnOctaviaBase(base.TestOVNFunctionalBase,
 
         return lb_data
 
-    def _create_load_balancer_and_validate(self, subnet_info,
+    def _create_load_balancer_and_validate(self, network_id, subnet_id,
+                                           port_address, port_id,
                                            admin_state_up=True,
                                            only_model=False,
                                            router_id=None,
@@ -472,15 +488,16 @@ class TestOvnOctaviaBase(base.TestOVNFunctionalBase,
         if router_id:
             lb_data[ovn_const.LB_EXT_IDS_LR_REF_KEY] = (
                 ovn_const.LR_REF_KEY_HEADER + router_id)
-        lb_data['vip_net_info'] = subnet_info
+        lb_data['vip_net_info'] = (
+            network_id, subnet_id, port_address, port_id)
         lb_data['model'] = self._create_lb_model(
-            vip=subnet_info[2], vip_network_id=subnet_info[0],
-            vip_subnet_id=subnet_info[1], vip_port_id=subnet_info[3],
+            vip=port_address, vip_network_id=network_id,
+            vip_subnet_id=subnet_id, vip_port_id=port_id,
             admin_state_up=admin_state_up, additional_vips=additional_vips)
         lb_data[ovn_const.LB_EXT_IDS_LS_REFS_KEY] = {}
         lb_data['listeners'] = []
         lb_data['pools'] = []
-        self._update_ls_refs(lb_data, subnet_info[0])
+        self._update_ls_refs(lb_data, network_id)
         if only_model:
             return lb_data
 
@@ -489,7 +506,7 @@ class TestOvnOctaviaBase(base.TestOVNFunctionalBase,
         name = '%s%s' % (ovn_const.LB_VIP_PORT_PREFIX,
                          lb_data['model'].loadbalancer_id)
         self.driver.update_port(
-            self.context, subnet_info[3], {'port': {'name': name}})
+            self.context, port_id, {'port': {'name': name}})
 
         if additional_vips:
             for index, add_vip in enumerate(additional_vips, start=1):
@@ -522,7 +539,7 @@ class TestOvnOctaviaBase(base.TestOVNFunctionalBase,
         self.assertTrue(
             self._is_lb_associated_to_ls(
                 lb_data['model'].loadbalancer_id,
-                ovn_const.LR_REF_KEY_HEADER + subnet_info[0]))
+                ovn_const.LR_REF_KEY_HEADER + network_id))
         return lb_data
 
     def _update_load_balancer_and_validate(self, lb_data,
@@ -667,7 +684,6 @@ class TestOvnOctaviaBase(base.TestOVNFunctionalBase,
                 lb.get('external_ids')[
                     ovn_const.LB_EXT_IDS_LR_REF_KEY] = lb_data[
                         ovn_const.LB_EXT_IDS_LR_REF_KEY]
-
         pool_info = {}
         for p in lb_data.get('pools', []):
             member_status = {}

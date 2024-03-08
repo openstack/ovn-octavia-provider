@@ -71,12 +71,15 @@ class TestOvnOctaviaProviderIntegration(ovn_base.TestOvnOctaviaBase):
     def _loadbalancer_operation(self, lb_data=None, update=False,
                                 delete=False):
         if not lb_data:
-            r1_id = self._create_router('r' + uuidutils.generate_uuid()[:4])
             network_N1 = self._create_net('N' + uuidutils.generate_uuid()[:4])
-            sbnet_info = self._create_subnet_from_net(
-                network_N1, '10.0.0.0/24', router_id=r1_id)
+            network_id, subnet_id = self._create_subnet_from_net(
+                network_N1, '10.0.0.0/24')
+            port_address, port_id = self._create_port_on_network(network_N1)
+            r1_id = self._create_router('r' + uuidutils.generate_uuid()[:4])
+            self._attach_router_to_subnet(subnet_id, r1_id)
+
             lb_data = self._create_load_balancer_and_validate(
-                sbnet_info, router_id=r1_id)
+                network_id, subnet_id, port_address, port_id, router_id=r1_id)
         if update:
             self._update_load_balancer_and_validate(lb_data,
                                                     admin_state_up=False)
@@ -110,13 +113,14 @@ class TestOvnOctaviaProviderIntegration(ovn_base.TestOvnOctaviaBase):
             'network_id': ext_net['id'],
             'external_fixed_ips': [
                 {'ip_address': '100.0.0.2', 'subnet_id': ext_subnet['id']}]}
-        router_id = self._create_router('routertest', gw_info=gw_info)
 
         # Create Network N2, connect it to router
         network_N1 = self._create_net('N' + uuidutils.generate_uuid()[:4])
-        n2_id, sub2_id, p1_ip, p1_id = self._create_subnet_from_net(
-            network_N1, "10.0.1.0/24", router_id)
-
+        n2_id, sub2_id = self._create_subnet_from_net(
+            network_N1, "10.0.1.0/24")
+        router_id = self._create_router('routertest', gw_info=gw_info)
+        self._attach_router_to_subnet(sub2_id, router_id)
+        p1_ip, p1_id = self._create_port_on_network(network_N1)
         fip_info = {'floatingip': {
             'tenant_id': self._tenant_id,
             'floating_network_id': ext_net['id'],
