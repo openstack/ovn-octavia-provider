@@ -4347,7 +4347,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         self.assertEqual(result_port, fake_port)
         self.assertIsNone(result_subnet)
         net_cli.get_port.assert_called_once_with(port_id)
-        net_cli.get_subnet.not_called()
+        net_cli.get_subnet.assert_not_called()
 
     @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
     def test__get_port_from_info_port_insufficient_data(self, net_cli):
@@ -4355,8 +4355,8 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
             net_cli, None, None, None)
         self.assertIsNone(result_port)
         self.assertIsNone(result_subnet)
-        net_cli.get_port.not_called()
-        net_cli.get_subnet.not_called()
+        net_cli.get_port.assert_not_called()
+        net_cli.get_subnet.assert_not_called()
 
     def test__get_vip_port_from_loadbalancer_id(self):
         fake_lb = fakes.FakeLB(
@@ -4530,21 +4530,30 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         vip = ''
         options = {'interval': '6',
                    'timeout': '7',
-                   'failure_count': '5',
-                   'success_count': '3'}
+                   'success_count': '3',
+                   'failure_count': '5'}
         self.ovn_hm.external_ids.pop(ovn_const.LB_EXT_IDS_HM_KEY)
-        external_ids = {
+        external_ids_vip = {
             ovn_const.LB_EXT_IDS_HM_KEY: self.healthmonitor_id,
             ovn_const.LB_EXT_IDS_HM_POOL_KEY: self.pool_id,
             ovn_const.LB_EXT_IDS_HM_VIP: self.ovn_hm_lb.external_ids.get(
                 ovn_const.LB_EXT_IDS_VIP_KEY)}
-        kwargs = {'vip': vip,
-                  'options': options,
-                  'external_ids': external_ids}
+        external_ids_fip = {
+            ovn_const.LB_EXT_IDS_HM_KEY: self.healthmonitor_id,
+            ovn_const.LB_EXT_IDS_HM_POOL_KEY: self.pool_id,
+            ovn_const.LB_EXT_IDS_HM_VIP: self.ovn_hm_lb.external_ids.get(
+                ovn_const.LB_EXT_IDS_VIP_FIP_KEY)}
+        kwargs_first = {'vip': vip,
+                        'options': options,
+                        'external_ids': external_ids_vip}
+        kwargs_second = {'vip': vip,
+                         'options': options,
+                         'external_ids': external_ids_fip}
         expected_lbhc_calls = [
-            mock.call('Load_Balancer_Health_Check', **kwargs),
-            mock.call('Load_Balancer_Health_Check', **kwargs)]
-        self.helper.ovn_nbdb_api.db_create.has_calls(expected_lbhc_calls)
+            mock.call('Load_Balancer_Health_Check', **kwargs_first),
+            mock.call('Load_Balancer_Health_Check', **kwargs_second)]
+        self.helper.ovn_nbdb_api.db_create.assert_has_calls(
+            expected_lbhc_calls)
         self.assertEqual(self.helper.ovn_nbdb_api.db_add.call_count, 2)
 
     @mock.patch.object(ovn_helper.OvnProviderHelper, '_find_ovn_lb_by_pool_id')
