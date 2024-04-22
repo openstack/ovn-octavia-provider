@@ -2163,6 +2163,30 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
                                     self.member_address,
                                     delete=True)
 
+    @mock.patch.object(ovn_helper.OvnProviderHelper, '_find_ovn_lb_by_pool_id')
+    @mock.patch.object(ovn_helper.OvnProviderHelper, '_update_hm_member')
+    @mock.patch.object(ovn_helper.OvnProviderHelper, '_clean_up_hm_port')
+    def test_member_delete_keep_hm_port(self, del_hm_port, uhm, folbpi):
+        pool_key = 'pool_%s' % self.pool_id
+        member2_id = uuidutils.generate_uuid()
+        member2_address = '192.168.2.150'
+        member2_line = (
+            'member_%s_%s:%s_%s' %
+            (member2_id, member2_address,
+             self.member_port, self.member_subnet_id))
+        self.ovn_hm_lb.external_ids[pool_key] = ','.join([self.member_line,
+                                                          member2_line])
+        self.ovn_hm_lb.external_ids[ovn_const.OVN_MEMBER_STATUS_KEY] = \
+            '{"%s": "%s","%s": "%s"}' % (self.member_id, constants.ONLINE,
+                                         member2_id, constants.ONLINE)
+        folbpi.return_value = (pool_key, self.ovn_hm_lb)
+        self.helper.member_delete(self.member)
+        uhm.assert_called_once_with(self.ovn_hm_lb,
+                                    pool_key,
+                                    self.member_address,
+                                    delete=True)
+        del_hm_port.assert_not_called()
+
     def test_member_delete_not_found_in_pool(self):
         self.ovn_lb.external_ids.update({'pool_' + self.pool_id: ''})
         self.ovn_lb.external_ids[ovn_const.OVN_MEMBER_STATUS_KEY] = '{}'

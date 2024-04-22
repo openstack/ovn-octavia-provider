@@ -2188,20 +2188,32 @@ class OvnProviderHelper():
                 user_fault_string=msg,
                 operator_fault_string=msg)
 
+    def _members_in_subnet(self, ovn_lb, subnet_id):
+        for key, value in ovn_lb.external_ids.items():
+            if key.startswith(ovn_const.LB_EXT_IDS_POOL_PREFIX):
+                if value and len(value.split(',')) > 0:
+                    for m_info in value.split(','):
+                        mem_id, mem_ip_port, mem_subnet = m_info.split('_')[1:]
+                        if mem_subnet == subnet_id:
+                            return True
+        return False
+
     def member_delete(self, member):
         error_deleting_member = False
         try:
             pool_key, ovn_lb = self._find_ovn_lb_by_pool_id(
                 member[constants.POOL_ID])
 
-            pool_status = self._remove_member(member, ovn_lb, pool_key)
+            self._remove_member(member, ovn_lb, pool_key)
 
-            if ovn_lb.health_check and pool_status == constants.OFFLINE:
-                # NOTE(froyo): if the pool status is OFFLINE there are no more
-                # members. So we should ensure the hm-port is deleted if no
-                # more LB are using it. We need to do this call after the
-                # cleaning of the ip_port_mappings for the ovn LB.
-                self._clean_up_hm_port(member[constants.SUBNET_ID])
+            if ovn_lb.health_check:
+                mem_subnet = member[constants.SUBNET_ID]
+                if not self._members_in_subnet(ovn_lb, mem_subnet):
+                    # NOTE(froyo): if member is last member from the subnet
+                    # we should clean up the ovn-lb-hm-port.
+                    # We need to do this call after the cleaning of the
+                    # ip_port_mappings for the ovn LB.
+                    self._clean_up_hm_port(member[constants.SUBNET_ID])
         except Exception:
             LOG.exception(ovn_const.EXCEPTION_MSG, "deletion of member")
             error_deleting_member = True
