@@ -42,7 +42,7 @@ tests_imports_from2 = re.compile(
     r"\bfrom[\s]+ovn_octavia_provider[\s]+import[\s]+tests\b")
 no_line_continuation_backslash_re = re.compile(r'.*(\\)\n')
 
-import_mock = re.compile(r"\bimport[\s]+mock\b")
+import_mock = re.compile(r"\bimport[\s]+mock\b")  # noqa: H216
 import_from_mock = re.compile(r"\bfrom[\s]+mock[\s]+import\b")
 
 
@@ -153,7 +153,7 @@ def check_no_imports_from_tests(logical_line, filename):
 
     for regex in tests_imports_dot, tests_imports_from1, tests_imports_from2:
         if re.match(regex, logical_line):
-            yield(0, msg)
+            yield (0, msg)
 
 
 @core.flake8ext
@@ -164,7 +164,7 @@ def check_python3_no_filter(logical_line):
            "filter(lambda obj: test(obj), data) on python3.")
 
     if filter_match.match(logical_line):
-        yield(0, msg)
+        yield (0, msg)
 
 
 @core.flake8ext
@@ -180,7 +180,7 @@ def check_no_import_mock(logical_line, filename, noqa):
 
     for regex in import_mock, import_from_mock:
         if re.match(regex, logical_line):
-            yield(0, msg)
+            yield (0, msg)
 
 
 @core.flake8ext
