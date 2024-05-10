@@ -20,8 +20,10 @@ import netaddr
 from neutron_lib import constants as n_const
 from oslo_config import cfg
 from oslo_log import log as logging
+from ovsdbapp.backend.ovs_idl import connection
 
 from ovn_octavia_provider.common import clients
+from ovn_octavia_provider.common import config as ovn_conf
 from ovn_octavia_provider.common import constants as ovn_const
 from ovn_octavia_provider.ovsdb import impl_idl_ovn
 
@@ -62,7 +64,9 @@ class DBInconsistenciesPeriodics(object):
 
     def __init__(self):
         self.ovn_nbdb = impl_idl_ovn.OvnNbIdlForLb()
-        self.ovn_nbdb_api = self.ovn_nbdb.start()
+        c = connection.Connection(self.ovn_nbdb,
+                                  ovn_conf.get_ovn_ovsdb_timeout())
+        self.ovn_nbdb_api = impl_idl_ovn.OvsdbNbOvnIdl(c)
 
     @periodics.periodic(spacing=600, run_immediately=True)
     def change_device_owner_lb_hm_ports(self):

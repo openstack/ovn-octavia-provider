@@ -32,7 +32,6 @@ from ovn_octavia_provider.common import config
 from ovn_octavia_provider.common import exceptions as ovn_exc
 from ovn_octavia_provider.common import utils
 from ovn_octavia_provider.i18n import _
-from ovn_octavia_provider.ovsdb import impl_idl_ovn
 from ovn_octavia_provider.ovsdb import ovsdb_monitor
 
 
@@ -53,34 +52,7 @@ class OvnNbTransaction(idl_trans.Transaction):
         self.api.nb_global.increment('nb_cfg')
 
 
-# This version of Backend doesn't use a class variable for ovsdb_connection
-# and therefor allows networking-ovn to manage connection scope on its own
 class Backend(ovs_idl.Backend):
-    lookup_table = {}
-    ovsdb_connection = None
-
-    def __init__(self, connection):
-        self.ovsdb_connection = connection
-        super().__init__(connection)
-
-    def start_connection(self, connection):
-        try:
-            self.ovsdb_connection.start()
-        except Exception as e:
-            connection_exception = OvsdbConnectionUnavailable(
-                db_schema=self.schema, error=e)
-            LOG.exception(connection_exception)
-            raise connection_exception from e
-
-    @property
-    def idl(self):
-        return self.ovsdb_connection.idl
-
-    @property
-    def tables(self):
-        return self.idl.tables
-
-    _tables = tables
 
     def is_table_present(self, table_name):
         return table_name in self._tables
@@ -88,11 +60,6 @@ class Backend(ovs_idl.Backend):
     def is_col_present(self, table_name, col_name):
         return self.is_table_present(table_name) and (
             col_name in self._tables[table_name].columns)
-
-    def create_transaction(self, check_error=False, log_errors=True):
-        return idl_trans.Transaction(
-            self, self.ovsdb_connection, self.ovsdb_connection.timeout,
-            check_error, log_errors)
 
     # Check for a column match in the table. If not found do a retry with
     # a stop delay of 10 secs. This function would be useful if the caller
@@ -245,39 +212,22 @@ class OvnNbIdlForLb(ovsdb_monitor.OvnIdl):
               'Logical_Router', 'Logical_Switch_Port', 'Logical_Router_Port',
               'Gateway_Chassis', 'NAT')
 
-    def __init__(self, event_lock_name=None):
+    def __init__(self, event_lock_name=None, notifier=True):
         self.conn_string = config.get_ovn_nb_connection()
         ovsdb_monitor._check_and_set_ssl_files(self.SCHEMA)
         helper = self._get_ovsdb_helper(self.conn_string)
         for table in OvnNbIdlForLb.TABLES:
             helper.register_table(table)
         super().__init__(
-            driver=None, remote=self.conn_string, schema=helper)
+            driver=None, remote=self.conn_string, schema=helper,
+            notifier=notifier)
         self.event_lock_name = event_lock_name
         if self.event_lock_name:
             self.set_lock(self.event_lock_name)
-        atexit.register(self.stop)
 
     @utils.retry()
     def _get_ovsdb_helper(self, connection_string):
         return idlutils.get_schema_helper(connection_string, self.SCHEMA)
-
-    def start(self):
-        self.conn = connection.Connection(
-            self, timeout=config.get_ovn_ovsdb_timeout())
-        return impl_idl_ovn.OvsdbNbOvnIdl(self.conn)
-
-    def stop(self):
-        # Close the running connection if it has been initalized
-        if hasattr(self, 'conn'):
-            if not self.conn.stop(timeout=config.get_ovn_ovsdb_timeout()):
-                LOG.debug("Connection terminated to OvnNb "
-                          "but a thread is still alive")
-            del self.conn
-        # complete the shutdown for the event handler
-        self.notify_handler.shutdown()
-        # Close the idl session
-        self.close()
 
 
 class OvnSbIdlForLb(ovsdb_monitor.OvnIdl):
@@ -304,7 +254,7 @@ class OvnSbIdlForLb(ovsdb_monitor.OvnIdl):
     def start(self):
         self.conn = connection.Connection(
             self, timeout=config.get_ovn_ovsdb_timeout())
-        return impl_idl_ovn.OvsdbSbOvnIdl(self.conn)
+        return OvsdbSbOvnIdl(self.conn)
 
     def stop(self):
         # Close the running connection if it has been initalized

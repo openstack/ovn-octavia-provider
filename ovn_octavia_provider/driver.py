@@ -45,7 +45,7 @@ class OvnProviderDriver(driver_base.ProviderDriver):
         # was imported, also to cover requirement from
         # OvnProviderHelper and intra references modules
         ovn_conf.register_opts()
-        self._ovn_helper = ovn_helper.OvnProviderHelper()
+        self._ovn_helper = ovn_helper.OvnProviderHelper(notifier=False)
 
     def __del__(self):
         self._ovn_helper.shutdown()
