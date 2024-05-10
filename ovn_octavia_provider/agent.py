@@ -14,6 +14,8 @@
 
 from oslo_log import log as logging
 
+from ovsdbapp.backend.ovs_idl import connection
+
 from ovn_octavia_provider.common import config as ovn_conf
 from ovn_octavia_provider import event as ovn_event
 from ovn_octavia_provider import helper as ovn_helper
@@ -44,7 +46,9 @@ def OvnProviderAgent(exit_event):
     ovn_nb_idl_for_events = impl_idl_ovn.OvnNbIdlForLb(
         event_lock_name=OVN_EVENT_LOCK_NAME)
     ovn_nb_idl_for_events.notify_handler.watch_events(events)
-    ovn_nb_idl_for_events.start()
+    c = connection.Connection(ovn_nb_idl_for_events,
+                              ovn_conf.get_ovn_ovsdb_timeout())
+    c.start()
 
     ovn_sb_idl_for_events = impl_idl_ovn.OvnSbIdlForLb(
         event_lock_name=OVN_EVENT_LOCK_NAME)
@@ -64,7 +68,7 @@ def OvnProviderAgent(exit_event):
     exit_event.wait()
     LOG.info('OVN provider agent is exiting.')
     ovn_nb_idl_for_events.notify_handler.unwatch_events(events)
-    ovn_nb_idl_for_events.stop()
+    c.stop()
     ovn_sb_idl_for_events.notify_handler.unwatch_events(sb_events)
     ovn_sb_idl_for_events.stop()
     maintenance_thread.stop()

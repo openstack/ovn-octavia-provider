@@ -43,6 +43,12 @@ class TestOvnOctaviaBase(base.BaseTestCase):
         ovn_sb_idl = mock.patch(
             'ovn_octavia_provider.ovsdb.impl_idl_ovn.OvnSbIdlForLb')
         self.mock_ovn_sb_idl = ovn_sb_idl.start()
+        ovsdb_nb_idl = mock.patch(
+            'ovn_octavia_provider.ovsdb.impl_idl_ovn.OvsdbNbOvnIdl')
+        self.mock_ovsdb_nb_idl = ovsdb_nb_idl.start()
+        connection = mock.patch(
+            'ovsdbapp.backend.ovs_idl.connection.Connection')
+        self.mock_connection = connection.start()
         self.member_address = '192.168.2.149'
         self.vip_address = '192.148.210.109'
         self.vip_dict = {'vip_network_id': uuidutils.generate_uuid(),

@@ -18,6 +18,7 @@ import multiprocessing as mp
 
 from neutron.common import utils as n_utils
 from oslo_utils import uuidutils
+from ovsdbapp.backend.ovs_idl import connection
 
 from ovn_octavia_provider import agent as ovn_agent
 from ovn_octavia_provider.common import config as ovn_config
@@ -46,8 +47,10 @@ class TestOvnOctaviaProviderAgent(ovn_base.TestOvnOctaviaBase):
         ovn_nb_idl_for_events = impl_idl_ovn.OvnNbIdlForLb(
             event_lock_name='func_test')
         ovn_nb_idl_for_events.notify_handler.watch_events(events)
-        ovn_nb_idl_for_events.start()
-        atexit.register(da_helper.shutdown)
+        c = connection.Connection(ovn_nb_idl_for_events,
+                                  ovn_config.get_ovn_ovsdb_timeout())
+        ovn_nbdb_api = impl_idl_ovn.OvsdbNbOvnIdl(c)
+        atexit.register(ovn_nbdb_api.ovsdb_connection.stop)
 
     def _test_lrp_event_handler(self, cascade=False):
         # Create Network N1 on router R1 and LBA on N1
