@@ -38,10 +38,13 @@ class BaseOvnIdl(connection.OvsdbIdl):
 
 class OvnIdl(BaseOvnIdl):
 
-    def __init__(self, driver, remote, schema):
+    def __init__(self, driver, remote, schema, notifier=True):
         super().__init__(remote, schema)
         self.driver = driver
-        self.notify_handler = OvnDbNotifyHandler(driver)
+        if notifier:
+            self.notify_handler = OvnDbNotifyHandler(driver)
+        else:
+            self.notify_handler = None
         # ovsdb lock name to acquire.
         # This event lock is used to handle the notify events sent by idl.Idl
         # idl.Idl will call notify function for the "update" rpc method it
@@ -65,6 +68,8 @@ class OvnIdl(BaseOvnIdl):
         # Do not handle the notification if the event lock is requested,
         # but not granted by the ovsdb-server.
         if self.is_lock_contended:
+            return
+        if not self.notify_handler:
             return
         row = idlutils.frozen_row(row)
         self.notify_handler.notify(event, row, updates)

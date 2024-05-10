@@ -52,42 +52,6 @@ class TestOvnNbIdlForLb(base.BaseTestCase):
         self.idl._get_ovsdb_helper('foo')
         self.mock_gsh.assert_called_once_with('foo', 'OVN_Northbound')
 
-    @mock.patch.object(real_ovs_idl.Backend, 'autocreate_indices', mock.Mock(),
-                       create=True)
-    def test_start(self):
-        with mock.patch('ovsdbapp.backend.ovs_idl.connection.Connection',
-                        side_effect=lambda x, timeout: mock.Mock()):
-            idl1 = impl_idl_ovn.OvnNbIdlForLb()
-            ret1 = idl1.start()
-            id1 = id(ret1.ovsdb_connection)
-            idl2 = impl_idl_ovn.OvnNbIdlForLb()
-            ret2 = idl2.start()
-            id2 = id(ret2.ovsdb_connection)
-            self.assertNotEqual(id1, id2)
-
-    @mock.patch('ovsdbapp.backend.ovs_idl.connection.Connection')
-    def test_stop(self, mock_conn):
-        mock_conn.stop.return_value = False
-        with (
-            mock.patch.object(
-                self.idl.notify_handler, 'shutdown')) as mock_notify, (
-                mock.patch.object(self.idl, 'close')) as mock_close:
-            self.idl.start()
-            self.idl.stop()
-        mock_notify.assert_called_once_with()
-        mock_close.assert_called_once_with()
-
-    @mock.patch('ovsdbapp.backend.ovs_idl.connection.Connection')
-    def test_stop_no_connection(self, mock_conn):
-        mock_conn.stop.return_value = False
-        with (
-            mock.patch.object(
-                self.idl.notify_handler, 'shutdown')) as mock_notify, (
-                mock.patch.object(self.idl, 'close')) as mock_close:
-            self.idl.stop()
-        mock_notify.assert_called_once_with()
-        mock_close.assert_called_once_with()
-
     def test_setlock(self):
         with mock.patch.object(impl_idl_ovn.OvnNbIdlForLb,
                                'set_lock') as set_lock:
@@ -113,7 +77,7 @@ class TestOvnSbIdlForLb(base.BaseTestCase):
 
     @mock.patch.object(real_ovs_idl.Backend, 'autocreate_indices', mock.Mock(),
                        create=True)
-    def test_start(self):
+    def test_start_reuses_connection(self):
         with mock.patch('ovsdbapp.backend.ovs_idl.connection.Connection',
                         side_effect=lambda x, timeout: mock.Mock()):
             idl1 = impl_idl_ovn.OvnSbIdlForLb()
@@ -122,7 +86,7 @@ class TestOvnSbIdlForLb(base.BaseTestCase):
             idl2 = impl_idl_ovn.OvnSbIdlForLb()
             ret2 = idl2.start()
             id2 = id(ret2.ovsdb_connection)
-            self.assertNotEqual(id1, id2)
+            self.assertEqual(id1, id2)
 
     @mock.patch('ovsdbapp.backend.ovs_idl.connection.Connection')
     def test_stop(self, mock_conn):

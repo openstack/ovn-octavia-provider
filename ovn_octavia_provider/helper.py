@@ -12,6 +12,7 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+import atexit
 import copy
 import queue
 import re
@@ -29,6 +30,7 @@ from oslo_log import log as logging
 from oslo_serialization import jsonutils
 from oslo_utils import strutils
 from ovs.stream import Stream
+from ovsdbapp.backend.ovs_idl import connection
 from ovsdbapp.backend.ovs_idl import idlutils
 from ovsdbapp.schema.ovn_northbound import commands as cmd
 
@@ -50,7 +52,7 @@ LOG = logging.getLogger(__name__)
 
 class OvnProviderHelper():
 
-    def __init__(self):
+    def __init__(self, notifier=True):
         self.requests = queue.Queue()
         self.helper_thread = threading.Thread(target=self.request_handler)
         self.helper_thread.daemon = True
@@ -58,9 +60,10 @@ class OvnProviderHelper():
         self._check_and_set_ssl_files()
         self._init_lb_actions()
 
-        # NOTE(mjozefcz): This API is only for handling octavia API requests.
-        self.ovn_nbdb = impl_idl_ovn.OvnNbIdlForLb()
-        self.ovn_nbdb_api = self.ovn_nbdb.start()
+        i = impl_idl_ovn.OvnNbIdlForLb(notifier=notifier)
+        c = connection.Connection(i, ovn_conf.get_ovn_ovsdb_timeout())
+        self.ovn_nbdb_api = impl_idl_ovn.OvsdbNbOvnIdl(c)
+        atexit.register(self.ovn_nbdb_api.ovsdb_connection.stop)
 
         self.helper_thread.start()
 
@@ -122,8 +125,6 @@ class OvnProviderHelper():
         self.requests.put({'type': ovn_const.REQ_TYPE_EXIT},
                           timeout=ovn_const.MAX_TIMEOUT_REQUEST)
         self.helper_thread.join()
-        self.ovn_nbdb.stop()
-        del self.ovn_nbdb_api
 
     @staticmethod
     def _map_val(row, col, key):

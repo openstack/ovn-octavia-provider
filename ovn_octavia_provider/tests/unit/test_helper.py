@@ -4009,8 +4009,8 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         prov_helper1 = ovn_helper.OvnProviderHelper()
         prov_helper2 = ovn_helper.OvnProviderHelper()
         # One connection for API requests
-        self.assertIs(prov_helper1.ovn_nbdb_api,
-                      prov_helper2.ovn_nbdb_api)
+        self.assertIs(prov_helper1.ovn_nbdb_api.ovsdb_connection,
+                      prov_helper2.ovn_nbdb_api.ovsdb_connection)
         # One connection to handle events
         self.assertIs(prov_helper1.ovn_nbdb_api_for_events,
                       prov_helper2.ovn_nbdb_api_for_events)
