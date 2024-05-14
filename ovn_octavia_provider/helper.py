@@ -638,6 +638,7 @@ class OvnProviderHelper():
            This function deals with updating the References of Logical Switch
            in LB and addition of LB to LS.
         """
+        ovn_ls = None
         commands = []
         if not network_id and not subnet_id:
             return commands
@@ -653,7 +654,6 @@ class OvnProviderHelper():
                 LOG.warning('Subnet %s not found while trying to '
                             'fetch its data.', subnet_id)
                 ls_name = None
-                ovn_ls = None
 
         if ls_name:
             try:
@@ -667,7 +667,6 @@ class OvnProviderHelper():
                                 'not found in OVN NBDB. Exiting.',
                                 {'ls': ls_name, 'lb': ovn_lb.name})
                     return commands
-                ovn_ls = None
 
         ls_refs = ovn_lb.external_ids.get(ovn_const.LB_EXT_IDS_LS_REFS_KEY)
         if ls_refs:
