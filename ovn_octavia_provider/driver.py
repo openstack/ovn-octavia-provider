@@ -391,6 +391,7 @@ class OvnProviderDriver(driver_base.ProviderDriver):
         existing_members = pool.split(',') if pool else []
         members_to_delete = copy.copy(existing_members)
         pool_subnet_id = None
+        pool_subnet_cidr = None
         for member in members:
             # NOTE(froyo): in order to keep sync with Octavia DB, we raise
             # not supporting exceptions as soon as posible, considering the
