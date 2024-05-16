@@ -36,11 +36,6 @@ class TestOvnNbIdlForLb(base.BaseTestCase):
     def setUp(self):
         super().setUp()
         ovn_config.register_opts()
-        # TODO(haleyb) - figure out why every test in this class generates
-        # this warning, think it's in relation to reading this schema file:
-        # sys:1: ResourceWarning: unclosed file <_io.FileIO name=1 mode='wb'
-        # closefd=True> ResourceWarning: Enable tracemalloc to get the object
-        # allocation traceback
         self.mock_gsh = mock.patch.object(
             idlutils, 'get_schema_helper',
             side_effect=lambda x, y: ovs_idl.SchemaHelper(
@@ -64,11 +59,6 @@ class TestOvnSbIdlForLb(base.BaseTestCase):
     def setUp(self):
         super().setUp()
         ovn_config.register_opts()
-        # TODO(haleyb) - figure out why every test in this class generates
-        # this warning, think it's in relation to reading this schema file:
-        # sys:1: ResourceWarning: unclosed file <_io.FileIO name=1 mode='wb'
-        # closefd=True> ResourceWarning: Enable tracemalloc to get the object
-        # allocation traceback
         self.mock_gsh = mock.patch.object(
             idlutils, 'get_schema_helper',
             side_effect=lambda x, y: ovs_idl.SchemaHelper(
