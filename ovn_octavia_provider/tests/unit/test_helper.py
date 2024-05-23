@@ -2188,7 +2188,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         self.assertEqual(status['pools'][0]['provisioning_status'],
                          constants.ACTIVE)
         self.assertEqual(status['members'][0]['provisioning_status'],
-                         constants.ERROR)
+                         constants.DELETED)
 
     @mock.patch.object(ovn_helper.OvnProviderHelper, '_remove_member')
     def test_member_delete_exception(self, mock_remove_member):
@@ -2196,6 +2196,8 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         status = self.helper.member_delete(self.member)
         self.assertEqual(status['pools'][0]['provisioning_status'],
                          constants.ACTIVE)
+        self.assertEqual(status['members'][0]['provisioning_status'],
+                         constants.ERROR)
 
     def test_member_delete_disabled_lb(self):
         self.helper._find_ovn_lb_with_pool_key.side_effect = [
