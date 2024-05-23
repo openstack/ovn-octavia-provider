@@ -1996,9 +1996,7 @@ class OvnProviderHelper():
             return pool_status
         else:
             msg = f"Member {member[constants.ID]} not found in the pool"
-            raise driver_exceptions.DriverError(
-                user_fault_string=msg,
-                operator_fault_string=msg)
+            LOG.warning(msg)
 
     def member_delete(self, member):
         error_deleting_member = False
