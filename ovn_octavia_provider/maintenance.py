@@ -152,12 +152,13 @@ class DBInconsistenciesPeriodics(object):
                     break
                 port_uuid, src_ip = v.split(':', 1)
                 mappings[f'[{k}]'] = f'{port_uuid}:[{src_ip}]'
-            self.ovn_nbdb_api.db_clear('Load_Balancer', lb.uuid,
-                                       'ip_port_mappings').execute(
-                check_error=True)
-            self.ovn_nbdb_api.db_set('Load_Balancer', lb.uuid,
-                                     ('ip_port_mappings', mappings)).execute(
-                check_error=True)
+            if mappings:
+                self.ovn_nbdb_api.db_clear(
+                    'Load_Balancer', lb.uuid, 'ip_port_mappings'
+                ).execute(check_error=True)
+                self.ovn_nbdb_api.db_set(
+                    'Load_Balancer', lb.uuid, ('ip_port_mappings', mappings)
+                ).execute(check_error=True)
 
         LOG.debug('Maintenance task: no more ip_port_mappings to format, '
                   'stopping the periodic task.')
