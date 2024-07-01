@@ -1,0 +1,6 @@
+---
+fixes:
+  - |
+    [`bug 2072754 <https://bugs.launchpad.net/neutron/+bug/2072754>`_]
+    Fixed maintenance task that was breaking IPv4 load balancers with health
+    monitors.
