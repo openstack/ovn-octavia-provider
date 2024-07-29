@@ -28,7 +28,7 @@ import openstack
 from oslo_config import cfg
 from oslo_log import log as logging
 from oslo_serialization import jsonutils
-from ovs.stream import Stream
+from ovn_octavia_provider.ovsdb import ovsdb_monitor
 from ovsdbapp.backend.ovs_idl import connection
 from ovsdbapp.backend.ovs_idl import idlutils
 from ovsdbapp.schema.ovn_northbound import commands as cmd
@@ -56,7 +56,7 @@ class OvnProviderHelper():
         self.helper_thread = threading.Thread(target=self.request_handler)
         self.helper_thread.daemon = True
         self._octavia_driver_lib = o_driver_lib.DriverLibrary()
-        self._check_and_set_ssl_files()
+        ovsdb_monitor.check_and_set_ssl_files('OVN_Northbound')
         self._init_lb_actions()
 
         i = impl_idl_ovn.OvnNbIdlForLb(notifier=notifier)
@@ -104,21 +104,6 @@ class OvnProviderHelper():
             k: [{c: re.sub(d_regex, '', d) for c, d in i.items()}
                 for i in v]
             for k, v in status.items()}
-
-    def _check_and_set_ssl_files(self):
-        # TODO(reedip): Make ovsdb_monitor's _check_and_set_ssl_files() public
-        # This is a copy of ovsdb_monitor._check_and_set_ssl_files
-        priv_key_file = ovn_conf.get_ovn_nb_private_key()
-        cert_file = ovn_conf.get_ovn_nb_certificate()
-        ca_cert_file = ovn_conf.get_ovn_nb_ca_cert()
-        if priv_key_file:
-            Stream.ssl_set_private_key_file(priv_key_file)
-
-        if cert_file:
-            Stream.ssl_set_certificate_file(cert_file)
-
-        if ca_cert_file:
-            Stream.ssl_set_ca_cert_file(ca_cert_file)
 
     def shutdown(self):
         self.requests.put({'type': ovn_const.REQ_TYPE_EXIT},
