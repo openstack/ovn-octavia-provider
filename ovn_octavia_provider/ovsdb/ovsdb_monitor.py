@@ -13,6 +13,7 @@
 #    under the License.
 
 import abc
+import os
 
 from oslo_config import cfg
 from oslo_log import log
@@ -30,7 +31,7 @@ LOG = log.getLogger(__name__)
 class BaseOvnIdl(connection.OvsdbIdl):
     @classmethod
     def from_server(cls, connection_string, schema_name):
-        _check_and_set_ssl_files(schema_name)
+        check_and_set_ssl_files(schema_name)
         helper = idlutils.get_schema_helper(connection_string, schema_name)
         helper.register_all()
         return cls(connection_string, helper)
@@ -85,21 +86,33 @@ class OvnDbNotifyHandler(event.RowEventHandler):
         self.driver = driver
 
 
-def _check_and_set_ssl_files(schema_name):
-    if schema_name == 'OVN_Northbound':
-        priv_key_file = ovn_config.get_ovn_nb_private_key()
-        cert_file = ovn_config.get_ovn_nb_certificate()
-        ca_cert_file = ovn_config.get_ovn_nb_ca_cert()
+def check_and_set_ssl_files(schema_name):
+    if schema_name in ['OVN_Northbound', 'OVN_Southbound']:
+        if schema_name == 'OVN_Northbound':
+            priv_key_file = ovn_config.get_ovn_nb_private_key()
+            cert_file = ovn_config.get_ovn_nb_certificate()
+            ca_cert_file = ovn_config.get_ovn_nb_ca_cert()
+        else:
+            priv_key_file = ovn_config.get_ovn_sb_private_key()
+            cert_file = ovn_config.get_ovn_sb_certificate()
+            ca_cert_file = ovn_config.get_ovn_sb_ca_cert()
 
-        Stream.ssl_set_private_key_file(priv_key_file)
-        Stream.ssl_set_certificate_file(cert_file)
-        Stream.ssl_set_ca_cert_file(ca_cert_file)
+        if priv_key_file:
+            if not os.path.exists(priv_key_file):
+                LOG.error(f"Cannot find private key file for {schema_name}")
+            else:
+                Stream.ssl_set_private_key_file(priv_key_file)
 
-    if schema_name == 'OVN_Southbound':
-        priv_key_file = ovn_config.get_ovn_sb_private_key()
-        cert_file = ovn_config.get_ovn_sb_certificate()
-        ca_cert_file = ovn_config.get_ovn_sb_ca_cert()
+        if cert_file:
+            if not os.path.exists(cert_file):
+                LOG.error(f"Cannot find private cert file for {schema_name}")
+            else:
+                Stream.ssl_set_certificate_file(cert_file)
 
-        Stream.ssl_set_private_key_file(priv_key_file)
-        Stream.ssl_set_certificate_file(cert_file)
-        Stream.ssl_set_ca_cert_file(ca_cert_file)
+        if ca_cert_file:
+            if not os.path.exists(ca_cert_file):
+                LOG.error(f"Cannot find ca cert file for {schema_name}")
+            else:
+                Stream.ssl_set_ca_cert_file(ca_cert_file)
+    else:
+        LOG.error(f"{schema_name} not supported")
