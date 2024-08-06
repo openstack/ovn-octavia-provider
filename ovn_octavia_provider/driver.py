@@ -585,3 +585,8 @@ class OvnProviderDriver(driver_base.ProviderDriver):
         request = {'type': ovn_const.REQ_TYPE_HM_DELETE,
                    'info': request_info}
         self._ovn_helper.add_request(request)
+
+    def do_sync(self, **lb_filters):
+        LOG.info(f"Starting sync OVN DB with Loadbalancer filter {lb_filters}")
+        # TODO(froyo): get LBs from Octavia DB through openstack sdk client and
+        # call to helper methods to sync
