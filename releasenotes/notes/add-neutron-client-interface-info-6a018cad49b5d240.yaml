@@ -1,0 +1,5 @@
+---
+fixes:
+  - |
+    [`bug 2110488 <https://bugs.launchpad.net/neutron/+bug/2110488>`_]
+    Fixed wrong endpoint information in Neutron client configuration.
