@@ -187,11 +187,7 @@ class TestDBInconsistenciesPeriodics(ovn_base.TestOvnOctaviaBase):
             '[fda2:918e:5869:0:f816:3eff:fe64:adf8]':
                 'f2b97caf-da62-4db9-91da-bc11f2ac3935:'
                 '[fda2:918e:5869:0:f816:3eff:fe81:61d0]'}
-        expected_call_db_clear = [
-            mock.call('Load_Balancer', 'foo1', 'ip_port_mappings')]
-        self.maint.ovn_nbdb_api.db_clear.assert_has_calls(
-            expected_call_db_clear)
-        expected_call_db_set = [
-            mock.call('Load_Balancer', 'foo1', ('ip_port_mappings', mapping1))]
-        self.maint.ovn_nbdb_api.db_set.assert_has_calls(
-            expected_call_db_set)
+        self.maint.ovn_nbdb_api.db_clear.assert_called_once_with(
+            'Load_Balancer', 'foo1', 'ip_port_mappings')
+        self.maint.ovn_nbdb_api.db_set.assert_called_once_with(
+            'Load_Balancer', 'foo1', ('ip_port_mappings', mapping1))
