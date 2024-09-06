@@ -183,7 +183,8 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
             name='favorite_lb0',
             project_id=self.project_id,
             vip_address=self.vip_address,
-            vip_network_id=self.vip_network_id)
+            vip_network_id=self.vip_network_id,
+            vip_subnet_id=self.vip_subnet_id)
         self.ref_lb0 = data_models.LoadBalancer(
             admin_state_up=False,
             listeners=[self.ref_listener],
@@ -809,13 +810,13 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
             'address': self.ref_member.address,
             'protocol_port': self.ref_member.protocol_port,
             'pool_id': self.ref_member.pool_id,
-            'subnet_id': self.ref_lb_fully_populated.vip_network_id,
+            'subnet_id': self.ref_lb_fully_populated.vip_subnet_id,
             'admin_state_up': self.ref_member.admin_state_up}
         info_dvr = {
             'id': self.ref_member.member_id,
             'address': self.ref_member.address,
             'pool_id': self.ref_member.pool_id,
-            'subnet_id': self.ref_lb_fully_populated.vip_network_id,
+            'subnet_id': self.ref_lb_fully_populated.vip_subnet_id,
             'action': ovn_const.REQ_INFO_MEMBER_ADDED}
         expected_lb_dict = {
             'type': ovn_const.REQ_TYPE_LB_CREATE,
