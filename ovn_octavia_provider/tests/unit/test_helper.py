@@ -4006,6 +4006,42 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         self.switch_port_event.run(mock.ANY, row, old)
         self.mock_add_request.assert_not_called()
 
+    @mock.patch('ovn_octavia_provider.helper.OvnProviderHelper.'
+                '_find_ovn_lbs')
+    @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
+    def test_vip_port_update_handler_no_port(self, net_cli, lb):
+        lb1 = mock.MagicMock()
+        lb.return_value = [lb1]
+        self.switch_port_event = ovn_event.LogicalSwitchPortUpdateEvent(
+            self.helper)
+
+        net_cli.return_value.get_port.return_value = None
+
+        port_name = '%s%s' % (ovn_const.LB_VIP_PORT_PREFIX, 'foo')
+        attrs = {'external_ids':
+                 {ovn_const.OVN_PORT_NAME_EXT_ID_KEY: port_name}}
+        row = fakes.FakeOvsdbRow.create_one_ovsdb_row(
+            attrs=attrs)
+        attrs_old = {'external_ids':
+                     {ovn_const.OVN_PORT_NAME_EXT_ID_KEY: port_name,
+                      ovn_const.OVN_PORT_FIP_EXT_ID_KEY: '172.24.4.40'}}
+        old = fakes.FakeOvsdbRow.create_one_ovsdb_row(
+            attrs=attrs_old)
+        self.switch_port_event.run(mock.ANY, row, old)
+
+        expected = {
+            'type': 'handle_vip_fip',
+            'info': {
+                'action': ovn_const.REQ_INFO_ACTION_DISASSOCIATE,
+                'vip_fip': '172.24.4.40',
+                'vip_related': [],
+                'additional_vip_fip': False,
+                'ovn_lb': lb1
+            }
+        }
+
+        self.mock_add_request.assert_called_once_with(expected)
+
     @mock.patch.object(ovn_helper.OvnProviderHelper, '_execute_commands')
     def test__update_lb_to_lr_association_retry(self, execute):
         self._update_lb_to_lr_association.stop()
@@ -4047,7 +4083,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
             self.router)
 
     @mock.patch('ovn_octavia_provider.helper.OvnProviderHelper.'
-                '_find_ovn_lbs')
+                '_find_ovn_lbs_with_retry')
     @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
     def test_vip_port_update_handler_multiple_lbs(self, net_cli, lb):
         lb1 = mock.MagicMock()
@@ -4074,7 +4110,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         def expected_call(lb):
             return {'type': 'handle_vip_fip',
                     'info':
-                        {'action': mock.ANY,
+                        {'action': ovn_const.REQ_INFO_ACTION_DISASSOCIATE,
                          'vip_fip': '172.24.4.40',
                          'vip_related': [fake_port.fixed_ips[0]['ip_address']],
                          'additional_vip_fip': False,
@@ -4110,17 +4146,16 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
             attrs=attrs_old)
         self.switch_port_event.run(mock.ANY, row, old)
 
-        def expected_call(lb):
-            return {'type': 'handle_vip_fip',
-                    'info':
-                        {'action': ovn_const.REQ_INFO_ACTION_DISASSOCIATE,
-                         'vip_fip': fip,
-                         'vip_related': [fake_port.fixed_ips[0]['ip_address']],
-                         'additional_vip_fip': True,
-                         'ovn_lb': lb}}
+        expected = {
+            'type': 'handle_vip_fip',
+            'info': {
+                'action': ovn_const.REQ_INFO_ACTION_DISASSOCIATE,
+                'vip_fip': fip,
+                'vip_related': [fake_port.fixed_ips[0]['ip_address']],
+                'additional_vip_fip': True,
+                'ovn_lb': lb1}}
 
-        self.mock_add_request.assert_has_calls([
-            mock.call(expected_call(lb1))])
+        self.mock_add_request.assert_has_calls([mock.call(expected)])
 
     @mock.patch('ovn_octavia_provider.helper.OvnProviderHelper.'
                 '_find_ovn_lbs')
@@ -4147,17 +4182,16 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
             attrs=attrs_old)
         self.switch_port_event.run(mock.ANY, row, old)
 
-        def expected_call(lb):
-            return {'type': 'handle_vip_fip',
-                    'info':
-                        {'action': ovn_const.REQ_INFO_ACTION_ASSOCIATE,
-                         'vip_fip': '10.0.0.99',
-                         'vip_related': [fake_port.fixed_ips[0]['ip_address']],
-                         'additional_vip_fip': True,
-                         'ovn_lb': lb}}
+        expected = {
+            'type': 'handle_vip_fip',
+            'info': {
+                'action': ovn_const.REQ_INFO_ACTION_ASSOCIATE,
+                'vip_fip': '10.0.0.99',
+                'vip_related': [fake_port.fixed_ips[0]['ip_address']],
+                'additional_vip_fip': True,
+                'ovn_lb': lb1}}
 
-        self.mock_add_request.assert_has_calls([
-            mock.call(expected_call(lb1))])
+        self.mock_add_request.assert_has_calls([mock.call(expected)])
 
         lb1 = mock.MagicMock()
         vip_fip = '10.0.0.123'
@@ -4172,7 +4206,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         self.switch_port_event.run(mock.ANY, row, old)
         self.mock_add_request.reset()
         self.mock_add_request.assert_has_calls([
-            mock.call(expected_call(lb1))])
+            mock.call(expected)])
 
     @mock.patch('ovn_octavia_provider.helper.OvnProviderHelper.'
                 '_find_ovn_lbs')
@@ -4270,6 +4304,149 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
             mock.call.db_clear('Load_Balancer', lb.uuid, 'vips'),
             mock.call.db_set('Load_Balancer', lb.uuid, ('vips', {}))]
         self.helper.ovn_nbdb_api.assert_has_calls(calls)
+
+    @mock.patch('ovn_octavia_provider.helper.OvnProviderHelper.'
+                '_find_ovn_lbs')
+    def test_handle_vip_fip_sync(self, fb):
+        lb = mock.MagicMock()
+        fip_info = {
+            'action': 'sync',
+            'vip_fip': '10.0.0.123',
+            'ovn_lb': lb}
+        members = 'member_%s_%s:%s_%s' % (self.member_id,
+                                          self.member_address,
+                                          self.member_port,
+                                          self.member_subnet_id)
+        external_ids = {
+            'listener_foo': '80:pool_%s' % self.pool_id,
+            'pool_%s' % self.pool_id: members,
+            'neutron:vip': '172.26.21.20'}
+
+        lb.external_ids = external_ids
+        fb.return_value = lb
+
+        self.helper.handle_vip_fip(fip_info)
+
+        expected_db_set_calls = [
+            mock.call('Load_Balancer', lb.uuid,
+                      ('external_ids', {'neutron:vip_fip': '10.0.0.123'})),
+            mock.call('Load_Balancer', lb.uuid,
+                      ('vips', {'10.0.0.123:80': '192.168.2.149:1010',
+                                '172.26.21.20:80': '192.168.2.149:1010'}))
+        ]
+        self.helper.ovn_nbdb_api.db_set.assert_has_calls(expected_db_set_calls)
+        self.helper.ovn_nbdb_api.db_clear.assert_called_once_with(
+            'Load_Balancer', lb.uuid, 'vips')
+
+    @mock.patch('ovn_octavia_provider.helper.OvnProviderHelper.'
+                '_find_ovn_lbs')
+    def test_handle_vip_fip_sync_same_ext(self, fb):
+        lb = mock.MagicMock()
+        fip_info = {
+            'action': 'sync',
+            'vip_fip': '10.0.0.123',
+            'ovn_lb': lb}
+        members = 'member_%s_%s:%s_%s' % (self.member_id,
+                                          self.member_address,
+                                          self.member_port,
+                                          self.member_subnet_id)
+        external_ids = {
+            'listener_foo': '80:pool_%s' % self.pool_id,
+            'pool_%s' % self.pool_id: members,
+            'neutron:vip': '172.26.21.20',
+            'neutron:vip_fip': '10.0.0.123',
+        }
+
+        lb.external_ids = external_ids
+        fb.return_value = lb
+
+        self.helper.handle_vip_fip(fip_info)
+
+        expected_db_set_calls = [
+            mock.call('Load_Balancer', lb.uuid,
+                      ('vips', {'10.0.0.123:80': '192.168.2.149:1010',
+                                '172.26.21.20:80': '192.168.2.149:1010'}))
+        ]
+        self.helper.ovn_nbdb_api.db_set.assert_has_calls(expected_db_set_calls)
+        self.helper.ovn_nbdb_api.db_clear.assert_called_once_with(
+            'Load_Balancer', lb.uuid, 'vips')
+
+    @mock.patch('ovn_octavia_provider.helper.OvnProviderHelper.'
+                '_find_ovn_lbs')
+    def test_handle_vip_fip_sync_hm_exist(self, fb):
+        lb = mock.MagicMock()
+        vip_fip = '10.0.0.123'
+        fip_info = {
+            'action': 'sync',
+            'vip_fip': '10.0.0.123',
+            'ovn_lb': lb}
+        members = 'member_%s_%s:%s_%s' % (self.member_id,
+                                          self.member_address,
+                                          self.member_port,
+                                          self.member_subnet_id)
+        external_ids = {
+            'listener_foo': '80:pool_%s' % self.pool_id,
+            'pool_%s' % self.pool_id: members,
+            'neutron:vip': '172.26.21.20',
+            'neutron:vip_fip': '10.0.0.123',
+        }
+        lb_hc_fip = mock.MagicMock()
+        lb_hc_fip.uuid = "fake_lb_hc_fip"
+        lb_hc_fip.vip = f"{vip_fip}:80"
+        lb_hc_fip.external_ids = {
+            ovn_const.LB_EXT_IDS_HM_KEY: 'foo',
+            ovn_const.LB_EXT_IDS_HM_POOL_KEY: 'pool_foo',
+            ovn_const.LB_EXT_IDS_HM_VIP: vip_fip}
+        lb.health_check = [lb_hc_fip]
+        lb.vips = {
+            '172.26.21.20:80': '192.168.2.149:1010',
+            '10.0.0.123:80': '192.168.2.149:1010'
+        }
+        lb.external_ids = external_ids
+        fb.return_value = lb
+
+        self.helper.handle_vip_fip(fip_info)
+        self.helper.ovn_nbdb_api.db_set.assert_not_called()
+        self.helper.ovn_nbdb_api.db_clear.assert_not_called()
+
+    def test_get_lsp(self):
+        self.helper.ovn_nbdb_api.lookup.side_effect = [idlutils.RowNotFound]
+        port_id = '664224ab-a7c4-4918-8d81-0712947eb600'
+        network_id = 'c75cb020-f789-432e-b50e-89a20e5e463d'
+        with mock.patch.object(ovn_helper, 'LOG') as m_l:
+            self.assertIsNone(self.helper.get_lsp(port_id=port_id,
+                                                  network_id=network_id))
+            m_l.warn.assert_called_once_with(
+                f'Logical Switch neutron-{network_id} not found.')
+
+    def test_get_lsp_port_not_found(self):
+        self.helper.ovn_nbdb_api.lookup.return_value = mock.MagicMock(ports=[])
+        port_id = '664224ab-a7c4-4918-8d81-0712947eb600'
+        network_id = 'c75cb020-f789-432e-b50e-89a20e5e463d'
+        self.assertIsNone(self.helper.get_lsp(port_id=port_id,
+                                              network_id=network_id))
+
+    def test_get_lsp_port_found(self):
+        port_id = '664224ab-a7c4-4918-8d81-0712947eb600'
+        network_id = 'c75cb020-f789-432e-b50e-89a20e5e463d'
+        port = mock.MagicMock()
+        port.name = port_id
+        self.helper.ovn_nbdb_api.lookup.return_value = mock.MagicMock(
+            ports=[port])
+        self.assertEqual(self.helper.get_lsp(
+            port_id=port_id, network_id=network_id), port)
+
+    def test_get_lsp_port_found_many_ports(self):
+        port_id = '664224ab-a7c4-4918-8d81-0712947eb600'
+        network_id = 'c75cb020-f789-432e-b50e-89a20e5e463d'
+        port = mock.MagicMock()
+        port.name = port_id
+        port2 = mock.MagicMock()
+        port2.name = 'foo'
+        self.helper.ovn_nbdb_api.lookup.return_value = mock.MagicMock(
+            ports=[port2, port])
+        self.assertEqual(self.helper.get_lsp(
+            port_id=port_id, network_id=network_id), port)
 
     @mock.patch('ovn_octavia_provider.helper.OvnProviderHelper.'
                 '_find_ovn_lbs')
@@ -5047,8 +5224,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
     @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
     @mock.patch.object(ovn_helper.OvnProviderHelper, '_update_hm_member')
     @mock.patch.object(ovn_helper.OvnProviderHelper, '_find_ovn_lb_by_pool_id')
-    def _test_hm_create(self, protocol, members, fip, folbpi, uhm,
-                        net_cli):
+    def _test_hm_create(self, protocol, members, fip, folbpi, uhm, net_cli):
         self._get_pool_listeners.stop()
         fake_subnet = fakes.FakeSubnet.create_one_subnet()
         pool_key = 'pool_%s' % self.pool_id

@@ -18,6 +18,7 @@ from octavia_lib.api.drivers import data_models
 from octavia_lib.api.drivers import driver_lib as o_driver_lib
 from octavia_lib.api.drivers import exceptions
 from octavia_lib.common import constants
+import openstack
 from oslo_utils import uuidutils
 from ovsdbapp.backend.ovs_idl import idlutils
 
@@ -27,6 +28,7 @@ from ovn_octavia_provider.common import exceptions as ovn_exc
 from ovn_octavia_provider import driver as ovn_driver
 from ovn_octavia_provider import helper as ovn_helper
 from ovn_octavia_provider.tests.unit import base as ovn_base
+from ovn_octavia_provider.tests.unit import fakes
 
 
 class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
@@ -46,8 +48,9 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
              self.member_port, self.member_subnet_id))
         self.ovn_lb = mock.MagicMock()
         self.ovn_lb.name = 'foo_ovn_lb'
+        self.fake_vip = '10.22.33.4'
         self.ovn_lb.external_ids = {
-            ovn_const.LB_EXT_IDS_VIP_KEY: '10.22.33.4',
+            ovn_const.LB_EXT_IDS_VIP_KEY: self.fake_vip,
             'pool_%s' % self.pool_id: self.member_line,
             'listener_%s' % self.listener_id: '80:pool_%s' % self.pool_id}
         self.ovn_lb_addi_vips = mock.MagicMock()
@@ -282,6 +285,36 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
             ovn_helper.OvnProviderHelper,
             '_check_ip_in_subnet',
             return_value=True).start()
+        self.fake_fip = '1.2.3.4'
+        self.lsp = fakes.FakeOvsdbRow.create_one_ovsdb_row(
+            attrs={
+                'external_ids': {
+                    ovn_const.OVN_PORT_FIP_EXT_ID_KEY: self.fake_fip,
+                    ovn_const.OVN_PORT_NAME_EXT_ID_KEY:
+                    'ovn-lb-vip-d571f37e-5708-48a1-8ba8-fc5d9ce36eac',
+                },
+                'type': 'localnet',
+                'options': {},
+            })
+        self.lsp_addi = fakes.FakeOvsdbRow.create_one_ovsdb_row(
+            attrs={
+                'external_ids': {
+                    ovn_const.OVN_PORT_FIP_EXT_ID_KEY: self.fake_fip,
+                    ovn_const.OVN_PORT_NAME_EXT_ID_KEY:
+                    'ovn-lb-vip-additional--\
+                    19d4c20e-05ff-4534-9d5c-214f2979db40',
+                },
+                'type': 'localnet',
+                'options': {},
+            })
+        self.mock_get_lsp = mock.patch.object(
+            ovn_helper.OvnProviderHelper,
+            'get_lsp',
+            return_value=self.lsp).start()
+        self.mock_find_ovn_lbs_with_retry = mock.patch.object(
+            ovn_helper.OvnProviderHelper,
+            '_find_ovn_lbs_with_retry',
+            return_value=[self.ovn_lb]).start()
 
     def test_check_for_allowed_cidrs_exception(self):
         self.assertRaises(exceptions.UnsupportedOptionError,
@@ -797,6 +830,167 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
         calls = [mock.call(expected_dict)]
         self.driver.loadbalancer_create(self.ref_lb0)
         self.mock_add_request.assert_has_calls(calls)
+
+    @mock.patch.object(ovn_helper.OvnProviderHelper, 'vip_port_update_handler')
+    @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
+    def test_fip_sync_basic(self, net_cli, m_vpu):
+        net_cli.return_value.ips.return_value = [
+            mock.Mock(floating_ip_address=self.fake_fip)]
+        self.ref_lb_fully_sync_populated.vip_port_id = 'foo'
+        self.driver._fip_sync(self.ref_lb_fully_sync_populated)
+        m_vpu.assert_called_once_with(
+            vip_lp=self.lsp, fip=self.fake_fip,
+            action=ovn_const.REQ_INFO_ACTION_SYNC)
+
+    @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
+    def test_fip_sync(self, net_cli):
+        net_cli.return_value.ips.return_value = [
+            mock.Mock(floating_ip_address=self.fake_fip)]
+        fake_port = fakes.FakePort.create_one_port()
+
+        fake_port['fixed_ips'][0]['ip_address'] = self.fake_vip
+
+        net_cli.return_value.get_port.return_value = fake_port
+        self.ref_lb_fully_sync_populated.vip_port_id = 'foo'
+
+        with mock.patch.object(ovn_helper.OvnProviderHelper,
+                               'handle_vip_fip') as mock_handle_vip_fip:
+            info = {
+                'ovn_lb': self.ovn_lb,
+                'vip_fip': self.fake_fip,
+                'vip_related': [self.fake_vip],
+                'additional_vip_fip': False,
+                'action': ovn_const.REQ_INFO_ACTION_SYNC
+            }
+            self.driver._fip_sync(self.ref_lb_fully_sync_populated)
+            mock_handle_vip_fip.assert_called_once_with(info)
+
+    @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
+    def test_fip_sync_ovn_lb_not_found(self, net_cli):
+        self.mock_find_ovn_lbs_with_retry.side_effect = [
+            idlutils.RowNotFound]
+        net_cli.return_value.ips.return_value = [
+            mock.Mock(floating_ip_address=self.fake_fip)]
+        self.ref_lb_fully_sync_populated.vip_port_id = 'foo'
+        with mock.patch.object(ovn_helper, 'LOG') as m_l:
+            self.driver._fip_sync(self.ref_lb_fully_sync_populated)
+            m_l.debug.assert_called()
+        self.mock_add_request.assert_not_called()
+
+    @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
+    def test_fip_sync_addi(self, net_cli):
+        net_cli.return_value.ips.return_value = [
+            mock.Mock(floating_ip_address=self.fake_fip)]
+        fake_port = fakes.FakePort.create_one_port()
+        self.mock_get_lsp.return_value = self.lsp_addi
+        fake_port['fixed_ips'][0]['ip_address'] = self.fake_vip
+
+        net_cli.return_value.get_port.return_value = fake_port
+        self.ref_lb_fully_sync_populated.vip_port_id = 'foo'
+
+        with mock.patch.object(ovn_helper.OvnProviderHelper,
+                               'handle_vip_fip') as mock_handle_vip_fip:
+            info = {
+                'ovn_lb': self.ovn_lb,
+                'vip_fip': self.fake_fip,
+                'vip_related': [self.fake_vip],
+                'additional_vip_fip': True,
+                'action': ovn_const.REQ_INFO_ACTION_SYNC
+            }
+            self.driver._fip_sync(self.ref_lb_fully_sync_populated)
+            mock_handle_vip_fip.assert_called_once_with(info)
+
+    @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
+    def test_fip_sync_os_err(self, net_cli):
+        net_cli.return_value.ips.side_effect = [
+            openstack.exceptions.HttpException]
+        self.ref_lb_fully_sync_populated.vip_port_id = 'foo'
+
+        calls = [
+            mock.call('Floating IP not found for loadbalancer '
+                      f'{self.ref_lb_fully_sync_populated.loadbalancer_id}'),
+            mock.call('Floating IP not consistent between Logic Switch Port '
+                      f'and Neutron. Found FIP {self.fake_fip} configured in '
+                      f'LSP {self.lsp.name}, but no FIP configured from '
+                      'Neutron. Please run command `neutron-ovn-db-sync-util` '
+                      'first to sync OVN DB with Neutron DB.')]
+
+        with mock.patch.object(ovn_driver, 'LOG') as m_l:
+            self.driver._fip_sync(self.ref_lb_fully_sync_populated)
+            m_l.warn.assert_has_calls(calls)
+
+    @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
+    def test_fip_sync_lsp_mismatch(self, net_cli):
+        net_cli.return_value.ips.return_value = [
+            mock.Mock(floating_ip_address='1.2.3.5')]
+        self.ref_lb_fully_sync_populated.vip_port_id = 'foo'
+        msg = ('Floating IP not consistent between Logic Switch Port and '
+               f'Neutron. Found FIP {self.fake_fip} in LSP {self.lsp.name}, '
+               'but we have 1.2.3.5 from Neutron. Skip sync FIP for '
+               'loadbalancer '
+               f'{self.ref_lb_fully_sync_populated.loadbalancer_id}. '
+               'Please run command `neutron-ovn-db-sync-util` first to '
+               'sync OVN DB with Neutron DB.')
+
+        with mock.patch.object(ovn_driver, 'LOG') as m_l:
+            self.driver._fip_sync(self.ref_lb_fully_sync_populated)
+            m_l.warn.assert_called_once_with(msg)
+
+    @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
+    def test_fip_sync_lsp_not_found(self, net_cli):
+        net_cli.return_value.ips.return_value = [
+            mock.Mock(floating_ip_address='1.2.3.4')]
+        self.ref_lb_fully_sync_populated.vip_port_id = 'foo'
+
+        self.mock_get_lsp.return_value = None
+        msg = (
+            'Logic Switch Port not found for port foo. Skip sync FIP for '
+            'loadbalancer '
+            f'{self.ref_lb_fully_sync_populated.loadbalancer_id}. Please '
+            'run command `neutron-ovn-db-sync-util` first to sync OVN DB '
+            'with Neutron DB.')
+
+        with mock.patch.object(ovn_driver, 'LOG') as m_l:
+            self.driver._fip_sync(self.ref_lb_fully_sync_populated)
+            m_l.warn.assert_called_once_with(msg)
+
+    @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
+    def test_fip_sync_no_neutron_fip(self, net_cli):
+        net_cli.return_value.ips.return_value = []
+        self.ref_lb_fully_sync_populated.vip_port_id = 'foo'
+
+        calls = [
+            mock.call('Floating IP not found for loadbalancer '
+                      f'{self.ref_lb_fully_sync_populated.loadbalancer_id}'),
+            mock.call('Floating IP not consistent between Logic Switch Port '
+                      f'and Neutron. Found FIP {self.fake_fip} configured in '
+                      f'LSP {self.lsp.name}, but no FIP configured from '
+                      'Neutron. Please run command `neutron-ovn-db-sync-util` '
+                      'first to sync OVN DB with Neutron DB.')]
+        self.driver.pool_create(self.ref_pool)
+        self.mock_add_request
+        with mock.patch.object(ovn_driver, 'LOG') as m_l:
+            self.driver._fip_sync(self.ref_lb_fully_sync_populated)
+            m_l.warn.assert_has_calls(calls)
+
+    @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
+    def test_fip_sync_no_neutron_fip_no_lsp(self, net_cli):
+        net_cli.return_value.ips.return_value = []
+        self.ref_lb_fully_sync_populated.vip_port_id = 'foo'
+        self.mock_get_lsp.return_value = None
+        self.driver._fip_sync(self.ref_lb_fully_sync_populated)
+
+    @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
+    def test_fip_sync_no_port_id(self, net_cli):
+        net_cli.return_value.ips.return_value = [
+            mock.Mock(floating_ip_address='1.2.3.4')]
+
+        msg = ('VIP Port or Network not set for loadbalancer '
+               f'{self.ref_lb_fully_sync_populated.loadbalancer_id}, '
+               'skip FIP sync.')
+        with mock.patch.object(ovn_driver, 'LOG') as m_l:
+            self.driver._fip_sync(self.ref_lb_fully_sync_populated)
+            m_l.debug.assert_called_once_with(msg)
 
     def test_loadbalancer_create_additional_vips(self):
         info = {'id': self.ref_lb2.loadbalancer_id,

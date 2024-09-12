@@ -798,6 +798,59 @@ class OvnProviderDriver(driver_base.ProviderDriver):
                     ovn_lb)
                 self._ovn_helper._update_status_to_octavia(status)
 
+    def _fip_sync(self, loadbalancer):
+        LOG.info("Starting sync floating IP for loadbalancer "
+                 f"{loadbalancer.loadbalancer_id}")
+        if not loadbalancer.vip_port_id or not loadbalancer.vip_network_id:
+            LOG.debug("VIP Port or Network not set for loadbalancer "
+                      f"{loadbalancer.loadbalancer_id}, skip FIP sync.")
+            return
+
+        # Try to get FIP from neutron
+        fips = self._ovn_helper.get_fip_from_vip(loadbalancer)
+
+        # get FIP from LSP
+        vip_lsp = self._ovn_helper.get_lsp(
+            port_id=loadbalancer.vip_port_id,
+            network_id=loadbalancer.vip_network_id)
+        lsp_fip = vip_lsp.external_ids.get(
+            ovn_const.OVN_PORT_FIP_EXT_ID_KEY) if vip_lsp else None
+
+        if fips:
+            neutron_fip = fips[0].floating_ip_address
+            if not vip_lsp:
+                LOG.warn(
+                    "Logic Switch Port not found for port "
+                    f"{loadbalancer.vip_port_id}. "
+                    "Skip sync FIP for loadbalancer "
+                    f"{loadbalancer.loadbalancer_id}. Please "
+                    "run command `neutron-ovn-db-sync-util` "
+                    "first to sync OVN DB with Neutron DB.")
+                return
+            if lsp_fip != neutron_fip:
+                LOG.warn(
+                    "Floating IP not consistent between Logic Switch "
+                    f"Port and Neutron. Found FIP {lsp_fip} "
+                    f"in LSP {vip_lsp.name}, but we have {neutron_fip} from "
+                    "Neutron. Skip sync FIP for "
+                    f"loadbalancer {loadbalancer.loadbalancer_id}. "
+                    "Please run command `neutron-ovn-db-sync-util` "
+                    "first to sync OVN DB with Neutron DB.")
+                return
+            self._ovn_helper.vip_port_update_handler(
+                vip_lp=vip_lsp, fip=lsp_fip,
+                action=ovn_const.REQ_INFO_ACTION_SYNC)
+        else:
+            LOG.warn("Floating IP not found for loadbalancer "
+                     f"{loadbalancer.loadbalancer_id}")
+            if lsp_fip:
+                LOG.warn(
+                    "Floating IP not consistent between Logic Switch "
+                    f"Port and Neutron. Found FIP {lsp_fip} configured "
+                    f"in LSP {vip_lsp.name}, but no FIP configured from "
+                    "Neutron. Please run command `neutron-ovn-db-sync-util` "
+                    "first to sync OVN DB with Neutron DB.")
+
     def do_sync(self, **lb_filters):
         LOG.info(f"Starting sync OVN DB with Loadbalancer filter {lb_filters}")
         octavia_client = clients.get_octavia_client()
@@ -841,3 +894,4 @@ class OvnProviderDriver(driver_base.ProviderDriver):
                 provider_pools if provider_pools else o_datamodels.Unset
             )
             self._ensure_loadbalancer(provider_lb)
+            self._fip_sync(provider_lb)
