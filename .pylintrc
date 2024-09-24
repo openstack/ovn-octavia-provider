@@ -62,8 +62,8 @@ disable=
  consider-using-set-comprehension,
  unnecessary-pass,
  useless-object-inheritance,
- arguments-renamed
-
+ arguments-renamed,
+ too-many-positional-arguments
 
 [BASIC]
 # Variable names can be 1 to 31 characters long, with lowercase and underscores
