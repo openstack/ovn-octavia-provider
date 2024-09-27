@@ -134,41 +134,53 @@ def handle_neutron_deprecations():
 def register_opts():
     # NOTE (froyo): just to not try to re-register options already done
     # by Neutron, specially in test scope, that will get a DuplicateOptError
-    missing_ovn_opts = ovn_opts
-    try:
-        neutron_registered_opts = [opt for opt in cfg.CONF.ovn]
-        missing_ovn_opts = [opt for opt in ovn_opts
-                            if opt.name not in neutron_registered_opts]
-    except cfg.NoSuchOptError:
-        LOG.info('Not found any opts under group ovn registered by Neutron')
+    not_found_msg = 'Not found any opts under group ovn registered by Neutron'
+    _register_opts(ovn_opts, 'ovn', not_found_msg)
 
     # Do the same for neutron options that have been already registered by
     # Octavia
-    missing_neutron_opts = neutron_opts
-    try:
-        neutron_registered_opts = [opt for opt in cfg.CONF.neutron]
-        missing_neutron_opts = [opt for opt in neutron_opts
-                                if opt.name not in neutron_registered_opts]
-    except cfg.NoSuchOptError:
-        LOG.info('Not found any opts under group neutron')
+    _register_opts(neutron_opts, 'neutron')
 
-    cfg.CONF.register_opts(missing_ovn_opts, group='ovn')
-    cfg.CONF.register_opts(missing_neutron_opts, group='neutron')
     ks_loading.register_auth_conf_options(cfg.CONF, 'service_auth')
-    ks_loading.register_session_conf_options(cfg.CONF, 'service_auth')
-    ks_loading.register_adapter_conf_options(cfg.CONF, 'service_auth',
-                                             include_deprecated=False)
+    _register_opts(ks_loading.session.get_conf_options(), 'service_auth')
+    # adapter accepts either '-' or '_' in config name, so need to check both.
+    _register_opts(
+        ks_loading.adapter.get_conf_options(include_deprecated=False),
+        'service_auth', replace=('-', '_')
+    )
 
     ks_loading.register_auth_conf_options(cfg.CONF, 'neutron')
-    ks_loading.register_session_conf_options(cfg.CONF, 'neutron')
-    ks_loading.register_adapter_conf_options(cfg.CONF, 'neutron',
-                                             include_deprecated=False)
+    _register_opts(ks_loading.session.get_conf_options(), 'neutron')
+
+    # adapter accepts either '-' or '_' in config name, so need to check both.
+    _register_opts(
+        ks_loading.adapter.get_conf_options(include_deprecated=False),
+        'neutron', replace=('-', '_')
+    )
 
     # Override default auth_type for plugins with the default from service_auth
     auth_type = cfg.CONF.service_auth.auth_type
     cfg.CONF.set_default('auth_type', auth_type, 'neutron')
 
     handle_neutron_deprecations()
+
+
+def _register_opts(opts, group, not_found_msg=None, replace=('', '')):
+    # NOTE (ricolin): To prevent DuplicateOptError
+    missing_opts = opts
+    try:
+        registered_opts = [opt for opt in getattr(cfg.CONF, group)]
+        missing_opts = [
+            opt for opt in opts if (
+                opt.name not in registered_opts and
+                opt.name.replace(replace[0], replace[1]) not in registered_opts
+            )
+        ]
+    except cfg.NoSuchOptError:
+        msg = not_found_msg if not_found_msg else (
+            f"Not found any opts under group {group}")
+        LOG.info(msg)
+    cfg.CONF.register_opts(missing_opts, group=group)
 
 
 def list_opts():
