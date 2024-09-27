@@ -452,6 +452,15 @@ class OvnProviderHelper():
     def _neutron_find_port(self, neutron_client, **params):
         return neutron_client.find_port(**params)
 
+    @tenacity.retry(
+        retry=tenacity.retry_if_exception_type(
+            openstack.exceptions.HttpException),
+        wait=tenacity.wait_exponential(),
+        stop=tenacity.stop_after_delay(10),
+        reraise=True)
+    def get_octavia_lbs(self, octavia_client, **params):
+        return octavia_client.load_balancers(**params)
+
     def _find_ovn_lbs(self, lb_id, protocol=None):
         """Find the Loadbalancers in OVN with the given lb_id as its name
 

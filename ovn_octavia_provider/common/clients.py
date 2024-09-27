@@ -139,3 +139,37 @@ def get_neutron_client():
                 'in Octavia API configuration.') % e
         raise driver_exceptions.DriverError(
             operator_fault_string=msg)
+
+
+class OctaviaAuth(metaclass=Singleton):
+    def __init__(self):
+        """Create Octavia client object."""
+        try:
+            ksession = KeystoneSession()
+            kwargs = {'region_name': CONF.service_auth.region_name}
+            # TODO(ricolin) `interface` option don't take list as option yet.
+            # We can move away from this when openstacksdk no longer depends
+            # on `interface`.
+            try:
+                interface = CONF.service_auth.valid_interfaces[0]
+            except (TypeError, LookupError):
+                interface = CONF.service_auth.valid_interfaces
+            if interface:
+                kwargs['interface'] = interface
+
+            self.loadbalancer_proxy = openstack.connection.Connection(
+                session=ksession.session, **kwargs).load_balancer
+        except Exception:
+            with excutils.save_and_reraise_exception():
+                LOG.exception("Error creating Octavia client.")
+
+
+def get_octavia_client():
+    try:
+        return OctaviaAuth().loadbalancer_proxy
+    except Exception as e:
+        msg = _('Cannot initialize OpenStackSDK. Exception: %s. '
+                'Please verify service_auth configuration '
+                'in Octavia API configuration.') % e
+        raise driver_exceptions.DriverError(
+            operator_fault_string=msg)
