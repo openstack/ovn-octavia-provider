@@ -722,6 +722,42 @@ class OvnProviderHelper():
                                          ('options', options))
             )
 
+    def _update_pool_data(self, member, pool_key, external_ids):
+        """Update pool data with member information."""
+        pool_data = None
+        existing_members = external_ids.get(pool_key, "")
+        member_info = self._get_member_info(member)
+
+        if existing_members:
+            members = existing_members.split(",")
+            if member_info not in members:
+                members.append(member_info)
+                pool_data = {pool_key: ",".join(members)}
+        else:
+            pool_data = {pool_key: member_info}
+
+        return pool_data
+
+    def _add_pool_data_command(self, commands, ovn_lb, pool_data):
+        """Add command to update pool data in LoadBalancer."""
+        if pool_data:
+            commands.append(
+                self.ovn_nbdb_api.db_set('Load_Balancer', ovn_lb.uuid,
+                                         ('external_ids', pool_data))
+            )
+
+    def _get_related_lr(self, member):
+        """Retrieve the logical router related to the member's subnet."""
+        neutron_client = clients.get_neutron_client()
+        try:
+            subnet = neutron_client.get_subnet(member[constants.SUBNET_ID])
+            ls_name = utils.ovn_name(subnet.network_id)
+            ovn_ls = self.ovn_nbdb_api.ls_get(ls_name).execute(
+                check_error=True)
+            return self._find_lr_of_ls(ovn_ls, subnet.gateway_ip)
+        except (idlutils.RowNotFound, openstack.exceptions.ResourceNotFound):
+            return None
+
     def _lb_status(self, loadbalancer, provisioning_status, operating_status):
         """Return status for the LoadBalancer."""
         return {
@@ -2506,6 +2542,73 @@ class OvnProviderHelper():
             LOG.exception("Error storing member status on external_ids member:"
                           " %s delete: %s status: %s", str(member),
                           str(delete), str(status))
+
+    def _get_members_in_ovn_lb(self, ovn_lb, pool_key):
+        existing_members = ovn_lb.external_ids.get(pool_key, None)
+        if existing_members:
+            existing_members = existing_members.split(",")
+            return [
+                self._extract_member_info(
+                    member)[0] for member in existing_members
+            ]
+        else:
+            return []
+
+    def member_sync(self, member, ovn_lb, pool_key):
+        """Sync Member object with an OVN LoadBalancer
+
+        The method performs the following steps:
+        1. Update pool key with member info on OVN Loadbalancer external_ids
+        if needed
+        2. Update OVN LoadBalancer vips
+        3. Update references on LS or LR from the member if needed
+        4. Update OVN Loadbalancer member_status info on external_ids
+
+        :param member: The source member object from Octavia DB
+        :param ovn_lb: The OVN LoadBalancer object that needs to be sync
+        :param pool_key: The pool_key where member is associated
+        """
+        external_ids = copy.deepcopy(ovn_lb.external_ids)
+        pool_data = self._update_pool_data(member, pool_key, external_ids)
+
+        commands = []
+        if pool_data:
+            self._add_pool_data_command(commands, ovn_lb, pool_data)
+            external_ids[pool_key] = pool_data[pool_key]
+
+        try:
+            if member.get(constants.ADMIN_STATE_UP, False):
+                commands.extend(self._refresh_lb_vips(
+                    ovn_lb, external_ids, is_sync=True))
+        except Exception as e:
+            LOG.exception(f"Failed to refresh LB VIPs: {e}")
+            return
+
+        try:
+            self._execute_commands(commands)
+        except Exception as e:
+            LOG.exception(f"Failed to execute commands for listener sync: {e}")
+            return
+
+        self._update_lb_to_ls_association(
+            ovn_lb, subnet_id=member[constants.SUBNET_ID], associate=True,
+            update_ls_ref=True, is_sync=True)
+
+        # Make sure that all logical switches related to logical router
+        # are associated with the load balancer. This is needed to handle
+        # potential race that happens when lrp and lb are created at the
+        # same time.
+        ovn_lr = self._get_related_lr(member)
+
+        if ovn_lr:
+            self._sync_lb_to_lr_association(ovn_lb, ovn_lr)
+
+        # TODO(froyo): Check if originally status in Octavia is ERROR if
+        # we receive that info from the object
+        self._update_external_ids_member_status(
+            ovn_lb,
+            member[constants.ID],
+            constants.NO_MONITOR)
 
     def _add_member(self, member, ovn_lb, pool_key):
         external_ids = copy.deepcopy(ovn_lb.external_ids)
