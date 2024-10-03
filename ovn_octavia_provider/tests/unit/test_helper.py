@@ -2209,6 +2209,63 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         self.helper.ovn_nbdb_api.lb_del.assert_called_once_with(
             self.ovn_lb.uuid)
 
+    def test_pool_sync_exception(self):
+        self.helper.ovn_nbdb_api.db_set.side_effect = [
+            RuntimeError("ERROR_MSG"), RuntimeError("ERROR_MSG")]
+        with mock.patch.object(ovn_helper, 'LOG') as m_l:
+            self.assertIsNone(self.helper.pool_sync(self.pool, self.ovn_lb))
+            m_l.exception.assert_called_once_with(
+                'Failed to execute commands for pool sync: ERROR_MSG')
+
+    def test_pool_sync(self):
+        self.helper.pool_sync(self.pool, self.ovn_lb)
+        listener_key_value = (f"80:pool_{self.pool_id}:"
+                              f"{ovn_const.DISABLED_RESOURCE_SUFFIX}")
+        expected_calls = [mock.call(
+            'Load_Balancer', self.ovn_lb.uuid,
+            ('external_ids', {
+                ovn_const.LB_EXT_IDS_VIP_KEY: mock.ANY,
+                ovn_const.LB_EXT_IDS_VIP_FIP_KEY: '123.123.123.123',
+                ovn_const.LB_EXT_IDS_VIP_PORT_ID_KEY: mock.ANY,
+                'enabled': True,
+                f"pool_{self.pool_id}": mock.ANY,
+                f"listener_{self.listener_id}": listener_key_value,
+                ovn_const.OVN_MEMBER_STATUS_KEY: '{"%s": "%s"}'
+                % (self.member_id, constants.NO_MONITOR),
+                f"pool_{self.pool_id}:{ovn_const.DISABLED_RESOURCE_SUFFIX}": ''
+            }))
+        ]
+        self.helper.ovn_nbdb_api.db_set.assert_has_calls(
+            expected_calls)
+
+    def test_pool_sync_press_key(self):
+        self.pool[constants.SESSION_PERSISTENCE] = {
+            constants.PERSISTENCE_TIMEOUT: '360'
+        }
+        self.ovn_lb.options = {'a': 1}
+        self.helper.pool_sync(self.pool, self.ovn_lb)
+        listener_key_value = (f"80:pool_{self.pool_id}:"
+                              f"{ovn_const.DISABLED_RESOURCE_SUFFIX}")
+        expected_calls = [mock.call(
+            'Load_Balancer', self.ovn_lb.uuid,
+            ('external_ids', {
+                ovn_const.LB_EXT_IDS_VIP_KEY: mock.ANY,
+                ovn_const.LB_EXT_IDS_VIP_FIP_KEY: '123.123.123.123',
+                ovn_const.LB_EXT_IDS_VIP_PORT_ID_KEY: mock.ANY,
+                'enabled': True,
+                f"pool_{self.pool_id}": mock.ANY,
+                f"listener_{self.listener_id}": listener_key_value,
+                ovn_const.OVN_MEMBER_STATUS_KEY: '{"%s": "%s"}'
+                % (self.member_id, constants.NO_MONITOR),
+                f"pool_{self.pool_id}:{ovn_const.DISABLED_RESOURCE_SUFFIX}": ''
+            })),
+            mock.call(
+                'Load_Balancer', self.ovn_lb.uuid,
+                ('options', {'a': 1, 'affinity_timeout': '360'}))
+        ]
+        self.helper.ovn_nbdb_api.db_set.assert_has_calls(
+            expected_calls)
+
     @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
     def test_member_create_disabled(self, net_cli):
         net_cli.return_value.show_subnet.side_effect = [idlutils.RowNotFound]

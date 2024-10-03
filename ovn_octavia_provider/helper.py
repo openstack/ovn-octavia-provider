@@ -663,6 +663,65 @@ class OvnProviderHelper():
                 )
             )
 
+    def _prepare_external_ids(self, pool, ovn_lb):
+        """Prepare the updated external_ids for the LoadBalancer."""
+        external_ids = copy.deepcopy(ovn_lb.external_ids)
+        pool_key = self._get_pool_key(
+            pool[constants.ID],
+            is_enabled=pool[constants.ADMIN_STATE_UP])
+        external_ids[pool_key] = ''
+
+        if pool[constants.LISTENER_ID]:
+            self._update_listener_association(
+                pool, ovn_lb, external_ids, pool_key)
+
+        return external_ids
+
+    def _update_listener_association(self, pool, ovn_lb, external_ids,
+                                     pool_key):
+        """Update the listener association in external_ids."""
+        listener_key = self._get_listener_key(pool[constants.LISTENER_ID])
+        if listener_key in ovn_lb.external_ids:
+            pool_key_enable = self._get_pool_key(pool[constants.ID],
+                                                 is_enabled=True)
+            pool_key_disable = self._get_pool_key(pool[constants.ID],
+                                                  is_enabled=False)
+
+            if pool[constants.ID] in external_ids[listener_key]:
+                # Remove existing pool keys before adding the updated key
+                external_ids[listener_key] = (
+                    external_ids[listener_key]
+                    .replace(pool_key_disable, '')
+                    .replace(pool_key_enable, '')
+                )
+
+            external_ids[listener_key] += str(pool_key)
+
+    def _extract_persistence_timeout(self, pool):
+        """Extract persistence timeout value from the pool, if available."""
+        if pool.get(constants.SESSION_PERSISTENCE):
+            return pool[constants.SESSION_PERSISTENCE].get(
+                constants.PERSISTENCE_TIMEOUT, '360')
+        return None
+
+    def _add_external_ids_command(self, commands, ovn_lb, external_ids):
+        """Add a command to update the external_ids of the LoadBalancer."""
+        commands.append(
+            self.ovn_nbdb_api.db_set('Load_Balancer', ovn_lb.uuid,
+                                     ('external_ids', external_ids))
+        )
+
+    def _add_persistence_timeout_command(self, commands, ovn_lb,
+                                         persistence_timeout):
+        """Add command to update persistence timeout in LoadBalancer."""
+        options = copy.deepcopy(ovn_lb.options)
+        options[ovn_const.AFFINITY_TIMEOUT] = str(persistence_timeout)
+        if ovn_lb.options != options:
+            commands.append(
+                self.ovn_nbdb_api.db_set('Load_Balancer', ovn_lb.uuid,
+                                         ('options', options))
+            )
+
     def _lb_status(self, loadbalancer, provisioning_status, operating_status):
         """Return status for the LoadBalancer."""
         return {
@@ -2115,7 +2174,11 @@ class OvnProviderHelper():
         external_ids[pool_key] = ''
         if pool[constants.LISTENER_ID]:
             listener_key = self._get_listener_key(pool[constants.LISTENER_ID])
-            if listener_key in ovn_lb.external_ids:
+            # NOTE(froyo): checking is not already when ovn-db-sync-tool is
+            # triggered, because listener_create could be added already if
+            # pool is considered as default one
+            if listener_key in ovn_lb.external_ids and \
+                    str(pool_key) not in external_ids[listener_key]:
                 external_ids[listener_key] = str(
                     external_ids[listener_key]) + str(pool_key)
         persistence_timeout = None
@@ -2173,6 +2236,29 @@ class OvnProviderHelper():
                 status[constants.LISTENERS] = listener_status
 
         return status
+
+    def pool_sync(self, pool, ovn_lb):
+        """Sync Pool object with an OVN LoadBalancer
+
+        The method performs the following steps:
+        1. Update pool key on OVN Loadbalancer external_ids if needed
+        2. Update OVN LoadBalancer options from Pool info
+
+        :param pool: The source pool object from Octavia DB
+        :param ovn_lb: The OVN LoadBalancer object that needs to be sync
+        """
+        external_ids = self._prepare_external_ids(pool, ovn_lb)
+        persistence_timeout = self._extract_persistence_timeout(pool)
+
+        try:
+            commands = []
+            self._add_external_ids_command(commands, ovn_lb, external_ids)
+            if persistence_timeout:
+                self._add_persistence_timeout_command(commands, ovn_lb,
+                                                      persistence_timeout)
+            self._execute_commands(commands)
+        except Exception as e:
+            LOG.exception(f"Failed to execute commands for pool sync: {e}")
 
     def pool_delete(self, pool):
         status = {
