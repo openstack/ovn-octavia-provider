@@ -1122,6 +1122,65 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
 
         self.assertEqual(result, expected_result)
 
+    @mock.patch.object(ovn_driver.OvnProviderDriver, '_validate_hm_support')
+    def test_get_healthmonitor_request_info_with_admin_state_up(
+            self, mock_validate):
+        result = self.driver._get_healthmonitor_request_info(
+            self.ref_health_monitor)
+
+        expected = {
+            'id': self.ref_health_monitor.healthmonitor_id,
+            'pool_id': self.ref_health_monitor.pool_id,
+            'type': self.ref_health_monitor.type,
+            'interval': self.ref_health_monitor.delay,
+            'timeout': self.ref_health_monitor.timeout,
+            'failure_count': self.ref_health_monitor.max_retries_down,
+            'success_count': self.ref_health_monitor.max_retries,
+            'admin_state_up': self.ref_health_monitor.admin_state_up
+        }
+        self.assertEqual(result, expected)
+        mock_validate.assert_called_once_with(self.ref_health_monitor)
+
+    @mock.patch.object(ovn_driver.OvnProviderDriver, '_validate_hm_support')
+    def test_get_healthmonitor_request_info_with_unset_admin_state_up(
+            self, mock_validate):
+        self.ref_health_monitor.admin_state_up = data_models.UnsetType()
+        result = self.driver._get_healthmonitor_request_info(
+            self.ref_health_monitor)
+
+        expected = {
+            'id': self.ref_health_monitor.healthmonitor_id,
+            'pool_id': self.ref_health_monitor.pool_id,
+            'type': self.ref_health_monitor.type,
+            'interval': self.ref_health_monitor.delay,
+            'timeout': self.ref_health_monitor.timeout,
+            'failure_count': self.ref_health_monitor.max_retries_down,
+            'success_count': self.ref_health_monitor.max_retries,
+            'admin_state_up': True
+        }
+        self.assertEqual(result, expected)
+        mock_validate.assert_called_once_with(self.ref_health_monitor)
+
+    @mock.patch.object(ovn_driver.OvnProviderDriver, '_validate_hm_support')
+    def test_get_healthmonitor_request_info_with_admin_state_down(
+            self, mock_validate):
+        self.ref_health_monitor.admin_state_up = False
+        result = self.driver._get_healthmonitor_request_info(
+            self.ref_health_monitor)
+
+        expected = {
+            'id': self.ref_health_monitor.healthmonitor_id,
+            'pool_id': self.ref_health_monitor.pool_id,
+            'type': self.ref_health_monitor.type,
+            'interval': self.ref_health_monitor.delay,
+            'timeout': self.ref_health_monitor.timeout,
+            'failure_count': self.ref_health_monitor.max_retries_down,
+            'success_count': self.ref_health_monitor.max_retries,
+            'admin_state_up': self.ref_health_monitor.admin_state_up
+        }
+        self.assertEqual(result, expected)
+        mock_validate.assert_called_once_with(self.ref_health_monitor)
+
     @mock.patch.object(ovn_driver.OvnProviderDriver,
                        '_check_member_monitor_options')
     @mock.patch.object(ovn_driver.OvnProviderDriver,
@@ -1390,20 +1449,85 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
 
     @mock.patch.object(ovn_helper.OvnProviderHelper,
                        '_update_status_to_octavia')
+    @mock.patch.object(ovn_helper.OvnProviderHelper, 'pool_create')
     @mock.patch.object(ovn_helper.OvnProviderHelper, 'listener_create')
     @mock.patch.object(ovn_helper.OvnProviderHelper, 'lb_create')
-    def test_ensure_loadbalancer_lb_no_listener_no_pool_not_found(
-            self, mock_lb_create, mock_listener_create, mock_update_status):
+    def test_ensure_loadbalancer_lb_not_found_without_listeners_or_pools(
+            self, mock_lb_create, mock_listener_create, mock_pool_create,
+            mock_update_status):
         self.mock_find_ovn_lbs_with_retry.side_effect = [
             idlutils.RowNotFound]
-        self.ref_lb_fully_populated.listeners = data_models.Unset
-        self.ref_lb_fully_populated.pools = data_models.Unset
+        self.ref_lb_fully_populated.listeners = data_models.UnsetType()
+        self.ref_lb_fully_populated.pools = data_models.UnsetType()
         self.driver._ensure_loadbalancer(self.ref_lb_fully_populated)
         mock_lb_create.assert_called_once_with(
             self.driver._get_loadbalancer_request_info(
                 self.ref_lb_fully_populated),
         )
         mock_listener_create.assert_not_called()
+        mock_pool_create.assert_not_called()
+
+    @mock.patch.object(ovn_helper.OvnProviderHelper,
+                       '_update_status_to_octavia')
+    @mock.patch.object(ovn_helper.OvnProviderHelper, 'member_create')
+    @mock.patch.object(ovn_helper.OvnProviderHelper, 'pool_create')
+    @mock.patch.object(ovn_helper.OvnProviderHelper, 'listener_create')
+    @mock.patch.object(ovn_helper.OvnProviderHelper, 'lb_create')
+    def test_ensure_loadbalancer_lb_not_found_member_without_subnet(
+            self, mock_lb_create, mock_listener_create, mock_pool_create,
+            mock_member_create, mock_update_status):
+        self.mock_find_ovn_lbs_with_retry.side_effect = [
+            idlutils.RowNotFound]
+        self.ref_lb_fully_populated.listeners = []
+        self.ref_lb_fully_populated.pools[0].members[0].subnet_id = None
+        self.driver._ensure_loadbalancer(self.ref_lb_fully_populated)
+        mock_member_create.assert_called_once_with(
+            self.driver._get_member_request_info(
+                self.ref_lb_fully_populated.pools[0].members[0]),
+        )
+
+    @mock.patch.object(ovn_helper.OvnProviderHelper,
+                       '_update_status_to_octavia')
+    @mock.patch.object(ovn_helper.OvnProviderHelper, 'hm_create')
+    @mock.patch.object(ovn_helper.OvnProviderHelper, 'member_create')
+    @mock.patch.object(ovn_helper.OvnProviderHelper, 'pool_create')
+    @mock.patch.object(ovn_helper.OvnProviderHelper, 'listener_create')
+    @mock.patch.object(ovn_helper.OvnProviderHelper, 'lb_create')
+    def test_ensure_loadbalancer_lb_not_found_hm_found(
+            self, mock_lb_create, mock_listener_create, mock_pool_create,
+            mock_member_create, mock_hm_create, mock_update_status):
+        self.mock_find_ovn_lbs_with_retry.side_effect = [
+            idlutils.RowNotFound]
+        with mock.patch.object(
+                ovn_helper.OvnProviderHelper, '_find_ovn_lb_from_hm_id') \
+                as mock_find_ovn_lb_from_hm_id:
+            mock_find_ovn_lb_from_hm_id.return_value = (mock.ANY, self.ovn_lb)
+            self.ref_pool.healthmonitor = self.ref_health_monitor
+            self.driver._ensure_loadbalancer(self.ref_lb_fully_populated)
+            mock_hm_create.assert_not_called()
+
+    @mock.patch.object(ovn_helper.OvnProviderHelper,
+                       '_update_status_to_octavia')
+    @mock.patch.object(ovn_helper.OvnProviderHelper, 'hm_create')
+    @mock.patch.object(ovn_helper.OvnProviderHelper, 'member_create')
+    @mock.patch.object(ovn_helper.OvnProviderHelper, 'pool_create')
+    @mock.patch.object(ovn_helper.OvnProviderHelper, 'listener_create')
+    @mock.patch.object(ovn_helper.OvnProviderHelper, 'lb_create')
+    def test_ensure_loadbalancer_lb_not_found_hm_lbhc_not_found(
+            self, mock_lb_create, mock_listener_create, mock_pool_create,
+            mock_member_create, mock_hm_create, mock_update_status):
+        self.mock_find_ovn_lbs_with_retry.side_effect = [
+            idlutils.RowNotFound]
+        with mock.patch.object(
+                ovn_helper.OvnProviderHelper, '_find_ovn_lb_from_hm_id') \
+                as mock_find_ovn_lb_from_hm_id:
+            mock_find_ovn_lb_from_hm_id.return_value = (None, None)
+            self.ref_pool.healthmonitor = self.ref_health_monitor
+            self.driver._ensure_loadbalancer(self.ref_lb_fully_populated)
+            mock_hm_create.assert_called_once_with(
+                self.driver._get_healthmonitor_request_info(
+                    self.ref_lb_fully_populated.pools[0].healthmonitor),
+            )
 
     @mock.patch.object(ovn_helper.OvnProviderHelper,
                        '_update_status_to_octavia')
@@ -1430,15 +1554,13 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
 
     @mock.patch.object(ovn_helper.OvnProviderHelper,
                        '_update_status_to_octavia')
-    @mock.patch.object(ovn_helper.OvnProviderHelper,
-                       '_get_current_operating_statuses')
     @mock.patch.object(ovn_helper.OvnProviderHelper, 'member_create')
     @mock.patch.object(ovn_helper.OvnProviderHelper, 'pool_create')
     @mock.patch.object(ovn_helper.OvnProviderHelper, 'listener_create')
     @mock.patch.object(ovn_helper.OvnProviderHelper, 'lb_create')
     def test_ensure_loadbalancer_lb_not_found_without_members(
             self, mock_lb_create, mock_listener_create, mock_pool_create,
-            mock_member_create, mock_get_status, mock_update_status):
+            mock_member_create, mock_update_status):
         self.mock_find_ovn_lbs_with_retry.side_effect = [
             idlutils.RowNotFound]
         self.ref_lb_fully_populated.pools[0].members = []
@@ -1459,17 +1581,104 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
 
     @mock.patch.object(ovn_helper.OvnProviderHelper,
                        '_update_status_to_octavia')
+    @mock.patch.object(ovn_helper.OvnProviderHelper, 'hm_create')
+    @mock.patch.object(ovn_helper.OvnProviderHelper, 'member_create')
+    @mock.patch.object(ovn_helper.OvnProviderHelper, 'pool_create')
+    @mock.patch.object(ovn_helper.OvnProviderHelper, 'listener_create')
+    @mock.patch.object(ovn_helper.OvnProviderHelper, 'lb_create')
+    def test_ensure_loadbalancer_lb_not_found_with_hm(
+            self, mock_lb_create, mock_listener_create, mock_pool_create,
+            mock_member_create, mock_hm_create, mock_update_status):
+        self.mock_find_ovn_lbs_with_retry.side_effect = [
+            idlutils.RowNotFound]
+        self.ref_lb_fully_populated.pools[0].members = []
+        self.ref_pool.healthmonitor = self.ref_health_monitor
+        self.driver._ensure_loadbalancer(self.ref_lb_fully_populated)
+        mock_lb_create.assert_called_once_with(
+            self.driver._get_loadbalancer_request_info(
+                self.ref_lb_fully_populated),
+        )
+        mock_listener_create.assert_called_once_with(
+            self.driver._get_listener_request_info(
+                self.ref_lb_fully_populated.listeners[0]),
+        )
+        mock_pool_create.assert_called_once_with(
+            self.driver._get_pool_request_info(
+                self.ref_lb_fully_populated.pools[0]),
+        )
+        mock_member_create.assert_not_called()
+        mock_hm_create.assert_called_once_with(
+            self.driver._get_healthmonitor_request_info(
+                self.ref_lb_fully_populated.pools[0].healthmonitor),
+        )
+
+    @mock.patch.object(ovn_helper.OvnProviderHelper,
+                       '_update_status_to_octavia')
+    @mock.patch.object(ovn_helper.OvnProviderHelper, 'member_create')
+    @mock.patch.object(ovn_helper.OvnProviderHelper, 'pool_create')
+    @mock.patch.object(ovn_helper.OvnProviderHelper, 'listener_create')
+    @mock.patch.object(ovn_helper.OvnProviderHelper, 'lb_create')
+    def test_ensure_loadbalancer_lb_not_found_no_listeners(
+            self, mock_lb_create, mock_listener_create, mock_pool_create,
+            mock_member_create, mock_update_status):
+        self.mock_find_ovn_lbs_with_retry.side_effect = [
+            idlutils.RowNotFound]
+        self.ref_lb_fully_populated.listeners = []
+        self.driver._ensure_loadbalancer(self.ref_lb_fully_populated)
+        mock_lb_create.assert_called_once_with(
+            self.driver._get_loadbalancer_request_info(
+                self.ref_lb_fully_populated),
+        )
+        mock_listener_create.assert_not_called()
+        mock_pool_create.assert_called_once_with(
+            self.driver._get_pool_request_info(
+                self.ref_lb_fully_populated.pools[0]),
+        )
+        mock_member_create.assert_called_once_with(
+            self.driver._get_member_request_info(
+                self.ref_lb_fully_populated.pools[0].members[0]),
+        )
+
+    @mock.patch.object(ovn_helper.OvnProviderHelper,
+                       '_update_status_to_octavia')
+    @mock.patch.object(ovn_helper.OvnProviderHelper, 'member_create')
+    @mock.patch.object(ovn_helper.OvnProviderHelper, 'pool_create')
+    @mock.patch.object(ovn_helper.OvnProviderHelper, 'listener_create')
+    @mock.patch.object(ovn_helper.OvnProviderHelper, 'lb_create')
+    def test_ensure_loadbalancer_lb_not_found_no_pools(
+            self, mock_lb_create, mock_listener_create, mock_pool_create,
+            mock_member_create, mock_update_status):
+        self.mock_find_ovn_lbs_with_retry.side_effect = [
+            idlutils.RowNotFound]
+        self.ref_lb_fully_populated.pools = []
+        self.driver._ensure_loadbalancer(self.ref_lb_fully_populated)
+        mock_lb_create.assert_called_once_with(
+            self.driver._get_loadbalancer_request_info(
+                self.ref_lb_fully_populated),
+        )
+        mock_listener_create.assert_called_once_with(
+            self.driver._get_listener_request_info(
+                self.ref_lb_fully_populated.listeners[0]),
+        )
+        mock_pool_create.assert_not_called()
+        mock_member_create.assert_not_called()
+
+    @mock.patch.object(ovn_helper.OvnProviderHelper,
+                       '_update_status_to_octavia')
     @mock.patch.object(ovn_helper.OvnProviderHelper,
                        '_get_current_operating_statuses')
+    @mock.patch.object(ovn_helper.OvnProviderHelper, 'hm_sync')
     @mock.patch.object(ovn_helper.OvnProviderHelper, 'member_sync')
     @mock.patch.object(ovn_helper.OvnProviderHelper, 'pool_sync')
     @mock.patch.object(ovn_helper.OvnProviderHelper, 'listener_sync')
     @mock.patch.object(ovn_helper.OvnProviderHelper, 'lb_sync')
     def test_ensure_loadbalancer_lb_found(
             self, mock_lb_sync, mock_listener_sync, mock_pool_sync,
-            mock_member_sync, mock_get_status, mock_update_status):
+            mock_member_sync, mock_hm_sync, mock_get_status,
+            mock_update_status):
         self.mock_find_ovn_lbs_with_retry.return_value = [
             self.ovn_lb]
+        self.ref_pool.healthmonitor = self.ref_health_monitor
         self.driver._ensure_loadbalancer(self.ref_lb_fully_populated)
         mock_lb_sync.assert_called_with(
             self.driver._get_loadbalancer_request_info(
@@ -1480,6 +1689,28 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
             self.driver._get_listener_request_info(
                 self.ref_lb_fully_populated.listeners[0]),
             self.ovn_lb
+        )
+        mock_listener_sync.assert_called_once_with(
+            self.driver._get_listener_request_info(
+                self.ref_lb_fully_populated.listeners[0]),
+            self.ovn_lb
+        )
+        mock_pool_sync.assert_called_once_with(
+            self.driver._get_pool_request_info(
+                self.ref_lb_fully_populated.pools[0]),
+            self.ovn_lb
+        )
+        mock_member_sync.assert_called_once_with(
+            self.driver._get_member_request_info(
+                self.ref_lb_fully_populated.pools[0].members[0]),
+            mock.ANY,
+            f"pool_{self.ref_lb_fully_populated.pools[0].pool_id}"
+        )
+        mock_hm_sync.assert_called_once_with(
+            self.driver._get_healthmonitor_request_info(
+                self.ref_lb_fully_populated.pools[0].healthmonitor),
+            mock.ANY,
+            f"pool_{self.ref_lb_fully_populated.pools[0].pool_id}"
         )
         mock_get_status.assert_called_with(self.ovn_lb)
 
@@ -1504,6 +1735,7 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
         )
         mock_listener_sync.assert_not_called()
         mock_pool_sync.assert_not_called()
+        mock_get_status.assert_called_with(self.ovn_lb)
 
     @mock.patch.object(ovn_helper.OvnProviderHelper,
                        '_update_status_to_octavia')
@@ -1529,6 +1761,42 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
             self.ovn_lb
         )
         mock_pool_sync.assert_not_called()
+        mock_get_status.assert_called_with(self.ovn_lb)
+
+    @mock.patch.object(ovn_helper.OvnProviderHelper,
+                       '_update_status_to_octavia')
+    @mock.patch.object(ovn_helper.OvnProviderHelper,
+                       '_get_current_operating_statuses')
+    @mock.patch.object(ovn_helper.OvnProviderHelper, 'hm_sync')
+    @mock.patch.object(ovn_helper.OvnProviderHelper, 'member_sync')
+    @mock.patch.object(ovn_helper.OvnProviderHelper, 'pool_sync')
+    @mock.patch.object(ovn_helper.OvnProviderHelper, 'listener_sync')
+    @mock.patch.object(ovn_helper.OvnProviderHelper, 'lb_sync')
+    @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
+    def test_ensure_loadbalancer_lb_found_no_hm(
+            self, net_cli, mock_lb_sync, mock_listener_sync,
+            mock_pool_sync, mock_member_sync, mock_hm_sync,
+            mock_get_status, mock_update_status):
+        self.mock_find_ovn_lbs_with_retry.return_value = [
+            self.ovn_lb]
+        self.ref_pool_with_hm.healthmonitor = None
+        self.driver._ensure_loadbalancer(self.ref_lb_fully_populated)
+
+        mock_lb_sync.assert_called_with(
+            self.driver._get_loadbalancer_request_info(self.ref_lb0),
+            self.ovn_lb
+        )
+        mock_listener_sync.assert_called_once_with(
+            self.driver._get_listener_request_info(
+                self.ref_lb_fully_populated.listeners[0]),
+            self.ovn_lb
+        )
+        mock_pool_sync.assert_called_once_with(
+            self.driver._get_pool_request_info(
+                self.ref_lb_fully_populated.pools[0]),
+            self.ovn_lb
+        )
+        mock_hm_sync.assert_not_called()
 
     @mock.patch.object(ovn_helper.OvnProviderHelper,
                        '_update_status_to_octavia')
@@ -1560,6 +1828,29 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
             self.driver._get_pool_request_info(
                 self.ref_lb_fully_populated.pools[0]), self.ovn_lb)
         mock_member_sync.assert_not_called()
+
+    @mock.patch.object(ovn_helper.OvnProviderHelper,
+                       '_update_status_to_octavia')
+    @mock.patch.object(ovn_helper.OvnProviderHelper,
+                       '_get_current_operating_statuses')
+    @mock.patch.object(ovn_helper.OvnProviderHelper, 'member_sync')
+    @mock.patch.object(ovn_helper.OvnProviderHelper, 'pool_sync')
+    @mock.patch.object(ovn_helper.OvnProviderHelper, 'listener_sync')
+    @mock.patch.object(ovn_helper.OvnProviderHelper, 'lb_sync')
+    def test_ensure_loadbalancer_lb_found_member_without_subnet(
+            self, mock_lb_sync, mock_listener_sync, mock_pool_sync,
+            mock_member_sync, mock_get_status, mock_update_status):
+        self.mock_find_ovn_lbs_with_retry.return_value = [
+            self.ovn_lb]
+        self.ref_lb_fully_populated.listeners = []
+        self.ref_lb_fully_populated.pools[0].members[0].subnet_id = None
+        self.driver._ensure_loadbalancer(self.ref_lb_fully_populated)
+        mock_member_sync.assert_called_once_with(
+            self.driver._get_member_request_info(
+                self.ref_lb_fully_populated.pools[0].members[0]),
+            mock.ANY,
+            f"pool_{self.ref_lb_fully_populated.pools[0].pool_id}"
+        )
 
     @mock.patch.object(ovn_helper.OvnProviderHelper,
                        '_update_status_to_octavia')
@@ -1653,6 +1944,7 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
             self.driver.do_sync(**lb_filters)
             mock_ensure_lb.assert_not_called()
 
+    @mock.patch.object(data_models.HealthMonitor, 'from_dict')
     @mock.patch.object(data_models.Member, 'from_dict')
     @mock.patch.object(data_models.Listener, 'from_dict')
     @mock.patch.object(data_models.Pool, 'from_dict')
@@ -1665,13 +1957,15 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
                                         mock_get_loadbalancer,
                                         mock_pool_from_dict,
                                         mock_listener_from_dict,
-                                        mock_member_from_dict):
+                                        mock_member_from_dict,
+                                        mock_hm_from_dict):
         lb = mock.MagicMock(id=self.ref_lb_fully_sync_populated.name)
         mock_get_octavia_lbs.return_value = [lb]
         mock_get_loadbalancer.return_value = self.ref_lb_fully_sync_populated
         mock_pool_from_dict.return_value = self.ref_pool_with_hm
         mock_listener_from_dict.return_value = self.ref_listener
         mock_member_from_dict.return_value = self.ref_member
+        mock_hm_from_dict.return_value = self.ref_health_monitor
         lb_filters = {}
         with mock.patch.object(self.driver, '_ensure_loadbalancer') \
                 as mock_ensure_lb:
@@ -1679,46 +1973,24 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
             mock_ensure_lb.assert_any_call(
                 self.ref_lb_fully_sync_populated)
 
-    @mock.patch.object(data_models.Listener, 'from_dict')
-    @mock.patch.object(o_driver_lib.DriverLibrary, 'get_loadbalancer')
-    @mock.patch.object(ovn_helper.OvnProviderHelper, 'get_octavia_lbs')
-    @mock.patch.object(clients, 'get_octavia_client')
-    def test_do_sync_with_loadbalancers_no_listener_no_pool(
-            self,
-            mock_get_octavia_client,
-            mock_get_octavia_lbs,
-            mock_get_loadbalancer,
-            mock_listener_from_dict):
-        lb = mock.MagicMock(id=self.ref_lb_fully_sync_populated.name)
-        mock_get_octavia_lbs.return_value = [lb, lb]
-        mock_get_loadbalancer.return_value = self.ref_lb_fully_sync_populated
-        self.ref_lb_fully_sync_populated.listeners = data_models.Unset
-        self.ref_lb_fully_sync_populated.pools = data_models.Unset
-        lb_filters = {}
-        with mock.patch.object(self.driver, '_ensure_loadbalancer') \
-                as mock_ensure_lb:
-            self.driver.do_sync(**lb_filters)
-            mock_ensure_lb.assert_any_call(
-                self.ref_lb_fully_sync_populated)
-
+    @mock.patch.object(data_models.HealthMonitor, 'from_dict')
     @mock.patch.object(data_models.Member, 'from_dict')
-    @mock.patch.object(data_models.Pool, 'from_dict')
     @mock.patch.object(data_models.Listener, 'from_dict')
+    @mock.patch.object(data_models.Pool, 'from_dict')
     @mock.patch.object(o_driver_lib.DriverLibrary, 'get_loadbalancer')
     @mock.patch.object(ovn_helper.OvnProviderHelper, 'get_octavia_lbs')
     @mock.patch.object(clients, 'get_octavia_client')
-    def test_do_sync_with_loadbalancers_no_members(
-            self,
-            mock_get_octavia_client,
-            mock_get_octavia_lbs,
-            mock_get_loadbalancer,
-            mock_listener_from_dict,
-            mock_pool_from_dict,
-            mock_member_from_dict):
+    def test_do_sync_with_loadbalancer_no_members_no_hm(
+            self, mock_get_octavia_client, mock_get_octavia_lbs,
+            mock_get_loadbalancer, mock_pool_from_dict,
+            mock_listener_from_dict, mock_member_from_dict, mock_hm_from_dict):
+        self.ref_pool_with_hm.members = []
+        self.ref_lb_fully_sync_populated.pools[0].healthmonitor = None
         lb = mock.MagicMock(id=self.ref_lb_fully_sync_populated.name)
-        mock_get_octavia_lbs.return_value = [lb, lb]
+        mock_get_octavia_lbs.return_value = [lb]
         mock_get_loadbalancer.return_value = self.ref_lb_fully_sync_populated
-        self.ref_lb_fully_sync_populated.pools[0].members = data_models.Unset
+        mock_pool_from_dict.return_value = self.ref_pool_with_hm
+        mock_listener_from_dict.return_value = self.ref_listener
         lb_filters = {}
         with mock.patch.object(self.driver, '_ensure_loadbalancer') \
                 as mock_ensure_lb:
