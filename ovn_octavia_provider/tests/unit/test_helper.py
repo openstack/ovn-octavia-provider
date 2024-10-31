@@ -1506,29 +1506,27 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
     @mock.patch.object(ovn_helper.OvnProviderHelper, '_refresh_lb_vips')
     def test_lb_update_enabled(self, refresh_vips):
         # Change the mock, its enabled by default.
-        self.ovn_lb.external_ids.update({'enabled': False})
-        self.lb['admin_state_up'] = True
+        self.lb[constants.ADMIN_STATE_UP] = False
         status = self.helper.lb_update(self.lb)
         self.assertEqual(status['loadbalancers'][0]['provisioning_status'],
                          constants.ACTIVE)
         self.assertEqual(status['loadbalancers'][0]['operating_status'],
-                         constants.ONLINE)
+                         constants.OFFLINE)
         refresh_vips.assert_called_once_with(
             self.ovn_lb, self.ovn_lb.external_ids)
         self.helper.ovn_nbdb_api.db_set.assert_called_once_with(
             'Load_Balancer', self.ovn_lb.uuid,
-            ('external_ids', {'enabled': 'True'}))
+            ('external_ids', {'enabled': 'False'}))
         # update to re-enable
-        self.ovn_lb.external_ids.update({'enabled': True})
-        self.lb['admin_state_up'] = True
+        self.lb[constants.ADMIN_STATE_UP] = True
         status = self.helper.lb_update(self.lb)
         self.assertEqual(status['loadbalancers'][0]['provisioning_status'],
                          constants.ACTIVE)
         self.assertEqual(status['loadbalancers'][0]['operating_status'],
                          constants.ONLINE)
-        refresh_vips.assert_called_once_with(
+        refresh_vips.assert_called_with(
             self.ovn_lb, self.ovn_lb.external_ids)
-        self.helper.ovn_nbdb_api.db_set.assert_called_once_with(
+        self.helper.ovn_nbdb_api.db_set.assert_called_with(
             'Load_Balancer', self.ovn_lb.uuid,
             ('external_ids', {'enabled': 'True'}))
 

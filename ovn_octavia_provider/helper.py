@@ -1904,14 +1904,14 @@ class OvnProviderHelper():
                 if str(ovn_lb.external_ids['enabled']) != str(lb_enabled):
                     commands = []
                     enable_info = {'enabled': str(lb_enabled)}
-                    ovn_lb.external_ids['enabled'] = str(lb_enabled)
+                    ovn_lb_external_ids = ovn_lb.external_ids
+                    ovn_lb_external_ids.update(enable_info)
                     commands.append(
                         self.ovn_nbdb_api.db_set('Load_Balancer', ovn_lb.uuid,
                                                  ('external_ids', enable_info))
                     )
                     commands.extend(
-                        self._refresh_lb_vips(ovn_lb,
-                                              ovn_lb.external_ids))
+                        self._refresh_lb_vips(ovn_lb, ovn_lb_external_ids))
                     self._execute_commands(commands)
                 if lb_enabled:
                     operating_status = constants.ONLINE
