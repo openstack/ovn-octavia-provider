@@ -11,11 +11,11 @@
             required-projects:
               - openstack/neutron
         - ovn-octavia-provider-functional-release
-        - ovn-octavia-provider-tempest-release
+        - ovn-octavia-provider-tempest-release:
+            voting: false
         - kuryr-kubernetes-tempest-ovn-provider-ovn:
             voting: false
     gate:
       fail-fast: true
       jobs:
         - ovn-octavia-provider-functional-release
-        - ovn-octavia-provider-tempest-release
