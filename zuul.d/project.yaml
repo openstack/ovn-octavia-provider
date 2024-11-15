@@ -17,6 +17,10 @@
             voting: false
         - kuryr-kubernetes-tempest-ovn-provider-ovn:
             voting: false
+        - devstack-tobiko-octavia:
+            voting: true
+            vars:
+              pytest_addopts_global: "--skipregex=OctaviaBasicTrafficScenarioTest"
     gate:
       fail-fast: true
       jobs:
