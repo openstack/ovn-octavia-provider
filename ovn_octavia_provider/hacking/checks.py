@@ -113,18 +113,6 @@ def check_assertempty(logical_line, filename):
 
 
 @core.flake8ext
-def check_assertisinstance(logical_line, filename):
-    """N331 - Enforce using assertIsInstance."""
-
-    if 'ovn_octavia_provider/tests/' in filename:
-        if re.search(r"assertTrue\(\s*isinstance\(\s*[^,]*,\s*[^,]*\)\)",
-                     logical_line):
-            msg = ("N331: Use assertIsInstance(observed, type) instead "
-                   "of assertTrue(isinstance(observed, type))")
-            yield (0, msg)
-
-
-@core.flake8ext
 def check_assertequal_for_httpcode(logical_line, filename):
     """N332 - Enforce correct oredering for httpcode in assertEqual."""
 
