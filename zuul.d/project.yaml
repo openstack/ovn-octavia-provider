@@ -27,3 +27,7 @@
         - ovn-octavia-provider-functional-release
         - ovn-octavia-provider-functional-master
         - ovn-octavia-provider-tempest-release
+        - devstack-tobiko-octavia:
+            voting: true
+            vars:
+              pytest_addopts_global: "--skipregex=OctaviaBasicTrafficScenarioTest"
