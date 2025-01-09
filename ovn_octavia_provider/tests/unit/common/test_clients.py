@@ -14,6 +14,7 @@
 from unittest import mock
 
 from keystoneauth1 import exceptions as ks_exceptions
+from octavia_lib.api.drivers import exceptions as driver_exceptions
 from oslo_config import cfg
 from oslo_config import fixture as oslo_fixture
 from oslotest import base
@@ -127,3 +128,70 @@ class TestNeutronAuth(base.BaseTestCase):
             c3 = clients.NeutronAuth()
             self.assertIs(c2, c3)
             self.assertEqual(os_sdk._mock_call_count, 2)
+
+    @mock.patch.object(clients, 'KeystoneSession')
+    def test_get_client(self, mock_ks):
+        clients.get_neutron_client()
+        self.mock_client.assert_called_once_with(
+            session=mock_ks().session)
+
+    @mock.patch.object(clients, 'NeutronAuth', side_effect=[RuntimeError])
+    def test_get_client_error(self, mock_ks):
+        msg = self.assertRaises(
+            driver_exceptions.DriverError,
+            clients.get_neutron_client)
+        self.assertEqual("An unknown driver error occurred.", str(msg))
+
+
+class TestOctaviaAuth(base.BaseTestCase):
+    def setUp(self):
+        super().setUp()
+        config.register_opts()
+        self.mock_client = mock.patch(
+            'openstack.connection.Connection').start()
+        clients.Singleton._instances = {}
+
+    @mock.patch.object(clients, 'KeystoneSession')
+    @mock.patch('openstack.connection.Connection')
+    def test_init(self, mock_conn, mock_ks):
+        clients.OctaviaAuth()
+        mock_conn.assert_called_once_with(
+            session=mock_ks().session,
+            region_name=mock.ANY
+        )
+
+    def test_singleton(self):
+        c1 = clients.OctaviaAuth()
+        c2 = clients.OctaviaAuth()
+        self.assertIs(c1, c2)
+
+    def test_singleton_exception(self):
+        mock_client = mock.Mock()
+        mock_client.lbaas_proxy = 'foo'
+        with mock.patch(
+            'openstack.connection.Connection',
+                side_effect=[RuntimeError,
+                             mock_client, mock_client]) as os_sdk:
+            self.assertRaises(
+                RuntimeError,
+                clients.OctaviaAuth)
+            c2 = clients.OctaviaAuth()
+            c3 = clients.OctaviaAuth()
+            self.assertIs(c2, c3)
+            self.assertEqual(os_sdk._mock_call_count, 2)
+
+    @mock.patch.object(clients, 'KeystoneSession')
+    @mock.patch('openstack.connection.Connection')
+    def test_get_client(self, mock_conn, mock_ks):
+        clients.get_octavia_client()
+        mock_conn.assert_called_once_with(
+            session=mock_ks().session,
+            region_name=mock.ANY
+        )
+
+    @mock.patch.object(clients, 'OctaviaAuth', side_effect=[RuntimeError])
+    def test_get_client_error(self, mock_ks):
+        msg = self.assertRaises(
+            driver_exceptions.DriverError,
+            clients.get_octavia_client)
+        self.assertEqual("An unknown driver error occurred.", str(msg))

@@ -21,6 +21,7 @@ from octavia_lib.api.drivers import provider_base as driver_base
 from octavia_lib.common import constants
 from oslo_log import log as logging
 
+from ovn_octavia_provider.common import clients
 from ovn_octavia_provider.common import config as ovn_conf
 # TODO(mjozefcz): Start consuming const and utils
 # from neutron-lib once released.
@@ -588,5 +589,8 @@ class OvnProviderDriver(driver_base.ProviderDriver):
 
     def do_sync(self, **lb_filters):
         LOG.info(f"Starting sync OVN DB with Loadbalancer filter {lb_filters}")
-        # TODO(froyo): get LBs from Octavia DB through openstack sdk client and
-        # call to helper methods to sync
+        octavia_client = clients.get_octavia_client()
+        # We can add project_id to lb_filters for lbs to limit the scope.
+        lbs = self._ovn_helper.get_octavia_lbs(octavia_client, **lb_filters)
+        for lb in lbs:
+            LOG.info(f"Starting sync OVN DB with Loadbalancer {lb.id}")
