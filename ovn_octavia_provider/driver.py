@@ -110,7 +110,7 @@ class OvnProviderDriver(driver_base.ProviderDriver):
                 self.pool_create(pool)
                 for member in pool.members:
                     if not member.subnet_id:
-                        member.subnet_id = loadbalancer.vip_network_id
+                        member.subnet_id = loadbalancer.vip_subnet_id
                     self.member_create(member)
 
     def loadbalancer_delete(self, loadbalancer, cascade=False):
