@@ -109,7 +109,6 @@ class OvnProviderHelper():
     def shutdown(self):
         self.requests.put({'type': ovn_const.REQ_TYPE_EXIT},
                           timeout=ovn_const.MAX_TIMEOUT_REQUEST)
-        self.helper_thread.join()
 
     @staticmethod
     def _map_val(row, col, key):
