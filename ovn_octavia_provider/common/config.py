@@ -12,6 +12,7 @@
 
 from keystoneauth1 import loading as ks_loading
 from oslo_config import cfg
+from oslo_config import types
 from oslo_log import log as logging
 
 from ovn_octavia_provider.i18n import _
@@ -20,14 +21,15 @@ LOG = logging.getLogger(__name__)
 
 
 ovn_opts = [
-    cfg.StrOpt('ovn_nb_connection',
-               default='tcp:127.0.0.1:6641',
-               help=_('The connection string for the OVN_Northbound OVSDB.\n'
-                      'Use tcp:IP:PORT for TCP connection.\n'
-                      'Use ssl:IP:PORT for SSL connection. The '
-                      'ovn_nb_private_key, ovn_nb_certificate and '
-                      'ovn_nb_ca_cert are mandatory.\n'
-                      'Use unix:FILE for unix domain socket connection.')),
+    cfg.ListOpt('ovn_nb_connection',
+                default=['tcp:127.0.0.1:6641'],
+                item_type=types.String(regex=r'^(tcp|ssl|unix):.+'),
+                help=_('The connection string for the OVN_Northbound OVSDB.\n'
+                       'Use tcp:IP:PORT for TCP connection.\n'
+                       'Use ssl:IP:PORT for SSL connection. The '
+                       'ovn_nb_private_key, ovn_nb_certificate and '
+                       'ovn_nb_ca_cert are mandatory.\n'
+                       'Use unix:FILE for unix domain socket connection.')),
     cfg.StrOpt('ovn_nb_private_key',
                default='',
                help=_('The PEM file with private key for SSL connection to '
@@ -40,14 +42,15 @@ ovn_opts = [
                default='',
                help=_('The PEM file with CA certificate that OVN should use to'
                       ' verify certificates presented to it by SSL peers')),
-    cfg.StrOpt('ovn_sb_connection',
-               default='tcp:127.0.0.1:6642',
-               help=_('The connection string for the OVN_Southbound OVSDB.\n'
-                      'Use tcp:IP:PORT for TCP connection.\n'
-                      'Use ssl:IP:PORT for SSL connection. The '
-                      'ovn_sb_private_key, ovn_sb_certificate and '
-                      'ovn_sb_ca_cert are mandatory.\n'
-                      'Use unix:FILE for unix domain socket connection.')),
+    cfg.ListOpt('ovn_sb_connection',
+                default=['tcp:127.0.0.1:6642'],
+                item_type=types.String(regex=r'^(tcp|ssl|unix):.+'),
+                help=_('The connection string for the OVN_Southbound OVSDB.\n'
+                       'Use tcp:IP:PORT for TCP connection.\n'
+                       'Use ssl:IP:PORT for SSL connection. The '
+                       'ovn_sb_private_key, ovn_sb_certificate and '
+                       'ovn_sb_ca_cert are mandatory.\n'
+                       'Use unix:FILE for unix domain socket connection.')),
     cfg.StrOpt('ovn_sb_private_key',
                default='',
                help=_('The PEM file with private key for SSL connection to '
@@ -176,7 +179,7 @@ def list_opts():
 
 
 def get_ovn_nb_connection():
-    return cfg.CONF.ovn.ovn_nb_connection
+    return ','.join(cfg.CONF.ovn.ovn_nb_connection)
 
 
 def get_ovn_nb_private_key():
@@ -192,7 +195,7 @@ def get_ovn_nb_ca_cert():
 
 
 def get_ovn_sb_connection():
-    return cfg.CONF.ovn.ovn_sb_connection
+    return ','.join(cfg.CONF.ovn.ovn_sb_connection)
 
 
 def get_ovn_sb_private_key():
