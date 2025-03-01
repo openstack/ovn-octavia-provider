@@ -119,6 +119,26 @@ class OvnProviderDriver(driver_base.ProviderDriver):
                         'admin_state_up': admin_state_up}
         return request_info
 
+    def _get_pool_request_info(self, pool):
+        self._check_for_supported_protocols(pool.protocol)
+        self._check_for_supported_algorithms(pool.lb_algorithm)
+        admin_state_up = pool.admin_state_up
+        if isinstance(admin_state_up, o_datamodels.UnsetType):
+            admin_state_up = True
+        request_info = {'id': pool.pool_id,
+                        'loadbalancer_id': pool.loadbalancer_id,
+                        'protocol': pool.protocol,
+                        'lb_algorithm': pool.lb_algorithm,
+                        'listener_id': pool.listener_id,
+                        'admin_state_up': admin_state_up}
+        if not isinstance(
+                pool.session_persistence, o_datamodels.UnsetType):
+            self._check_for_supported_session_persistence(
+                pool.session_persistence)
+            request_info['session_persistence'] = pool.session_persistence
+
+        return request_info
+
     def loadbalancer_create(self, loadbalancer):
         request = {'type': ovn_const.REQ_TYPE_LB_CREATE,
                    'info': self._get_loadbalancer_request_info(
@@ -612,7 +632,7 @@ class OvnProviderDriver(driver_base.ProviderDriver):
         except idlutils.RowNotFound:
             LOG.debug(f"OVN loadbalancer {loadbalancer.loadbalancer_id} "
                       "not found. Start create process.")
-            # TODO(froyo): By now just syncing LB and listener only
+            # TODO(froyo): By now just syncing LB, listener and pool only
             status = self._ovn_helper.lb_create(
                 self._get_loadbalancer_request_info(loadbalancer))
 
@@ -622,6 +642,12 @@ class OvnProviderDriver(driver_base.ProviderDriver):
                     status_listener = self._ovn_helper.listener_create(
                         self._get_listener_request_info(listener))
                     status[constants.LISTENERS].append(status_listener)
+            if not isinstance(loadbalancer.pools, o_datamodels.UnsetType):
+                status[constants.POOLS] = []
+                for pool in loadbalancer.pools:
+                    status_pool = self._ovn_helper.pool_create(
+                        self._get_pool_request_info(pool))
+                    status[constants.POOLS].append(status_pool)
             self._ovn_helper._update_status_to_octavia(status)
         else:
             # Load Balancer found, check LB and listener/pool/member/hms
@@ -638,6 +664,11 @@ class OvnProviderDriver(driver_base.ProviderDriver):
                     for listener in loadbalancer.listeners:
                         self._ovn_helper.listener_sync(
                             self._get_listener_request_info(listener), ovn_lb)
+                # Pool
+                if not isinstance(loadbalancer.pools, o_datamodels.UnsetType):
+                    for pool in loadbalancer.pools:
+                        self._ovn_helper.pool_sync(
+                            self._get_pool_request_info(pool), ovn_lb)
                 status = self._ovn_helper._get_current_operating_statuses(
                     ovn_lb)
                 self._ovn_helper._update_status_to_octavia(status)
@@ -658,5 +689,11 @@ class OvnProviderDriver(driver_base.ProviderDriver):
                 o_datamodels.Listener.from_dict(listener)
                 for listener in listeners
             ] if listeners else o_datamodels.Unset
+
+            pools = provider_lb.pools or []
+            provider_lb.pools = [
+                o_datamodels.Pool.from_dict(pool)
+                for pool in pools
+            ] if pools else o_datamodels.Unset
 
             self._ensure_loadbalancer(provider_lb)
