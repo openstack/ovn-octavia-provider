@@ -5596,6 +5596,256 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         self.helper.ovn_nbdb_api.db_set.assert_has_calls(
             expected_set_external_ids_calls)
 
+    @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
+    @mock.patch.object(ovn_helper.OvnProviderHelper, '_update_hm_member')
+    @mock.patch.object(ovn_helper.OvnProviderHelper, '_find_ovn_lb_by_pool_id')
+    def _test_hm_sync(self, protocol, fip, folbpi, uhm, net_cli):
+        self._get_pool_listeners.stop()
+        fake_subnet = fakes.FakeSubnet.create_one_subnet()
+        pool_key = 'pool_%s' % self.pool_id
+        self.ovn_hm_lb.protocol = [protocol]
+        folbpi.return_value = (pool_key, self.ovn_hm_lb)
+        uhm.return_value = constants.ONLINE
+        net_cli.return_value.get_subnet.return_value = {'subnet': fake_subnet}
+        if not fip:
+            del self.ovn_hm_lb.external_ids[ovn_const.LB_EXT_IDS_VIP_FIP_KEY]
+        self._update_external_ids_member_status(self.ovn_hm_lb, self.member_id,
+                                                'online')
+        self.helper.hm_sync(self.health_monitor, self.ovn_lb, pool_key)
+        vip = (self.ovn_hm_lb.external_ids[ovn_const.LB_EXT_IDS_VIP_KEY] +
+               ':' + str(self.listener['protocol_port']))
+        if fip:
+            fip = (self.ovn_hm_lb.external_ids[
+                   ovn_const.LB_EXT_IDS_VIP_FIP_KEY] +
+                   ':' + str(self.listener['protocol_port']))
+        options = {'interval': '6',
+                   'timeout': '7',
+                   'failure_count': '5',
+                   'success_count': '3'}
+        external_ids = {
+            ovn_const.LB_EXT_IDS_HM_KEY: self.healthmonitor_id,
+            ovn_const.LB_EXT_IDS_HM_VIP:
+                self.ovn_hm_lb.external_ids[ovn_const.LB_EXT_IDS_VIP_KEY],
+            ovn_const.LB_EXT_IDS_HM_POOL_KEY: self.pool_id}
+        kwargs = {'vip': vip,
+                  'options': options,
+                  'external_ids': external_ids}
+        if fip:
+            external_ids_fips = copy.deepcopy(external_ids)
+            external_ids_fips[ovn_const.LB_EXT_IDS_HM_VIP] = (
+                self.ovn_hm_lb.external_ids[ovn_const.LB_EXT_IDS_VIP_FIP_KEY])
+            fip_kwargs = {'vip': fip,
+                          'options': options,
+                          'external_ids': external_ids_fips}
+
+        expected_lbhc_calls = [
+            mock.call('Load_Balancer_Health_Check', **kwargs)]
+        if fip:
+            expected_lbhc_calls.append(
+                mock.call('Load_Balancer_Health_Check', **fip_kwargs)
+            )
+        self.helper.ovn_nbdb_api.db_create.assert_has_calls(
+            expected_lbhc_calls)
+
+        if fip:
+            self.assertEqual(self.helper.ovn_nbdb_api.db_add.call_count, 2)
+        else:
+            self.helper.ovn_nbdb_api.db_add.assert_called_once_with(
+                'Load_Balancer', self.ovn_hm_lb.uuid, 'health_check', mock.ANY)
+
+    def test_hm_sync_recreate(self):
+        self._test_hm_sync('tcp', True)
+
+    def test_hm_sync_recreate_no_fip(self):
+        self._test_hm_sync('tcp', False)
+
+    @mock.patch.object(ovn_helper.OvnProviderHelper, '_find_ovn_lb_from_hm_id')
+    @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
+    @mock.patch.object(ovn_helper.OvnProviderHelper, '_update_hm_member')
+    @mock.patch.object(ovn_helper.OvnProviderHelper, '_find_ovn_lb_by_pool_id')
+    def test_hm_sync_on_exist(self, folbpi, uhm, net_cli, folbfhi):
+        protocol, fip = ('tcp', True)
+        folbfhi.return_value = ([self.ovn_hm], self.ovn_hm_lb)
+        self._get_pool_listeners.stop()
+        fake_subnet = fakes.FakeSubnet.create_one_subnet()
+        pool_key = 'pool_%s' % self.pool_id
+        self.ovn_hm_lb.protocol = [protocol]
+        folbpi.return_value = (pool_key, self.ovn_hm_lb)
+        uhm.return_value = constants.ONLINE
+        net_cli.return_value.get_subnet.return_value = {'subnet': fake_subnet}
+        if not fip:
+            del self.ovn_hm_lb.external_ids[ovn_const.LB_EXT_IDS_VIP_FIP_KEY]
+        self._update_external_ids_member_status(self.ovn_hm_lb, self.member_id,
+                                                'online')
+        self.helper.hm_sync(self.health_monitor, self.ovn_lb, pool_key)
+        self.helper.ovn_nbdb_api.db_create.assert_not_called()
+        self.assertEqual(self.helper.ovn_nbdb_api.db_add.call_count, 0)
+
+    @mock.patch.object(ovn_helper.OvnProviderHelper, '_find_ovn_lb_from_hm_id')
+    @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
+    @mock.patch.object(ovn_helper.OvnProviderHelper, '_update_hm_member')
+    @mock.patch.object(ovn_helper.OvnProviderHelper, '_find_ovn_lb_by_pool_id')
+    def _test_hm_sync_on_exist_diff(self, protocol, fip, diff,
+                                    folbpi, uhm, net_cli, folbfhi):
+        vip = (self.ovn_hm_lb.external_ids[ovn_const.LB_EXT_IDS_VIP_KEY] +
+               ':' + str(self.listener['protocol_port']))
+        if fip:
+            fip = (self.ovn_hm_lb.external_ids[
+                   ovn_const.LB_EXT_IDS_VIP_FIP_KEY] +
+                   ':' + str(self.listener['protocol_port']))
+
+        options = {'interval': '6',
+                   'timeout': '7',
+                   'failure_count': '5',
+                   'success_count': '3'}
+        external_ids = {
+            ovn_const.LB_EXT_IDS_HM_KEY: self.healthmonitor_id,
+            ovn_const.LB_EXT_IDS_HM_VIP:
+                self.ovn_hm_lb.external_ids[ovn_const.LB_EXT_IDS_VIP_KEY],
+            ovn_const.LB_EXT_IDS_HM_POOL_KEY: self.pool_id
+        }
+        ovn_external_ids = {
+            ovn_const.LB_EXT_IDS_HMS_KEY: f'["{self.healthmonitor_id}"]'
+        }
+
+        hm_opt = copy.deepcopy(options)
+        self.ovn_hm.options = hm_opt
+        self.ovn_hm.vip = vip
+        self.ovn_hm.external_ids = external_ids
+        self.ovn_hm_lb.health_check = [self.ovn_hm]
+        if diff:
+            self.ovn_hm.vip = 'foo'
+            self.ovn_hm.options['interval'] = '4'
+            self.ovn_hm.external_ids = {}
+            self.ovn_hm_lb.health_check = ''
+            self.ovn_hm_lb.external_ids[ovn_const.LB_EXT_IDS_HMS_KEY] = []
+
+        folbfhi.return_value = ([self.ovn_hm], self.ovn_hm_lb)
+        self._get_pool_listeners.stop()
+        fake_subnet = fakes.FakeSubnet.create_one_subnet()
+        pool_key = 'pool_%s' % self.pool_id
+        self.ovn_hm_lb.protocol = [protocol]
+        folbpi.return_value = (pool_key, self.ovn_hm_lb)
+        uhm.return_value = constants.ONLINE
+        net_cli.return_value.get_subnet.return_value = {'subnet': fake_subnet}
+        if not fip:
+            del self.ovn_hm_lb.external_ids[ovn_const.LB_EXT_IDS_VIP_FIP_KEY]
+        self._update_external_ids_member_status(self.ovn_hm_lb, self.member_id,
+                                                'online')
+        self.helper.hm_sync(self.health_monitor, self.ovn_lb, pool_key)
+        self.helper.ovn_nbdb_api.db_create.assert_not_called()
+        if diff:
+            self.helper.ovn_nbdb_api.db_add.assert_called_once_with(
+                'Load_Balancer', self.ovn_hm_lb.uuid,
+                ('health_check', self.ovn_hm.uuid)
+            )
+        else:
+            self.helper.ovn_nbdb_api.db_create.assert_not_called()
+        if diff:
+            expected_lbhc_calls = [
+                mock.call('Load_Balancer_Health_Check', self.ovn_hm.uuid,
+                          ('vip', vip)),
+                mock.call('Load_Balancer_Health_Check', self.ovn_hm.uuid,
+                          ('options', options)),
+                mock.call('Load_Balancer_Health_Check', self.ovn_hm.uuid,
+                          ('external_ids', external_ids)),
+                mock.call('Load_Balancer', self.ovn_hm_lb.uuid,
+                          ('external_ids', ovn_external_ids))
+            ]
+        else:
+            expected_lbhc_calls = []
+        if fip:
+            expected_lbhc_calls.extend([
+                mock.call('Load_Balancer_Health_Check', self.ovn_hm.uuid,
+                          ('vip', fip))])
+        self.helper.ovn_nbdb_api.db_set.assert_has_calls(
+            expected_lbhc_calls)
+
+    def test_hm_sync_on_exist_diff(self):
+        protocol, fip = ('tcp', True)
+        self._test_hm_sync_on_exist_diff(protocol, fip, True)
+
+    def test_hm_sync_on_exist_diff_nofip(self):
+        protocol, fip = ('tcp', False)
+        self._test_hm_sync_on_exist_diff(protocol, fip, True)
+
+    def test_hm_sync_on_exist_no_diff(self):
+        protocol, fip = ('tcp', True)
+        self._test_hm_sync_on_exist_diff(protocol, fip, False)
+
+    def test_hm_sync_on_exist_no_diff_nofip(self):
+        protocol, fip = ('tcp', False)
+        self._test_hm_sync_on_exist_diff(protocol, fip, False)
+
+    @mock.patch.object(ovn_helper.OvnProviderHelper, '_find_ovn_lb_from_hm_id')
+    @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
+    @mock.patch.object(ovn_helper.OvnProviderHelper, '_update_hm_member')
+    @mock.patch.object(ovn_helper.OvnProviderHelper, '_find_ovn_lb_by_pool_id')
+    def test_hm_sync_on_exist_no_fip(self, folbpi, uhm, net_cli, folbfhi):
+        protocol, fip = ('tcp', False)
+        folbfhi.return_value = ([self.ovn_hm], self.ovn_hm_lb)
+        self._get_pool_listeners.stop()
+        fake_subnet = fakes.FakeSubnet.create_one_subnet()
+        pool_key = 'pool_%s' % self.pool_id
+        self.ovn_hm_lb.protocol = [protocol]
+        folbpi.return_value = (pool_key, self.ovn_hm_lb)
+        uhm.return_value = constants.ONLINE
+        net_cli.return_value.get_subnet.return_value = {'subnet': fake_subnet}
+        if not fip:
+            del self.ovn_hm_lb.external_ids[ovn_const.LB_EXT_IDS_VIP_FIP_KEY]
+        self._update_external_ids_member_status(self.ovn_hm_lb, self.member_id,
+                                                'online')
+        self.helper.hm_sync(self.health_monitor, self.ovn_lb, pool_key)
+        self.helper.ovn_nbdb_api.db_create.assert_not_called()
+        self.assertEqual(self.helper.ovn_nbdb_api.db_add.call_count, 0)
+
+    @mock.patch.object(ovn_helper.OvnProviderHelper, '_lookup_lbhcs_by_hm_id')
+    @mock.patch.object(ovn_helper.OvnProviderHelper,
+                       '_find_ovn_lbs_with_retry')
+    def test_hm_purge(self, m_fol, lookup_hm):
+        self.ovn_hm_lb.health_check = [self.ovn_hm]
+        m_fol.return_value = [self.ovn_hm_lb]
+        lookup_hm.return_value = [self.ovn_hm]
+        self.helper.hm_purge(self.ovn_hm_lb.id)
+        self.helper.ovn_nbdb_api.db_remove.assert_not_called()
+        self.helper.ovn_nbdb_api.db_destroy.assert_not_called()
+
+    @mock.patch.object(ovn_helper.OvnProviderHelper, '_lookup_lbhcs_by_hm_id')
+    @mock.patch.object(ovn_helper.OvnProviderHelper,
+                       '_find_ovn_lbs_with_retry')
+    def test_hm_purge_remove(self, m_fol, lookup_hm):
+        self.ovn_hm_lb.health_check = [self.ovn_hm]
+        m_fol.return_value = [self.ovn_hm_lb]
+        lookup_hm.return_value = []
+        self.helper.hm_purge(self.ovn_hm_lb.id)
+        self.helper.ovn_nbdb_api.db_remove.assert_called_once_with(
+            'Load_Balancer', self.ovn_hm_lb.uuid,
+            'health_check', self.ovn_hm.uuid)
+        self.helper.ovn_nbdb_api.db_destroy.assert_called_once_with(
+            'Load_Balancer_Health_Check', self.ovn_hm.uuid)
+
+    @mock.patch.object(ovn_helper.OvnProviderHelper,
+                       '_find_ovn_lbs_with_retry')
+    def test_hm_purge_exception_ovn_lb_not_found(self, m_fol):
+        self.ovn_hm_lb.health_check = [self.ovn_hm]
+        m_fol.side_effect = [idlutils.RowNotFound]
+        with mock.patch.object(ovn_helper, 'LOG') as m_l:
+            self.helper.hm_purge(self.ovn_hm_lb.id)
+            m_l.debug.assert_called_once_with(
+                f"OVN loadbalancer {self.ovn_hm_lb.id} not found.")
+
+    @mock.patch.object(ovn_helper.OvnProviderHelper, '_execute_commands')
+    @mock.patch.object(ovn_helper.OvnProviderHelper,
+                       '_find_ovn_lbs_with_retry')
+    def test_hm_purge_exception_execute_commands(self, m_fol, m_exe):
+        self.ovn_hm_lb.health_check = [self.ovn_hm]
+        m_exe.side_effect = [idlutils.RowNotFound]
+        m_fol.return_value = [self.ovn_hm_lb]
+        with mock.patch.object(ovn_helper, 'LOG') as m_l:
+            self.helper.hm_purge(self.ovn_hm_lb.id)
+            m_l.debug.assert_called_once_with(
+                "health check not found for purge.")
+
     def test_hm_update_event_offline(self):
         self.helper.ovn_nbdb_api.db_find_rows.return_value.\
             execute.return_value = [self.ovn_hm_lb]

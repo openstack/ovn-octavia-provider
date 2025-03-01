@@ -175,6 +175,21 @@ class OvnProviderDriver(driver_base.ProviderDriver):
 
         return request_info
 
+    def _get_healthmonitor_request_info(self, healthmonitor):
+        self._validate_hm_support(healthmonitor)
+        admin_state_up = healthmonitor.admin_state_up
+        if isinstance(admin_state_up, o_datamodels.UnsetType):
+            admin_state_up = True
+        request_info = {'id': healthmonitor.healthmonitor_id,
+                        'pool_id': healthmonitor.pool_id,
+                        'type': healthmonitor.type,
+                        'interval': healthmonitor.delay,
+                        'timeout': healthmonitor.timeout,
+                        'failure_count': healthmonitor.max_retries_down,
+                        'success_count': healthmonitor.max_retries,
+                        'admin_state_up': admin_state_up}
+        return request_info
+
     def loadbalancer_create(self, loadbalancer):
         request = {'type': ovn_const.REQ_TYPE_LB_CREATE,
                    'info': self._get_loadbalancer_request_info(
@@ -691,9 +706,19 @@ class OvnProviderDriver(driver_base.ProviderDriver):
                         status_member = self._ovn_helper.member_create(
                             self._get_member_request_info(member))
                         status[constants.MEMBERS].append(status_member)
-
+                    if pool.healthmonitor is not None and not isinstance(
+                            pool.healthmonitor, o_datamodels.UnsetType):
+                        status[constants.HEALTHMONITORS] = []
+                        lbhcs, ovn_hm_lb = (
+                            self._ovn_helper._find_ovn_lb_from_hm_id(
+                                pool.healthmonitor.healthmonitor_id)
+                        )
+                        if not lbhcs and ovn_hm_lb is None:
+                            status_hm = self._ovn_helper.hm_create(
+                                self._get_healthmonitor_request_info(
+                                    pool.healthmonitor))
+                            status[constants.HEALTHMONITORS].append(status_hm)
             self._ovn_helper._update_status_to_octavia(status)
-
         else:
             # Load Balancer found, check LB and listener/pool/member/hms
             # related
@@ -759,6 +784,16 @@ class OvnProviderDriver(driver_base.ProviderDriver):
                                     }
                                     self._ovn_helper.handle_member_dvr(
                                         mb_delete_dvr_info)
+                        # Check health monitor
+                        if pool.healthmonitor is not None and not isinstance(
+                                pool.healthmonitor, o_datamodels.UnsetType):
+                            self._ovn_helper.hm_sync(
+                                self._get_healthmonitor_request_info(
+                                    pool.healthmonitor),
+                                ovn_lb,
+                                ovn_pool_key)
+                # Purge HM
+                self._ovn_helper.hm_purge(loadbalancer.loadbalancer_id)
                 status = self._ovn_helper._get_current_operating_statuses(
                     ovn_lb)
                 self._ovn_helper._update_status_to_octavia(status)
@@ -792,6 +827,14 @@ class OvnProviderDriver(driver_base.ProviderDriver):
                         for m in members]
                 else:
                     provider_pool.members = o_datamodels.Unset
+
+                # format healthmonitor provider
+                if not isinstance(
+                        provider_pool.healthmonitor, o_datamodels.UnsetType
+                ) and provider_pool.healthmonitor is not None:
+                    provider_pool.healthmonitor = \
+                        o_datamodels.HealthMonitor.from_dict(
+                            provider_pool.healthmonitor)
                 provider_pools.append(provider_pool)
 
             provider_lb.pools = (
