@@ -20,6 +20,7 @@ from octavia_lib.api.drivers import exceptions as driver_exceptions
 from octavia_lib.api.drivers import provider_base as driver_base
 from octavia_lib.common import constants
 from oslo_log import log as logging
+from ovsdbapp.backend.ovs_idl import idlutils
 
 from ovn_octavia_provider.common import clients
 from ovn_octavia_provider.common import config as ovn_conf
@@ -89,7 +90,7 @@ class OvnProviderDriver(driver_base.ProviderDriver):
                 user_fault_string=msg,
                 operator_fault_string=msg)
 
-    def loadbalancer_create(self, loadbalancer):
+    def _get_loadbalancer_request_info(self, loadbalancer):
         admin_state_up = loadbalancer.admin_state_up
         if isinstance(admin_state_up, o_datamodels.UnsetType):
             admin_state_up = True
@@ -102,9 +103,12 @@ class OvnProviderDriver(driver_base.ProviderDriver):
                           o_datamodels.UnsetType):
             request_info[constants.ADDITIONAL_VIPS] = \
                 loadbalancer.additional_vips
+        return request_info
 
+    def loadbalancer_create(self, loadbalancer):
         request = {'type': ovn_const.REQ_TYPE_LB_CREATE,
-                   'info': request_info}
+                   'info': self._get_loadbalancer_request_info(
+                       loadbalancer)}
         self._ovn_helper.add_request(request)
 
         if not isinstance(loadbalancer.listeners, o_datamodels.UnsetType):
@@ -587,10 +591,38 @@ class OvnProviderDriver(driver_base.ProviderDriver):
                    'info': request_info}
         self._ovn_helper.add_request(request)
 
+    def _ensure_loadbalancer(self, loadbalancer):
+        try:
+            ovn_lbs = self._ovn_helper._find_ovn_lbs_with_retry(
+                loadbalancer.loadbalancer_id)
+        except idlutils.RowNotFound:
+            LOG.debug(f"OVN loadbalancer {loadbalancer.loadbalancer_id} "
+                      "not found. Start create process.")
+            # TODO(froyo): By now just syncing LB only
+            status = self._ovn_helper.lb_create(
+                self._get_loadbalancer_request_info(loadbalancer))
+            self._ovn_helper._update_status_to_octavia(status)
+        else:
+            # Load Balancer found, check LB and listener/pool/member/hms
+            # related
+            for ovn_lb in ovn_lbs:
+                LOG.debug(
+                    f"Sync - Loadbalancer {loadbalancer.loadbalancer_id} "
+                    "found checking other entities related")
+                self._ovn_helper.lb_sync(
+                    self._get_loadbalancer_request_info(loadbalancer), ovn_lb)
+                status = self._ovn_helper._get_current_operating_statuses(
+                    ovn_lb)
+                self._ovn_helper._update_status_to_octavia(status)
+
     def do_sync(self, **lb_filters):
         LOG.info(f"Starting sync OVN DB with Loadbalancer filter {lb_filters}")
         octavia_client = clients.get_octavia_client()
         # We can add project_id to lb_filters for lbs to limit the scope.
         lbs = self._ovn_helper.get_octavia_lbs(octavia_client, **lb_filters)
         for lb in lbs:
-            LOG.info(f"Starting sync OVN DB with Loadbalancer {lb.id}")
+            LOG.info(f"Starting sync OVN DB with Loadbalancer {lb.name}")
+            provider_lb = (
+                self._ovn_helper._octavia_driver_lib.get_loadbalancer(lb.id)
+            )
+            self._ensure_loadbalancer(provider_lb)
