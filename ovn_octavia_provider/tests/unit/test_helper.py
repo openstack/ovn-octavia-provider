@@ -1886,6 +1886,67 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
             mock.call('Load_Balancer', self.ovn_lb.uuid,
                       ('vips', {}))])
 
+    @mock.patch.object(ovn_helper.OvnProviderHelper, '_refresh_lb_vips')
+    def test_listener_sync_listener_same_in_externals_ids(self, refresh_vips):
+        self.listener['admin_state_up'] = True
+        listener_key = 'listener_%s' % self.listener_id
+        self.ovn_lb.external_ids[listener_key] = f"80:pool_{self.pool_id}"
+        self.helper.listener_sync(self.listener, self.ovn_lb)
+        refresh_vips.assert_called_once_with(
+            self.ovn_lb, self.ovn_lb.external_ids, is_sync=True)
+        self.helper.ovn_nbdb_api.db_set.assert_not_called()
+
+    @mock.patch.object(ovn_helper.OvnProviderHelper, '_refresh_lb_vips')
+    def test_listener_sync_listener_diff_in_externals_ids(self, refresh_vips):
+        self.listener['admin_state_up'] = True
+        listener_key = 'listener_%s' % self.listener_id
+        external_ids = copy.deepcopy(self.ovn_lb.external_ids)
+        self.ovn_lb.external_ids[listener_key] = ''
+        self.helper.listener_sync(self.listener, self.ovn_lb)
+        refresh_vips.assert_called_once_with(
+            self.ovn_lb, external_ids, is_sync=True)
+        expected_calls = [
+            mock.call('Load_Balancer', self.ovn_lb.uuid, ('external_ids', {
+                f"listener_{self.listener_id}": f"80:pool_{self.pool_id}"}))
+        ]
+        self.helper.ovn_nbdb_api.db_set.assert_has_calls(
+            expected_calls)
+
+    @mock.patch.object(ovn_helper.OvnProviderHelper, '_execute_commands')
+    def test_listener_sync_exception(self, execute_commands):
+        execute_commands.side_effect = [RuntimeError('a fail')]
+        self.ovn_lb.external_ids.pop('listener_%s' % self.listener_id)
+        self.listener['admin_state_up'] = True
+        with mock.patch.object(ovn_helper, 'LOG') as m_l:
+            self.assertIsNone(self.helper.listener_sync(
+                self.listener, self.ovn_lb))
+            m_l.exception.assert_called_once_with(
+                'Failed to execute commands for listener sync: a fail')
+
+    @mock.patch.object(ovn_helper.OvnProviderHelper, '_refresh_lb_vips')
+    def test_listener_sync_refresh_vips_exception(self, refresh_lb_vips):
+        refresh_lb_vips.side_effect = [RuntimeError('a fail')]
+        self.ovn_lb.external_ids.pop('listener_%s' % self.listener_id)
+        self.listener['admin_state_up'] = True
+        with mock.patch.object(ovn_helper, 'LOG') as m_l:
+            self.assertIsNone(self.helper.listener_sync(
+                self.listener, self.ovn_lb))
+            m_l.exception.assert_called_once_with(
+                'Failed to refresh LB VIPs: a fail')
+
+    @mock.patch.object(ovn_helper.OvnProviderHelper, '_refresh_lb_vips')
+    def test_listener_sync_listener_not_in_externals_ids(
+            self, refresh_vips):
+        self.ovn_lb.external_ids.pop('listener_%s' % self.listener_id)
+        self.listener['admin_state_up'] = True
+        self.helper.listener_sync(self.listener, self.ovn_lb)
+        expected_calls = [
+            mock.call('Load_Balancer', self.ovn_lb.uuid, ('external_ids', {
+                f"listener_{self.listener_id}": f"80:pool_{self.pool_id}"}))
+        ]
+        self.helper.ovn_nbdb_api.db_set.assert_has_calls(
+            expected_calls)
+
     def test_pool_create(self):
         status = self.helper.pool_create(self.pool)
         self.assertEqual(status['loadbalancers'][0]['provisioning_status'],

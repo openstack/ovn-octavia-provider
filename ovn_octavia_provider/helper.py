@@ -618,6 +618,50 @@ class OvnProviderHelper():
                               "router %s: %s", ovn_lb.uuid, ovn_lr.uuid,
                               str(e))
 
+    def _build_listener_info(self, listener, external_ids):
+        """Build listener key and listener info."""
+        listener_key = self._get_listener_key(
+            listener.get(constants.ID),
+            is_enabled=listener.get(constants.ADMIN_STATE_UP)
+        )
+        pool_key = ''
+        if listener.get(constants.DEFAULT_POOL_ID):
+            pool_key = self._get_pool_key(
+                listener.get(constants.DEFAULT_POOL_ID))
+        external_ids[listener_key] = self._make_listener_key_value(
+            listener[constants.PROTOCOL_PORT], pool_key
+        )
+        listener_info = {listener_key: external_ids[listener_key]}
+        return listener_key, listener_info
+
+    def _update_listener_key_if_needed(self, listener_key, listener_info,
+                                       ovn_lb, commands):
+        """Update listener key on OVN LoadBalancer if needed."""
+        prev_listener_key_content = ovn_lb.external_ids.get(listener_key, '')
+        if (listener_key not in ovn_lb.external_ids or
+                listener_info.get(listener_key) != prev_listener_key_content):
+            commands.append(
+                self.ovn_nbdb_api.db_set(
+                    'Load_Balancer',
+                    ovn_lb.uuid,
+                    ('external_ids', listener_info)
+                )
+            )
+
+    def _update_protocol_if_needed(self, listener, ovn_lb, commands):
+        """Update protocol on OVN LoadBalancer if needed."""
+        current_protocol = ''
+        if ovn_lb.protocol:
+            current_protocol = ovn_lb.protocol[0].lower()
+        listener_protocol = str(listener.get(constants.PROTOCOL)).lower()
+        if current_protocol != listener_protocol:
+            commands.append(
+                self.ovn_nbdb_api.db_set(
+                    'Load_Balancer', ovn_lb.uuid,
+                    ('protocol', listener_protocol)
+                )
+            )
+
     def _lb_status(self, loadbalancer, provisioning_status, operating_status):
         """Return status for the LoadBalancer."""
         return {
@@ -1866,6 +1910,39 @@ class OvnProviderHelper():
                 {constants.ID: listener[constants.LOADBALANCER_ID],
                  constants.PROVISIONING_STATUS: constants.ACTIVE}]}
         return status
+
+    def listener_sync(self, listener, ovn_lb):
+        """Sync Listener object with an OVN LoadBalancer
+
+        The method performs the following steps:
+        1. Update listener key on OVN Loadbalancer external_ids if needed
+        2. Update OVN LoadBalancer protocol from Listener info if needed
+        3. Refresh OVN LoadBalancer vips
+
+        :param listener: The source listener object from Octavia DB
+        :param ovn_lb: The OVN LoadBalancer object that needs to be sync
+        """
+        commands = []
+        external_ids = copy.deepcopy(ovn_lb.external_ids)
+
+        listener_key, listener_info = self._build_listener_info(
+            listener, external_ids)
+        self._update_listener_key_if_needed(
+            listener_key, listener_info, ovn_lb, commands)
+        self._update_protocol_if_needed(listener, ovn_lb, commands)
+
+        try:
+            commands.extend(self._refresh_lb_vips(
+                ovn_lb, external_ids, is_sync=True))
+        except Exception as e:
+            LOG.exception(f"Failed to refresh LB VIPs: {e}")
+            return
+
+        try:
+            self._execute_commands(commands)
+        except Exception as e:
+            LOG.exception(f"Failed to execute commands for listener sync: {e}")
+            return
 
     def listener_delete(self, listener):
         status = {
