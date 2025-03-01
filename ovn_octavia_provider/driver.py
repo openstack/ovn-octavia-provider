@@ -139,6 +139,42 @@ class OvnProviderDriver(driver_base.ProviderDriver):
 
         return request_info
 
+    def _get_member_request_info(self, member, create=True):
+        # Validate monitoring options if present
+        admin_state_up = None
+        if create:
+            self._check_member_monitor_options(member)
+            if self._ip_version_differs(member):
+                raise ovn_exc.IPVersionsMixingNotSupportedError()
+            admin_state_up = member.admin_state_up
+        subnet_id = member.subnet_id
+        if (isinstance(subnet_id, o_datamodels.UnsetType) or not subnet_id):
+            subnet_id, subnet_cidr = self._ovn_helper._get_subnet_from_pool(
+                member.pool_id)
+            if not (subnet_id and
+                    self._ovn_helper._check_ip_in_subnet(member.address,
+                                                         subnet_cidr)):
+                msg = _('Subnet is required, or Loadbalancer associated with '
+                        'Pool must have a subnet, for Member creation '
+                        'with OVN Provider Driver if it is not the same as '
+                        'LB VIP subnet')
+                raise driver_exceptions.UnsupportedOptionError(
+                    user_fault_string=msg,
+                    operator_fault_string=msg)
+
+        if isinstance(admin_state_up, o_datamodels.UnsetType):
+            admin_state_up = True
+        request_info = {'id': member.member_id,
+                        'address': member.address,
+                        'protocol_port': member.protocol_port,
+                        'pool_id': member.pool_id,
+                        'subnet_id': subnet_id}
+
+        if admin_state_up and create:
+            request_info['admin_state_up'] = admin_state_up
+
+        return request_info
+
     def loadbalancer_create(self, loadbalancer):
         request = {'type': ovn_const.REQ_TYPE_LB_CREATE,
                    'info': self._get_loadbalancer_request_info(
@@ -648,7 +684,16 @@ class OvnProviderDriver(driver_base.ProviderDriver):
                     status_pool = self._ovn_helper.pool_create(
                         self._get_pool_request_info(pool))
                     status[constants.POOLS].append(status_pool)
+                    for member in pool.members:
+                        status[constants.MEMBERS] = []
+                        if not member.subnet_id:
+                            member.subnet_id = loadbalancer.vip_subnet_id
+                        status_member = self._ovn_helper.member_create(
+                            self._get_member_request_info(member))
+                        status[constants.MEMBERS].append(status_member)
+
             self._ovn_helper._update_status_to_octavia(status)
+
         else:
             # Load Balancer found, check LB and listener/pool/member/hms
             # related
@@ -667,8 +712,53 @@ class OvnProviderDriver(driver_base.ProviderDriver):
                 # Pool
                 if not isinstance(loadbalancer.pools, o_datamodels.UnsetType):
                     for pool in loadbalancer.pools:
-                        self._ovn_helper.pool_sync(
-                            self._get_pool_request_info(pool), ovn_lb)
+                        pool_info = self._get_pool_request_info(pool)
+                        self._ovn_helper.pool_sync(pool_info, ovn_lb)
+                        ovn_pool_key = self._ovn_helper._get_pool_key(
+                            pool_info[constants.ID],
+                            is_enabled=pool_info[constants.ADMIN_STATE_UP])
+                        member_ids = []
+                        if not isinstance(pool.members,
+                                          o_datamodels.UnsetType):
+                            for member in pool.members:
+                                if not member.subnet_id:
+                                    member.subnet_id = (
+                                        loadbalancer.vip_subnet_id
+                                    )
+                                self._ovn_helper.member_sync(
+                                    self._get_member_request_info(member),
+                                    ovn_lb,
+                                    ovn_pool_key)
+                                member_ids.append(member.member_id)
+
+                            for ovn_mb_info in \
+                                self._ovn_helper._get_members_in_ovn_lb(
+                                    ovn_lb, ovn_pool_key):
+                                # If member ID not in pool member list,
+                                # delete it.
+                                if ovn_mb_info[3] not in member_ids:
+                                    LOG.debug(
+                                        "Start deleting extra member "
+                                        f"{ovn_mb_info[3]} from pool "
+                                        "{pool_info[constants.ID]} in OVN."
+                                    )
+                                    mb_delete_info = {
+                                        'id': ovn_mb_info[3],
+                                        'subnet_id': ovn_mb_info[2],
+                                    }
+                                    self._ovn_helper.member_delete(
+                                        mb_delete_info)
+
+                                    mb_delete_dvr_info = {
+                                        'id': ovn_mb_info[3],
+                                        'address': ovn_mb_info[0],
+                                        'pool_id': pool_info[constants.ID],
+                                        'subnet_id': ovn_mb_info[2],
+                                        'action':
+                                            ovn_const.REQ_INFO_MEMBER_DELETED
+                                    }
+                                    self._ovn_helper.handle_member_dvr(
+                                        mb_delete_dvr_info)
                 status = self._ovn_helper._get_current_operating_statuses(
                     ovn_lb)
                 self._ovn_helper._update_status_to_octavia(status)
@@ -691,9 +781,20 @@ class OvnProviderDriver(driver_base.ProviderDriver):
             ] if listeners else o_datamodels.Unset
 
             pools = provider_lb.pools or []
-            provider_lb.pools = [
-                o_datamodels.Pool.from_dict(pool)
-                for pool in pools
-            ] if pools else o_datamodels.Unset
+            provider_pools = []
+            for pool in pools:
+                provider_pool = o_datamodels.Pool.from_dict(pool)
+                # format member provider
+                members = provider_pool.members
+                if not isinstance(members, o_datamodels.UnsetType) and members:
+                    provider_pool.members = [
+                        o_datamodels.Member.from_dict(m)
+                        for m in members]
+                else:
+                    provider_pool.members = o_datamodels.Unset
+                provider_pools.append(provider_pool)
 
+            provider_lb.pools = (
+                provider_pools if provider_pools else o_datamodels.Unset
+            )
             self._ensure_loadbalancer(provider_lb)
