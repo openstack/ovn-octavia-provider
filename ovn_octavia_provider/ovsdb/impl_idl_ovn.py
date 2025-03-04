@@ -209,7 +209,7 @@ class OvnNbIdlForLb(ovsdb_monitor.OvnIdl):
     SCHEMA = "OVN_Northbound"
     TABLES = ('Logical_Switch', 'Load_Balancer', 'Load_Balancer_Health_Check',
               'Logical_Router', 'Logical_Switch_Port', 'Logical_Router_Port',
-              'Gateway_Chassis', 'NAT')
+              'Gateway_Chassis', 'NAT', 'HA_Chassis_Group')
 
     def __init__(self, event_lock_name=None, notifier=True):
         self.conn_string = config.get_ovn_nb_connection()

@@ -3036,11 +3036,13 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
     def test__find_ls_for_lr(self):
         p1 = fakes.FakeOVNPort.create_one_port(attrs={
             'gateway_chassis': [],
+            'ha_chassis_group': [],
             'external_ids': {
                 ovn_const.OVN_NETWORK_NAME_EXT_ID_KEY: 'foo1'},
             'networks': ["10.0.0.1/24"]})
         p2 = fakes.FakeOVNPort.create_one_port(attrs={
             'gateway_chassis': [],
+            'ha_chassis_group': [],
             'external_ids': {
                 ovn_const.OVN_NETWORK_NAME_EXT_ID_KEY: 'foo2'},
             'networks': ["10.0.10.1/24"]})
@@ -3052,11 +3054,13 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
     def test__find_ls_for_lr_net_not_found(self):
         p1 = fakes.FakeOVNPort.create_one_port(attrs={
             'gateway_chassis': [],
+            'ha_chassis_group': [],
             'external_ids': {
                 ovn_const.OVN_NETWORK_NAME_EXT_ID_KEY: 'foo1'},
             'networks': ["10.0.0.1/24"]})
         p2 = fakes.FakeOVNPort.create_one_port(attrs={
             'gateway_chassis': [],
+            'ha_chassis_group': [],
             'external_ids': {},
             'networks': ["10.0.10.1/24"]})
         self.router.ports.append(p2)
@@ -3067,11 +3071,13 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
     def test__find_ls_for_lr_different_ip_version(self):
         p1 = fakes.FakeOVNPort.create_one_port(attrs={
             'gateway_chassis': [],
+            'ha_chassis_group': [],
             'external_ids': {
                 ovn_const.OVN_NETWORK_NAME_EXT_ID_KEY: 'foo1'},
             'networks': ["10.0.0.1/24"]})
         p2 = fakes.FakeOVNPort.create_one_port(attrs={
             'gateway_chassis': [],
+            'ha_chassis_group': [],
             'external_ids': {
                 ovn_const.OVN_NETWORK_NAME_EXT_ID_KEY: 'foo2'},
             'networks': ["fdaa:4ad8:e8fb::/64"]})
@@ -3085,6 +3091,18 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
     def test__find_ls_for_lr_gw_port(self):
         p1 = fakes.FakeOVNPort.create_one_port(attrs={
             'gateway_chassis': ['foo-gw-chassis'],
+            'ha_chassis_group': [],
+            'external_ids': {
+                ovn_const.OVN_NETWORK_NAME_EXT_ID_KEY: 'foo1'},
+            'networks': ["10.0.0.1/24"]})
+        self.router.ports.append(p1)
+        result = self.helper._find_ls_for_lr(self.router, n_const.IP_VERSION_4)
+        self.assertListEqual([], result)
+
+    def test__find_ls_for_lr_gw_port_ha_chassis_group(self):
+        p1 = fakes.FakeOVNPort.create_one_port(attrs={
+            'gateway_chassis': [],
+            'ha_chassis_group': 'foo-chassis-group',
             'external_ids': {
                 ovn_const.OVN_NETWORK_NAME_EXT_ID_KEY: 'foo1'},
             'networks': ["10.0.0.1/24"]})
