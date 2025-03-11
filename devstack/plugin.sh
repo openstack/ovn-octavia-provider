@@ -1,8 +1,5 @@
 #!/usr/bin/env bash
 
-# devstack plugin for octavia
-GET_PIP_CACHE_LOCATION=/opt/stack/cache/files/get-pip.py
-
 # How to connect to ovsdb-server hosting the OVN NB database
 if is_service_enabled tls-proxy; then
    OVN_PROTO=ssl
