@@ -88,7 +88,9 @@ REQ_TYPE_EXIT = 'exit'
 
 # Request information constants
 REQ_INFO_ACTION_ASSOCIATE = 'associate'
+REQ_INFO_ACTION_SYNC = 'sync'
 REQ_INFO_ACTION_DISASSOCIATE = 'disassociate'
+
 REQ_INFO_MEMBER_ADDED = 'member_added'
 REQ_INFO_MEMBER_DELETED = 'member_deleted'
 
