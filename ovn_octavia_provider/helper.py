@@ -1175,7 +1175,7 @@ class OvnProviderHelper():
     def _find_ls_for_lr(self, router, ip_version):
         ls = []
         for port in router.ports:
-            if port.gateway_chassis:
+            if port.gateway_chassis or port.ha_chassis_group:
                 continue
             if netaddr.IPNetwork(port.networks[0]).version != ip_version:
                 continue
