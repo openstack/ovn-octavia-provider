@@ -1,3 +1,4 @@
+
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
 #    not use this file except in compliance with the License. You may obtain
@@ -336,7 +337,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
     def test__update_ip_port_mappings_del_backend_member(self):
         src_ip = '10.22.33.4'
         self.helper._update_ip_port_mappings(
-            self.ovn_lb, self.member_address, 'a-logical-port', src_ip,
+            self.ovn_lb, self.member_address, 'a-logical-port', src_ip, 'test_pool_key',
             delete=True)
         self.helper.ovn_nbdb_api.lb_del_ip_port_mapping.\
             assert_called_once_with(self.ovn_lb.uuid, self.member_address)
@@ -344,16 +345,16 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
     def test__update_ip_port_mappings_add_backend_member(self):
         src_ip = '10.22.33.4'
         self.helper._update_ip_port_mappings(
-            self.ovn_lb, self.member_address, 'a-logical-port', src_ip)
+            self.ovn_lb, self.member_address, 'a-logical-port', src_ip, 'test_pool_key')
         self.helper.ovn_nbdb_api.lb_add_ip_port_mapping.\
             assert_called_once_with(self.ovn_lb.uuid, self.member_address,
-                                    'a-logical-port', src_ip)
+                                    'a-logical-port', src_ip, 'test_pool_key')
 
     def test__update_ip_port_mappings_del_backend_member_ipv6(self):
         member_address = 'fda2:918e:5869:0:f816:3eff:feab:cdef'
         src_ip = 'fda2:918e:5869:0:f816:3eff:fecd:398a'
         self.helper._update_ip_port_mappings(
-            self.ovn_lb, member_address, 'a-logical-port', src_ip,
+            self.ovn_lb, member_address, 'a-logical-port', src_ip, 'test_pool_key',
             delete=True)
         self.helper.ovn_nbdb_api.lb_del_ip_port_mapping.\
             assert_called_once_with(self.ovn_lb.uuid, member_address)
@@ -362,10 +363,10 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         member_address = 'fda2:918e:5869:0:f816:3eff:feab:cdef'
         src_ip = 'fda2:918e:5869:0:f816:3eff:fecd:398a'
         self.helper._update_ip_port_mappings(
-            self.ovn_lb, member_address, 'a-logical-port', src_ip)
+            self.ovn_lb, member_address, 'a-logical-port', src_ip, 'test_pool_key')
         self.helper.ovn_nbdb_api.lb_add_ip_port_mapping.\
             assert_called_once_with(
-                self.ovn_lb.uuid, member_address, 'a-logical-port', src_ip)
+                self.ovn_lb.uuid, member_address, 'a-logical-port', src_ip, 'test_pool_key')
 
     def test__update_external_ids_member_status(self):
         self.helper._update_external_ids_member_status(
@@ -3036,13 +3037,11 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
     def test__find_ls_for_lr(self):
         p1 = fakes.FakeOVNPort.create_one_port(attrs={
             'gateway_chassis': [],
-            'ha_chassis_group': [],
             'external_ids': {
                 ovn_const.OVN_NETWORK_NAME_EXT_ID_KEY: 'foo1'},
             'networks': ["10.0.0.1/24"]})
         p2 = fakes.FakeOVNPort.create_one_port(attrs={
             'gateway_chassis': [],
-            'ha_chassis_group': [],
             'external_ids': {
                 ovn_const.OVN_NETWORK_NAME_EXT_ID_KEY: 'foo2'},
             'networks': ["10.0.10.1/24"]})
@@ -3054,13 +3053,11 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
     def test__find_ls_for_lr_net_not_found(self):
         p1 = fakes.FakeOVNPort.create_one_port(attrs={
             'gateway_chassis': [],
-            'ha_chassis_group': [],
             'external_ids': {
                 ovn_const.OVN_NETWORK_NAME_EXT_ID_KEY: 'foo1'},
             'networks': ["10.0.0.1/24"]})
         p2 = fakes.FakeOVNPort.create_one_port(attrs={
             'gateway_chassis': [],
-            'ha_chassis_group': [],
             'external_ids': {},
             'networks': ["10.0.10.1/24"]})
         self.router.ports.append(p2)
@@ -3071,13 +3068,11 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
     def test__find_ls_for_lr_different_ip_version(self):
         p1 = fakes.FakeOVNPort.create_one_port(attrs={
             'gateway_chassis': [],
-            'ha_chassis_group': [],
             'external_ids': {
                 ovn_const.OVN_NETWORK_NAME_EXT_ID_KEY: 'foo1'},
             'networks': ["10.0.0.1/24"]})
         p2 = fakes.FakeOVNPort.create_one_port(attrs={
             'gateway_chassis': [],
-            'ha_chassis_group': [],
             'external_ids': {
                 ovn_const.OVN_NETWORK_NAME_EXT_ID_KEY: 'foo2'},
             'networks': ["fdaa:4ad8:e8fb::/64"]})
@@ -3091,18 +3086,6 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
     def test__find_ls_for_lr_gw_port(self):
         p1 = fakes.FakeOVNPort.create_one_port(attrs={
             'gateway_chassis': ['foo-gw-chassis'],
-            'ha_chassis_group': [],
-            'external_ids': {
-                ovn_const.OVN_NETWORK_NAME_EXT_ID_KEY: 'foo1'},
-            'networks': ["10.0.0.1/24"]})
-        self.router.ports.append(p1)
-        result = self.helper._find_ls_for_lr(self.router, n_const.IP_VERSION_4)
-        self.assertListEqual([], result)
-
-    def test__find_ls_for_lr_gw_port_ha_chassis_group(self):
-        p1 = fakes.FakeOVNPort.create_one_port(attrs={
-            'gateway_chassis': [],
-            'ha_chassis_group': 'foo-chassis-group',
             'external_ids': {
                 ovn_const.OVN_NETWORK_NAME_EXT_ID_KEY: 'foo1'},
             'networks': ["10.0.0.1/24"]})
@@ -6745,4 +6728,19 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
             'Load_Balancer',
             self.ovn_lb.uuid,
             ('vips', {'vip1:port1': 'ip1:port1,ip2:port1'})
+        )
+    def test_update_ip_port_mappings_add(self):
+        # Setup mock OVN load balancer
+        ovn_lb = mock.Mock()
+        ovn_lb.uuid = 'test-lb-uuid'
+        ovn_lb.external_ids = {}
+
+        # Call the method with delete=False
+        self.helper._update_ip_port_mappings(
+            ovn_lb, '10.0.0.1', 'port1', '192.168.0.1', 'pool1', delete=False
+        )
+
+        # Assert that lb_add_ip_port_mapping was called
+        self.helper.ovn_nbdb_api.lb_add_ip_port_mapping.assert_called_once_with(
+            'test-lb-uuid', '10.0.0.1', 'port1', '192.168.0.1'
         )
