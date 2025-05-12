@@ -336,7 +336,11 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
     def test__update_ip_port_mappings_del_backend_member(self):
         src_ip = '10.22.33.4'
         self.helper._update_ip_port_mappings(
-            self.ovn_lb, self.member_address, 'a-logical-port', src_ip,
+            self.ovn_lb,
+            self.member_address,
+            'a-logical-port',
+            src_ip,
+            'test_pool_key',
             delete=True)
         self.helper.ovn_nbdb_api.lb_del_ip_port_mapping.\
             assert_called_once_with(self.ovn_lb.uuid, self.member_address)
@@ -344,7 +348,11 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
     def test__update_ip_port_mappings_add_backend_member(self):
         src_ip = '10.22.33.4'
         self.helper._update_ip_port_mappings(
-            self.ovn_lb, self.member_address, 'a-logical-port', src_ip)
+            self.ovn_lb,
+            self.member_address,
+            'a-logical-port',
+            src_ip,
+            'test_pool_key')
         self.helper.ovn_nbdb_api.lb_add_ip_port_mapping.\
             assert_called_once_with(self.ovn_lb.uuid, self.member_address,
                                     'a-logical-port', src_ip)
@@ -353,7 +361,11 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         member_address = 'fda2:918e:5869:0:f816:3eff:feab:cdef'
         src_ip = 'fda2:918e:5869:0:f816:3eff:fecd:398a'
         self.helper._update_ip_port_mappings(
-            self.ovn_lb, member_address, 'a-logical-port', src_ip,
+            self.ovn_lb,
+            member_address,
+            'a-logical-port',
+            src_ip,
+            'test_pool_key',
             delete=True)
         self.helper.ovn_nbdb_api.lb_del_ip_port_mapping.\
             assert_called_once_with(self.ovn_lb.uuid, member_address)
@@ -362,10 +374,17 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         member_address = 'fda2:918e:5869:0:f816:3eff:feab:cdef'
         src_ip = 'fda2:918e:5869:0:f816:3eff:fecd:398a'
         self.helper._update_ip_port_mappings(
-            self.ovn_lb, member_address, 'a-logical-port', src_ip)
+            self.ovn_lb,
+            member_address,
+            'a-logical-port',
+            src_ip,
+            'test_pool_key')
         self.helper.ovn_nbdb_api.lb_add_ip_port_mapping.\
             assert_called_once_with(
-                self.ovn_lb.uuid, member_address, 'a-logical-port', src_ip)
+                self.ovn_lb.uuid,
+                member_address,
+                'a-logical-port',
+                src_ip)
 
     def test__update_external_ids_member_status(self):
         self.helper._update_external_ids_member_status(
@@ -374,7 +393,10 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
             ovn_const.OVN_MEMBER_STATUS_KEY: '{"%s": "%s"}'
             % (self.member_id, constants.NO_MONITOR)}
         self.helper.ovn_nbdb_api.db_set.assert_called_once_with(
-            'Load_Balancer', self.ovn_lb.uuid, ('external_ids', member_status))
+            'Load_Balancer',
+            self.ovn_lb.uuid,
+            ('external_ids',
+             member_status))
 
     def test__update_external_ids_member_status_delete(self):
         self.helper._update_external_ids_member_status(
@@ -390,7 +412,10 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
             ovn_const.OVN_MEMBER_STATUS_KEY: '{"%s": "%s"}'
             % (self.member_id, constants.NO_MONITOR)}
         self.helper.ovn_nbdb_api.db_set.assert_called_once_with(
-            'Load_Balancer', self.ovn_lb.uuid, ('external_ids', member_status))
+            'Load_Balancer',
+            self.ovn_lb.uuid,
+            ('external_ids',
+             member_status))
 
     def test__find_member_status(self):
         status = self.helper._find_member_status(self.ovn_lb, self.member_id)
@@ -6746,3 +6771,73 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
             self.ovn_lb.uuid,
             ('vips', {'vip1:port1': 'ip1:port1,ip2:port1'})
         )
+
+    def test_update_ip_port_mappings_add(self):
+        # Setup mock OVN load balancer
+        ovn_lb = mock.Mock()
+        ovn_lb.uuid = 'test-lb-uuid'
+        ovn_lb.external_ids = {}
+
+        # Call the method with delete=False
+        self.helper._update_ip_port_mappings(
+            ovn_lb, '10.0.0.1', 'port1', '192.168.0.1', 'pool1', delete=False
+        )
+
+        # Assert that lb_add_ip_port_mapping was called
+        self.helper.ovn_nbdb_api.lb_add_ip_port_mapping\
+            .assert_called_once_with(
+                'test-lb-uuid',
+                '10.0.0.1',
+                'port1',
+                '192.168.0.1',
+            )
+
+    def test_update_ip_port_mappings_delete_minimal(self):
+        ovn_lb = mock.Mock()
+        ovn_lb.uuid = 'test-lb-uuid'
+        ovn_lb.external_ids = {}
+        # Patch _extract_member_info to return no other members
+        self.helper._extract_member_info = mock.Mock(return_value=[])
+        # Also patch ovn_nbdb_api call
+        self.helper.ovn_nbdb_api.lb_del_ip_port_mapping = mock.Mock()
+        self.helper.ovn_nbdb_api.lb_add_ip_port_mapping = mock.Mock()
+        self.helper._update_ip_port_mappings(
+            ovn_lb,
+            backend_ip='10.0.0.1',
+            port_name='dummy-port',
+            src_ip='192.168.0.1',
+            pool_key='pool-test',
+            delete=True
+        )
+        self.helper.ovn_nbdb_api.\
+            lb_del_ip_port_mapping.\
+            assert_called_once_with(
+                'test-lb-uuid',
+                '10.0.0.1'
+            )
+
+    def test_update_ip_port_mappings_delete_with_other_members_present(self):
+        ovn_lb = mock.Mock()
+        ovn_lb.uuid = 'test-lb-uuid'
+        ovn_lb.external_ids = {
+            "pool_A": "member_memberA_10.0.0.1:80_subnetA",
+            "pool_B": "member_memberB_10.0.0.1:80_subnetA",
+            "neutron:member_statuses": '{"memberB": "ONLINE"}'
+        }
+
+        self.helper.ovn_nbdb_api.lb_del_ip_port_mapping = mock.Mock()
+        self.helper.ovn_nbdb_api.lb_add_ip_port_mapping = mock.Mock()
+
+        # Call the method under test
+        self.helper._update_ip_port_mappings(
+            ovn_lb,
+            backend_ip='10.0.0.1',
+            port_name='dummy-port',
+            src_ip='192.168.0.1',
+            pool_key='pool_A',
+            delete=True
+        )
+
+        # Should not call delete because memberB is ONLINE and shares the IP
+        self.helper.ovn_nbdb_api.lb_del_ip_port_mapping.assert_not_called()
+        self.helper.ovn_nbdb_api.lb_add_ip_port_mapping.assert_not_called()
