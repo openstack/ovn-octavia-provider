@@ -51,8 +51,7 @@
       Q_BUILD_OVS_FROM_GIT: True
       INSTALL_OVN: True
       OVN_BRANCH: main
-      # NOTE(froyo): OVN main branch following OVS stable branch
-      OVS_BRANCH: branch-3.4
+      OVS_BRANCH: main
 
 - job:
     name: ovn-octavia-provider-tempest-base
@@ -182,5 +181,4 @@
         OVN_BUILD_FROM_SOURCE: True
         INSTALL_OVN: True
         OVN_BRANCH: main
-        # NOTE(froyo): OVN main branch following OVS stable branch
-        OVS_BRANCH: branch-3.4
+        OVS_BRANCH: main
