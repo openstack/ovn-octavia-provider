@@ -14,6 +14,7 @@
 #    under the License.
 
 import copy
+import time
 from unittest import mock
 
 from neutron.common import utils as n_utils
@@ -442,7 +443,10 @@ class TestOvnOctaviaBase(base.TestOVNFunctionalBase,
                 [ls_foo, ls]
 
         self.ovn_driver.loadbalancer_create(lb_data['model'])
-
+        # NOTE(froyo): This sleep is configured here due to previous call
+        # is also modifiend LB VIP port, as same way the following update
+        # port call. For some reason this second was not propagated.
+        time.sleep(1)
         name = '%s%s' % (ovn_const.LB_VIP_PORT_PREFIX,
                          lb_data['model'].loadbalancer_id)
         self.driver.update_port(
@@ -503,6 +507,10 @@ class TestOvnOctaviaBase(base.TestOVNFunctionalBase,
 
         self.ovn_driver.loadbalancer_create(lb_data['model'])
 
+        # NOTE(froyo): This sleep is configured here due to previous call
+        # is also modifiend LB VIP port, as same way the following update
+        # port call. For some reason this second was not propagated.
+        time.sleep(1)
         name = '%s%s' % (ovn_const.LB_VIP_PORT_PREFIX,
                          lb_data['model'].loadbalancer_id)
         self.driver.update_port(
