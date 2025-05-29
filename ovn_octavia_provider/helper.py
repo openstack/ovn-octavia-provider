@@ -2795,8 +2795,14 @@ class OvnProviderHelper():
                     # if HM exists trust on neutron:member_status
                     # as the last status valid for the member
                     if ovn_lb.health_check:
-                        # search status of member_uuid
-                        member_operating_status = last_status
+                        # Put member ONLINE if was OFFLINE and trust on HM to
+                        # come back to ERROR in case neccesary, it was already
+                        # on ERROR keeps at that way.
+                        member_operating_status = (
+                            constants.ERROR
+                            if last_status == constants.ERROR
+                            else constants.ONLINE
+                        )
                     else:
                         member_operating_status = constants.NO_MONITOR
                 else:
@@ -2815,12 +2821,18 @@ class OvnProviderHelper():
                 ) or (
                     last_status == constants.OFFLINE and
                     member_operating_status != constants.OFFLINE
+                ) or (
+                    member[constants.ADMIN_STATE_UP]
                 ):
                     commands = []
                     commands.extend(self._refresh_lb_vips(ovn_lb,
                                                           ovn_lb.external_ids))
                     self._execute_commands(commands)
-
+                    if ovn_lb.health_check:
+                        delete = not member[constants.ADMIN_STATE_UP]
+                        self._update_hm_member(
+                            ovn_lb, pool_key, member.get(constants.ADDRESS),
+                            delete=delete)
         except Exception:
             LOG.exception(ovn_const.EXCEPTION_MSG, "update of member")
             error_updating_member = True
@@ -4020,9 +4032,8 @@ class OvnProviderHelper():
             "ovn_lbs": ovn_lbs,
             "ip": row.ip,
             "port": str(row.port),
-            "status": row.status
-            if not sm_delete_event
-            else ovn_const.HM_EVENT_MEMBER_PORT_OFFLINE,
+            "status": row.status,
+            "delete": sm_delete_event,
         }
         self.add_request({'type': ovn_const.REQ_TYPE_HM_UPDATE_EVENT,
                           'info': request_info})
@@ -4167,9 +4178,12 @@ class OvnProviderHelper():
             if not member_id:
                 LOG.warning('Member for event not found, info: %s', info)
             else:
-                member_status = constants.ONLINE
-                if info['status'] == ovn_const.HM_EVENT_MEMBER_PORT_OFFLINE:
+                if info['delete']:
+                    member_status = constants.OFFLINE
+                elif info['status'] == ovn_const.HM_EVENT_MEMBER_PORT_OFFLINE:
                     member_status = constants.ERROR
+                else:
+                    member_status = constants.ONLINE
 
                 self._update_external_ids_member_status(ovn_lb, member_id,
                                                         member_status)
