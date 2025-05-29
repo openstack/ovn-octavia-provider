@@ -5041,6 +5041,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
                    'logical_port': 'a-logical-port',
                    'src_ip': src_ip,
                    'port': self.member_port,
+                   'delete': False,
                    'protocol': self.ovn_hm_lb.protocol,
                    'status': ovn_const.HM_EVENT_MEMBER_PORT_OFFLINE})
         self.hm_update_event.run('update', row, mock.ANY)
@@ -5049,6 +5050,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
                 {'ovn_lbs': [self.ovn_hm_lb],
                  'ip': self.member_address,
                  'port': self.member_port,
+                 'delete': False,
                  'status': ovn_const.HM_EVENT_MEMBER_PORT_OFFLINE},
             'type': 'hm_update_event'}
         self.mock_add_request.assert_called_once_with(expected)
@@ -5077,7 +5079,8 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
                 {'ovn_lbs': [self.ovn_hm_lb],
                  'ip': self.member_address,
                  'port': self.member_port,
-                 'status': ovn_const.HM_EVENT_MEMBER_PORT_OFFLINE},
+                 'delete': True,
+                 'status': ovn_const.HM_EVENT_MEMBER_PORT_ONLINE},
             'type': 'hm_update_event'}
         self.mock_add_request.assert_called_once_with(expected)
         self.helper.ovn_nbdb_api.db_find_rows.assert_called_once_with(
@@ -5159,13 +5162,14 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         self._test_hm_update_no_member(False, True)
 
     def _test_hm_update_status(self, ovn_lbs, member_id, ip, port,
-                               mb_status):
+                               mb_status, delete=False):
         info = {
             'ovn_lbs': ovn_lbs,
             'ip': ip,
             'logical_port': 'a-logical-port',
             'src_ip': '10.22.33.4',
             'port': port,
+            'delete': delete,
             'protocol': ovn_lbs[0].protocol,
             'status': [mb_status]}
         mb_status_ovn = 'error' if mb_status == 'offline' else mb_status
@@ -5462,6 +5466,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
             'logical_port': 'a-logical-port',
             'src_ip': '10.22.33.4',
             'port': '8080',
+            'delete': False,
             'protocol': self.ovn_hm_lb.protocol,
             'status': ovn_const.HM_EVENT_MEMBER_PORT_OFFLINE}
         self._update_external_ids_member_status(self.ovn_hm_lb, member['id'],
@@ -5586,6 +5591,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
             'logical_port': 'a-logical-port',
             'src_ip': '10.22.33.4',
             'port': '8081',
+            'delete': False,
             'protocol': ovn_hm_lb2.protocol,
             'status': ovn_const.HM_EVENT_MEMBER_PORT_OFFLINE}
 
