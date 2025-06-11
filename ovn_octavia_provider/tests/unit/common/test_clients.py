@@ -99,6 +99,9 @@ class TestNeutronAuth(base.BaseTestCase):
     def setUp(self):
         super().setUp()
         config.register_opts()
+        self.conf = self.useFixture(oslo_fixture.Config(cfg.CONF))
+        self.conf.config(group='neutron', region_name='RegionOne',
+                         valid_interfaces='internal')
         self.mock_client = mock.patch(
             'openstack.connection.Connection').start()
         clients.Singleton._instances = {}
@@ -107,7 +110,8 @@ class TestNeutronAuth(base.BaseTestCase):
     def test_init(self, mock_ks):
         clients.NeutronAuth()
         self.mock_client.assert_called_once_with(
-            session=mock_ks().session)
+            session=mock_ks().session, interface='internal',
+            region_name='RegionOne')
 
     def test_singleton(self):
         c1 = clients.NeutronAuth()
@@ -133,7 +137,8 @@ class TestNeutronAuth(base.BaseTestCase):
     def test_get_client(self, mock_ks):
         clients.get_neutron_client()
         self.mock_client.assert_called_once_with(
-            session=mock_ks().session)
+            session=mock_ks().session, interface='internal',
+            region_name='RegionOne')
 
     @mock.patch.object(clients, 'NeutronAuth', side_effect=[RuntimeError])
     def test_get_client_error(self, mock_ks):
