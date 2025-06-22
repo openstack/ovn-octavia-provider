@@ -1045,7 +1045,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         net_cli.side_effect = [exceptions.DriverError]
         with mock.patch.object(ovn_helper, 'LOG') as m_l:
             self.assertFalse(self.helper.lb_sync(self.lb, self.ovn_lb))
-            m_l.warn.assert_called_once_with(
+            m_l.warning.assert_called_once_with(
                 ('Cannot get client from neutron An unknown driver error '
                  'occurred.')
             )
@@ -1057,7 +1057,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         m_gpri.side_effect = [AttributeError]
         with mock.patch.object(ovn_helper, 'LOG') as m_l:
             self.assertFalse(self.helper.lb_sync(self.lb, self.ovn_lb))
-            m_l.warn.assert_called_once_with(
+            m_l.warning.assert_called_once_with(
                 ("Load Balancer VIP port missing information.")
             )
 
@@ -1068,7 +1068,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         m_gpri.side_effect = [openstack.exceptions.ResourceNotFound]
         with mock.patch.object(ovn_helper, 'LOG') as m_l:
             self.assertFalse(self.helper.lb_sync(self.lb, self.ovn_lb))
-            m_l.warn.assert_called_once_with(
+            m_l.warning.assert_called_once_with(
                 ("Load balancer VIP port and subnet not found.")
             )
 
@@ -4457,7 +4457,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         with mock.patch.object(ovn_helper, 'LOG') as m_l:
             self.assertIsNone(self.helper.get_lsp(port_id=port_id,
                                                   network_id=network_id))
-            m_l.warn.assert_called_once_with(
+            m_l.warning.assert_called_once_with(
                 f'Logical Switch neutron-{network_id} not found.')
 
     def test_get_lsp_port_not_found(self):

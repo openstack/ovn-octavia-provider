@@ -16,7 +16,7 @@
 
 from unittest import mock
 
-from neutron.tests import base
+from neutron.tests import base  # noqa: N530
 
 from ovn_octavia_provider.common import config as ovn_config
 from ovn_octavia_provider.common import utils

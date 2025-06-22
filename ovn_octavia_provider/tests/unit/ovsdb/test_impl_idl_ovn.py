@@ -15,7 +15,7 @@
 import os
 from unittest import mock
 
-from neutron.tests import base
+from neutron.tests import base  # noqa: N530
 from ovs.db import idl as ovs_idl
 from ovsdbapp.backend import ovs_idl as real_ovs_idl
 from ovsdbapp.backend.ovs_idl import idlutils

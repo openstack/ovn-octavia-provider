@@ -823,7 +823,7 @@ class OvnProviderDriver(driver_base.ProviderDriver):
         if fips:
             neutron_fip = fips[0].floating_ip_address
             if not vip_lsp:
-                LOG.warn(
+                LOG.warning(
                     "Logic Switch Port not found for port "
                     f"{loadbalancer.vip_port_id}. "
                     "Skip sync FIP for loadbalancer "
@@ -832,7 +832,7 @@ class OvnProviderDriver(driver_base.ProviderDriver):
                     "first to sync OVN DB with Neutron DB.")
                 return
             if lsp_fip != neutron_fip:
-                LOG.warn(
+                LOG.warning(
                     "Floating IP not consistent between Logic Switch "
                     f"Port and Neutron. Found FIP {lsp_fip} "
                     f"in LSP {vip_lsp.name}, but we have {neutron_fip} from "
@@ -845,10 +845,10 @@ class OvnProviderDriver(driver_base.ProviderDriver):
                 vip_lp=vip_lsp, fip=lsp_fip,
                 action=ovn_const.REQ_INFO_ACTION_SYNC)
         else:
-            LOG.warn("Floating IP not found for loadbalancer "
-                     f"{loadbalancer.loadbalancer_id}")
+            LOG.warning("Floating IP not found for loadbalancer "
+                        f"{loadbalancer.loadbalancer_id}")
             if lsp_fip:
-                LOG.warn(
+                LOG.warning(
                     "Floating IP not consistent between Logic Switch "
                     f"Port and Neutron. Found FIP {lsp_fip} configured "
                     f"in LSP {vip_lsp.name}, but no FIP configured from "

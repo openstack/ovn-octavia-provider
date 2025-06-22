@@ -13,7 +13,7 @@
 #
 from unittest import mock
 
-from neutron.tests import base
+from neutron.tests import base  # noqa: N530
 from octavia_lib.api.drivers import driver_lib
 from oslo_utils import uuidutils
 

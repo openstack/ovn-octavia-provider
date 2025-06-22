@@ -16,7 +16,7 @@
 import atexit
 import multiprocessing as mp
 
-from neutron.common import utils as n_utils
+from neutron.common import utils as n_utils  # noqa: N530
 from oslo_utils import uuidutils
 from ovsdbapp.backend.ovs_idl import connection
 

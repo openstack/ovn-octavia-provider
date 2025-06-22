@@ -917,7 +917,7 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
 
         with mock.patch.object(ovn_driver, 'LOG') as m_l:
             self.driver._fip_sync(self.ref_lb_fully_sync_populated)
-            m_l.warn.assert_has_calls(calls)
+            m_l.warning.assert_has_calls(calls)
 
     @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
     def test_fip_sync_lsp_mismatch(self, net_cli):
@@ -934,7 +934,7 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
 
         with mock.patch.object(ovn_driver, 'LOG') as m_l:
             self.driver._fip_sync(self.ref_lb_fully_sync_populated)
-            m_l.warn.assert_called_once_with(msg)
+            m_l.warning.assert_called_once_with(msg)
 
     @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
     def test_fip_sync_lsp_not_found(self, net_cli):
@@ -952,7 +952,7 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
 
         with mock.patch.object(ovn_driver, 'LOG') as m_l:
             self.driver._fip_sync(self.ref_lb_fully_sync_populated)
-            m_l.warn.assert_called_once_with(msg)
+            m_l.warning.assert_called_once_with(msg)
 
     @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
     def test_fip_sync_no_neutron_fip(self, net_cli):
@@ -971,7 +971,7 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
         self.mock_add_request
         with mock.patch.object(ovn_driver, 'LOG') as m_l:
             self.driver._fip_sync(self.ref_lb_fully_sync_populated)
-            m_l.warn.assert_has_calls(calls)
+            m_l.warning.assert_has_calls(calls)
 
     @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
     def test_fip_sync_no_neutron_fip_no_lsp(self, net_cli):

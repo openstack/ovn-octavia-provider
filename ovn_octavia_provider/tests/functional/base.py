@@ -17,7 +17,7 @@ import copy
 import time
 from unittest import mock
 
-from neutron.common import utils as n_utils
+from neutron.common import utils as n_utils  # noqa: N530
 from neutron_lib import constants as n_const
 from neutron_lib.plugins import directory
 from octavia_lib.api.drivers import data_models as octavia_data_model
@@ -33,7 +33,7 @@ import tenacity
 
 # NOTE(mjozefcz): We need base neutron functionals because we need
 # mechanism driver and l3 plugin.
-from neutron.tests.functional import base
+from neutron.tests.functional import base  # noqa: N530
 from ovn_octavia_provider.common import clients
 from ovn_octavia_provider.common import constants as ovn_const
 from ovn_octavia_provider import driver as ovn_driver
@@ -115,7 +115,7 @@ class TestOvnOctaviaBase(base.TestOVNFunctionalBase,
 
     def _create_lb_model(self, vip=None, vip_network_id=None,
                          vip_subnet_id=None, vip_port_id=None,
-                         admin_state_up=True, additional_vips=[]):
+                         admin_state_up=True, additional_vips=None):
         lb = octavia_data_model.LoadBalancer()
         lb.loadbalancer_id = uuidutils.generate_uuid()
 
@@ -486,7 +486,7 @@ class TestOvnOctaviaBase(base.TestOVNFunctionalBase,
                                            only_model=False,
                                            router_id=None,
                                            multiple_lb=False,
-                                           additional_vips=[]):
+                                           additional_vips=None):
         self._o_driver_lib.update_loadbalancer_status.reset_mock()
         lb_data = {}
         if router_id:

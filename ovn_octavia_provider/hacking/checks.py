@@ -42,7 +42,7 @@ tests_imports_from2 = re.compile(
     r"\bfrom[\s]+ovn_octavia_provider[\s]+import[\s]+tests\b")
 no_line_continuation_backslash_re = re.compile(r'.*(\\)\n')
 
-import_mock = re.compile(r"\bimport[\s]+mock\b")  # noqa: H216
+import_mock = re.compile(r"\bimport[\s]+mock\b")  # noqa :H216
 import_from_mock = re.compile(r"\bfrom[\s]+mock[\s]+import\b")
 
 
