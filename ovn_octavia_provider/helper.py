@@ -3520,9 +3520,14 @@ class OvnProviderHelper():
         self._execute_commands(commands)
         return True
 
-    def _update_ip_port_mappings(self, ovn_lb, backend_ip, port_name, src_ip,
-                                 delete=False):
-
+    def _update_ip_port_mappings(
+            self,
+            ovn_lb,
+            backend_ip,
+            port_name,
+            src_ip,
+            pool_key,
+            delete=False):
         # ip_port_mappings:${MEMBER_IP}=${LSP_NAME_MEMBER}:${HEALTH_SRC}
         # where:
         #  MEMBER_IP: IP of member_lsp
@@ -3530,8 +3535,37 @@ class OvnProviderHelper():
         #  HEALTH_SRC: source IP of hm_port
 
         if delete:
-            self.ovn_nbdb_api.lb_del_ip_port_mapping(ovn_lb.uuid,
-                                                     backend_ip).execute()
+            # Before removing a member from ip_port_mappings,
+            # make sure no other
+            # pool uses the same member.
+            other_members = []
+            for k, v in ovn_lb.external_ids.items():
+                if ovn_const.LB_EXT_IDS_POOL_PREFIX in k and k != pool_key:
+                    other_members.extend(self._extract_member_info(
+                        ovn_lb.external_ids[k]))
+            member_statuses = ovn_lb.external_ids.get(
+                ovn_const.OVN_MEMBER_STATUS_KEY)
+            try:
+                member_statuses = jsonutils.loads(member_statuses)
+            except TypeError:
+                LOG.debug("No member status in external_ids: %s",
+                          str(member_statuses))
+                member_statuses = {}
+            execute_delete = True
+            for member_id in [item[3] for item in other_members
+                              if item[0] == backend_ip]:
+                if member_statuses.get(member_id, '') != constants.NO_MONITOR:
+                    execute_delete = False
+                    LOG.debug(
+                        f"Backend {backend_ip} still in use by member"
+                        f" {member_id}, "
+                        f"so it won't be removed"
+                    )
+                    break
+            if execute_delete:
+                LOG.debug(f"Removing ip_port_mapping for {backend_ip}")
+                self.ovn_nbdb_api.lb_del_ip_port_mapping(
+                    ovn_lb.uuid, backend_ip).execute()
         else:
             self.ovn_nbdb_api.lb_add_ip_port_mapping(ovn_lb.uuid,
                                                      backend_ip,
@@ -3620,8 +3654,11 @@ class OvnProviderHelper():
                                'member': mb_ip,
                                'pool': pool_key})
                     return None
-                self._update_ip_port_mappings(ovn_lb, backend_ip,
-                                              member_lsp.name, hm_source_ip,
+                self._update_ip_port_mappings(ovn_lb,
+                                              backend_ip,
+                                              member_lsp.name,
+                                              hm_source_ip,
+                                              pool_key,
                                               delete)
                 return constants.ONLINE
 
