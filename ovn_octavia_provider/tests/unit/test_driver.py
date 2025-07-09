@@ -1522,6 +1522,46 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
                 self.vip_dict,
                 [])
 
+    def test_create_vip_port_exception_with_details(self):
+        exception_with_details = Exception()
+        exception_with_details.details = "Network not found"
+        with mock.patch.object(ovn_helper.OvnProviderHelper, 'create_vip_port',
+                               side_effect=exception_with_details):
+            self.assertRaises(
+                exceptions.DriverError,
+                self.driver.create_vip_port,
+                self.loadbalancer_id,
+                self.project_id,
+                self.vip_dict,
+                [])
+
+    def test_create_vip_port_exception_with_message(self):
+        exception_with_message = Exception()
+        exception_with_message.message = "Port creation failed"
+        with mock.patch.object(ovn_helper.OvnProviderHelper, 'create_vip_port',
+                               side_effect=exception_with_message):
+            self.assertRaises(
+                exceptions.DriverError,
+                self.driver.create_vip_port,
+                self.loadbalancer_id,
+                self.project_id,
+                self.vip_dict,
+                [])
+
+    def test_create_vip_port_exception_with_both_details_and_message(self):
+        exception_with_both = Exception()
+        exception_with_both.details = "Network not found"
+        exception_with_both.message = "Port creation failed"
+        with mock.patch.object(ovn_helper.OvnProviderHelper, 'create_vip_port',
+                               side_effect=exception_with_both):
+            self.assertRaises(
+                exceptions.DriverError,
+                self.driver.create_vip_port,
+                self.loadbalancer_id,
+                self.project_id,
+                self.vip_dict,
+                [])
+
     def test_health_monitor_create(self):
         info = {'id': self.ref_health_monitor.healthmonitor_id,
                 'pool_id': self.ref_health_monitor.pool_id,
@@ -1685,6 +1725,39 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
             constants.LOADBALANCERS: [{'id': self.loadbalancer_id}]
         }
         mock_update_status.assert_called_once_with(expected_status)
+
+    @mock.patch.object(ovn_driver.OvnProviderDriver,
+                       '_check_for_supported_protocols')
+    @mock.patch.object(ovn_driver.OvnProviderDriver,
+                       '_check_for_supported_algorithms')
+    @mock.patch.object(ovn_driver.OvnProviderDriver,
+                       '_check_for_supported_session_persistence')
+    def test_get_pool_request_info_skips_session_persistence(
+            self, mck_chck_sup_ses_per, mck_chck_sup_alg, mck_chck_sup_pro):
+        pool = mock.Mock()
+        pool.protocol = 'TCP'
+        pool.lb_algorithm = 'SOURCE_IP_PORT'
+        pool.pool_id = 'pool-001'
+        pool.loadbalancer_id = 'lb-123'
+        pool.listener_id = 'listener-999'
+        pool.session_persistence = data_models.UnsetType()
+        pool.admin_state_up = data_models.UnsetType()
+
+        expected = {
+            'id': pool.pool_id,
+            'loadbalancer_id': pool.loadbalancer_id,
+            'protocol': pool.protocol,
+            'lb_algorithm': pool.lb_algorithm,
+            'listener_id': pool.listener_id,
+            'admin_state_up': True
+        }
+
+        result = self.driver._get_pool_request_info(pool)
+
+        mck_chck_sup_pro.assert_called_once_with(pool.protocol)
+        mck_chck_sup_alg.assert_called_once_with(pool.lb_algorithm)
+        mck_chck_sup_ses_per.assert_not_called()
+        self.assertEqual(result, expected)
 
     @mock.patch.object(ovn_helper.OvnProviderHelper,
                        '_update_status_to_octavia')

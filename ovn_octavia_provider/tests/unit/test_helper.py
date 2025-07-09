@@ -24,6 +24,7 @@ import openstack
 from oslo_serialization import jsonutils
 from oslo_utils import uuidutils
 from ovsdbapp.backend.ovs_idl import idlutils
+from ovsdbapp.schema.ovn_northbound import commands as cmd
 
 from ovn_octavia_provider.common import clients
 from ovn_octavia_provider.common import config as ovn_conf
@@ -585,6 +586,44 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
             found = f('not_found')
             self.assertEqual((None, None), found)
 
+    @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
+    def test__get_subnet_from_pool_subnet_not_found(self, net_cli):
+        net_cli.return_value.get_subnet.return_value = (
+            fakes.FakeSubnet.create_one_subnet(
+                attrs={'cidr': '10.22.33.0/24'}))
+
+        f = self.helper._get_subnet_from_pool
+
+        lb = data_models.LoadBalancer(
+            loadbalancer_id=self.loadbalancer_id,
+            name='The LB',
+            vip_address=self.vip_address,
+            vip_subnet_id=self.vip_subnet_id,
+            vip_network_id=self.vip_network_id)
+
+        lb_pool = data_models.Pool(
+            loadbalancer_id=self.loadbalancer_id,
+            name='The pool',
+            pool_id=self.pool_id,
+            protocol='TCP')
+
+        with mock.patch.object(self.helper, '_octavia_driver_lib') as dlib:
+            dlib.get_pool.return_value = None
+            found = f('not_found')
+            self.assertEqual((None, None), found)
+
+            dlib.get_pool.return_value = lb_pool
+            dlib.get_loadbalancer.return_value = lb
+            found = f(self.pool_id)
+            self.assertEqual(found, (lb.vip_subnet_id, '10.22.33.0/24'))
+
+            net_cli.return_value.get_subnet.side_effect = [
+                openstack.exceptions.ResourceNotFound]
+            dlib.get_pool.return_value = lb_pool
+            dlib.get_loadbalancer.return_value = lb
+            found = f('not_found')
+            self.assertEqual((None, None), found)
+
     def test__check_lbhc_vip_format(self):
         vip = "192.168.0.1:8080"
         result = self.helper._check_lbhc_vip_format(vip)
@@ -1095,8 +1134,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
             self.assertFalse(self.helper.lb_sync(self.lb, self.ovn_lb))
             m_l.exception.assert_called()
 
-    @mock.patch.object(ovn_helper.OvnProviderHelper,
-                       '_sync_lb_associations')
+    @mock.patch.object(ovn_helper.OvnProviderHelper, '_sync_lb_associations')
     @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
     def test_lb_sync_sync_lb_assoc_exception(self, net_cli, m_syn_lb_assoc):
         self.lb['admin_state_up'] = True
@@ -3583,6 +3621,23 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
             self.ref_lb1, associate=True, update_ls_ref=True)
         self.assertListEqual(returned_commands, [])
 
+    @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
+    def test__get_lb_to_ls_association_commands_neutron_client_none(
+            self, net_cli):
+        self._get_lb_to_ls_association_commands.stop()
+        ovn_lb = mock.Mock()
+
+        net_cli.return_value = None
+
+        result = self.helper._get_lb_to_ls_association_commands(
+            ovn_lb=ovn_lb,
+            network_id=None,
+            subnet_id='subnet-id',
+            associate=True
+        )
+
+        self.assertEqual([], result)
+
     def test__get_members_in_ovn_lb_no_members(self):
         self.ovn_lb.externals_ids = {}
         result = self.helper._get_members_in_ovn_lb(self.ovn_lb, None)
@@ -3669,6 +3724,8 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
             self.ref_lb1, network_id=self.network.uuid,
             associate=False, update_ls_ref=True)
 
+        self.helper.ovn_nbdb_api.ls_get.assert_called_once_with(
+            self.network.name)
         self.helper.ovn_nbdb_api.ls_lb_del.assert_called_once_with(
             self.network.uuid, self.ref_lb1.uuid, if_exists=True)
         ls_refs = {'ls_refs': '{}'}
@@ -6423,6 +6480,174 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         net_cli.assert_has_calls(expected_call)
         del_port.assert_called_once_with('fake_uuid')
 
+    def test__get_lbs_on_hm_event_ipv6(self):
+        row = mock.Mock()
+        row.src_ip = '2001:db8::1'
+        row.ip = '2001:db8::2'
+        row.logical_port = 'lp-123'
+        row.protocol = ['tcp']
+
+        expected_mappings = {
+            '[2001:db8::2]': 'lp-123:[2001:db8::1]'
+        }
+
+        fake_lb = mock.Mock(name='ovn_lb')
+        self.helper.ovn_nbdb_api.db_find_rows.return_value.execute.\
+            return_value = [fake_lb]
+
+        result = self.helper._get_lbs_on_hm_event(row)
+
+        self.helper.ovn_nbdb_api.db_find_rows.assert_called_once_with(
+            'Load_Balancer',
+            ('ip_port_mappings', '=', expected_mappings),
+            ('protocol', '=', 'tcp')
+        )
+        self.assertEqual(result, [fake_lb])
+
+    @mock.patch.object(ovn_helper.OvnProviderHelper,
+                       '_are_selection_fields_supported')
+    def test_selection_fields_not_supported(self, mock_supported):
+        loadbalancer = {}
+        mock_supported.return_value = False
+        result = self.helper._build_selection_fields(loadbalancer)
+        mock_supported.assert_called_once_with()
+        self.assertIsNone(result)
+
+    @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
+    @mock.patch.object(ovn_helper.OvnProviderHelper, 'delete_port')
+    def test__clean_up_hm_port_no_ip(self, del_port, net_cli):
+        net_cli.return_value.ports.return_value = [
+            Port(name='%s%s' % (ovn_const.LB_HM_PORT_PREFIX,
+                                self.vip_dict['vip_subnet_id']),
+                 id='fake_uuid',
+                 fixed_ips=[])]
+        self.helper._clean_up_hm_port(self.vip_dict['vip_subnet_id'])
+        expected_call = [
+            mock.call(),
+            mock.call().ports(
+                name='%s%s' % (ovn_const.LB_HM_PORT_PREFIX,
+                               self.vip_dict['vip_subnet_id']))]
+        net_cli.assert_has_calls(expected_call)
+        del_port.assert_not_called()
+
+    @mock.patch.object(ovn_helper.OvnProviderHelper,
+                       '_make_listener_key_value')
+    @mock.patch.object(ovn_helper.OvnProviderHelper, '_get_listener_key')
+    def test_build_listener_info_without_pool(self, mock_get_listener_key,
+                                              mock_make_key_value):
+        listener = {
+            constants.ID: 'listener-2',
+            constants.ADMIN_STATE_UP: False,
+            constants.PROTOCOL_PORT: 80
+        }
+        external_ids = {}
+
+        mock_get_listener_key.return_value = 'listener-key-2'
+        mock_make_key_value.return_value = 'listener-val-2'
+
+        result_key, result_info = self.helper._build_listener_info(
+            listener, external_ids)
+
+        mock_get_listener_key.assert_called_once_with(
+            'listener-2', is_enabled=False)
+        mock_make_key_value.assert_called_once_with(80, '')
+
+        self.assertEqual(result_key, 'listener-key-2')
+        self.assertEqual(result_info, {'listener-key-2': 'listener-val-2'})
+        self.assertIn('listener-key-2', external_ids)
+        self.assertEqual(external_ids['listener-key-2'], 'listener-val-2')
+
+    def test_update_protocol_if_ovn_lb_has_no_protocol(self):
+        listener = {constants.PROTOCOL: 'TCP'}
+        ovn_lb = mock.Mock()
+        ovn_lb.protocol = None
+        ovn_lb.uuid = 'fake-lb-uuid'
+        commands = []
+
+        fake_command = mock.Mock(name='FakeCommand')
+        self.helper.ovn_nbdb_api.db_set.return_value = fake_command
+
+        self.helper._update_protocol_if_needed(listener, ovn_lb, commands)
+
+        self.helper.ovn_nbdb_api.db_set.assert_called_once_with(
+            'Load_Balancer',
+            'fake-lb-uuid',
+            ('protocol', 'tcp')
+        )
+        self.assertIn(fake_command, commands)
+
+    @mock.patch.object(ovn_helper.OvnProviderHelper, '_get_pool_key')
+    @mock.patch.object(ovn_helper.OvnProviderHelper,
+                       '_update_listener_association')
+    def test_prepare_external_ids_listener_id_missing(
+            self, mock_update_assoc, mock_get_pool_key):
+        pool = {
+            constants.ID: 'pool-123',
+            constants.ADMIN_STATE_UP: True,
+            constants.LISTENER_ID: None
+        }
+
+        ovn_lb = mock.Mock()
+        ovn_lb.external_ids = {'existing': 'entry'}
+        mock_get_pool_key.return_value = 'pool-key-123'
+        result = self.helper._prepare_external_ids(pool, ovn_lb)
+        expected = copy.deepcopy(ovn_lb.external_ids)
+        expected['pool-key-123'] = ''
+        mock_get_pool_key.assert_called_once_with('pool-123', is_enabled=True)
+        mock_update_assoc.assert_not_called()
+        self.assertEqual(result, expected)
+
+    @mock.patch.object(ovn_helper.OvnProviderHelper, '_get_listener_key')
+    def test_listener_key_not_in_external_ids(self, mock_get_listener_key):
+        pool = {
+            constants.ID: 'pool-789',
+            constants.LISTENER_ID: 'listener-999'
+        }
+        ovn_lb = mock.Mock()
+        ovn_lb.external_ids = {'unrelated-key': 'some-value'}
+        mock_get_listener_key.return_value = 'missing-listener-key'
+        external_ids = {
+            'some-other-key': 'val'
+        }
+        original_external_ids = external_ids.copy()
+
+        self.helper._update_listener_association(
+            pool, ovn_lb, external_ids, 'fake-pool-key')
+        self.assertEqual(external_ids, original_external_ids)
+
+    @mock.patch.object(ovn_helper.OvnProviderHelper, '_get_pool_key')
+    @mock.patch.object(ovn_helper.OvnProviderHelper, '_get_listener_key')
+    def test_pool_id_not_in_external_ids_listener_value(
+            self, mock_get_listener_key, mock_get_pool_key):
+        pool_id = 'pool-456'
+        listener_id = 'listener-123'
+        listener_key = 'listener-key-abc'
+        pool_key = 'fake-pool-key'
+
+        pool = {
+            constants.ID: pool_id,
+            constants.LISTENER_ID: listener_id
+        }
+
+        ovn_lb = mock.Mock()
+        ovn_lb.external_ids = {
+            listener_key: 'some-initial-data'
+        }
+
+        external_ids = {
+            listener_key: 'some-initial-data'
+        }
+
+        mock_get_listener_key.return_value = listener_key
+        mock_get_pool_key.side_effect = lambda _id, is_enabled: (
+            f"{_id}-{'enabled' if is_enabled else 'disabled'}"
+        )
+        self.helper._update_listener_association(
+            pool, ovn_lb, external_ids, pool_key)
+        mock_get_listener_key.assert_called_once_with(listener_id)
+        self.assertEqual(external_ids[listener_key],
+                         'some-initial-data' + pool_key)
+
     @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
     @mock.patch.object(ovn_helper.OvnProviderHelper, 'delete_port')
     def test__clean_up_hm_port_in_use(self, del_port, net_cli):
@@ -6777,17 +7002,12 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         )
 
     def test_update_ip_port_mappings_add(self):
-        # Setup mock OVN load balancer
         ovn_lb = mock.Mock()
         ovn_lb.uuid = 'test-lb-uuid'
         ovn_lb.external_ids = {}
-
-        # Call the method with delete=False
         self.helper._update_ip_port_mappings(
             ovn_lb, '10.0.0.1', 'port1', '192.168.0.1', 'pool1', delete=False
         )
-
-        # Assert that lb_add_ip_port_mapping was called
         self.helper.ovn_nbdb_api.lb_add_ip_port_mapping\
             .assert_called_once_with(
                 'test-lb-uuid',
@@ -6800,9 +7020,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         ovn_lb = mock.Mock()
         ovn_lb.uuid = 'test-lb-uuid'
         ovn_lb.external_ids = {}
-        # Patch _extract_member_info to return no other members
         self.helper._extract_member_info = mock.Mock(return_value=[])
-        # Also patch ovn_nbdb_api call
         self.helper.ovn_nbdb_api.lb_del_ip_port_mapping = mock.Mock()
         self.helper.ovn_nbdb_api.lb_add_ip_port_mapping = mock.Mock()
         self.helper._update_ip_port_mappings(
@@ -6820,28 +7038,1276 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
                 '10.0.0.1'
             )
 
-    def test_update_ip_port_mappings_delete_with_other_members_present(self):
-        ovn_lb = mock.Mock()
-        ovn_lb.uuid = 'test-lb-uuid'
+    def test__add_lbhc_basic_success(self):
+        ovn_lb = mock.MagicMock()
         ovn_lb.external_ids = {
-            "pool_A": "member_memberA_10.0.0.1:80_subnetA",
-            "pool_B": "member_memberB_10.0.0.1:80_subnetA",
-            "neutron:member_statuses": '{"memberB": "ONLINE"}'
+            ovn_const.LB_EXT_IDS_VIP_KEY: '192.168.1.100',
+            ovn_const.LB_EXT_IDS_HMS_KEY: '[]'
         }
 
-        self.helper.ovn_nbdb_api.lb_del_ip_port_mapping = mock.Mock()
-        self.helper.ovn_nbdb_api.lb_add_ip_port_mapping = mock.Mock()
-
-        # Call the method under test
-        self.helper._update_ip_port_mappings(
-            ovn_lb,
-            backend_ip='10.0.0.1',
-            port_name='dummy-port',
-            src_ip='192.168.0.1',
-            pool_key='pool_A',
-            delete=True
+        pool_key = (
+            f'{ovn_const.LB_EXT_IDS_POOL_PREFIX}{self.pool_id}'
         )
 
-        # Should not call delete because memberB is ONLINE and shares the IP
-        self.helper.ovn_nbdb_api.lb_del_ip_port_mapping.assert_not_called()
-        self.helper.ovn_nbdb_api.lb_add_ip_port_mapping.assert_not_called()
+        info = {
+            constants.ID: self.healthmonitor_id,
+            'admin_state_up': True,
+            'interval': 30,
+            'timeout': 5,
+            'success_count': 2,
+            'failure_count': 3
+        }
+
+        mock.patch.object(
+            self.helper,
+            '_get_pool_listener_port',
+            return_value=80
+        ).start()
+
+        mock_txn = mock.MagicMock()
+        mock_health_check = mock.MagicMock()
+        mock_health_check.uuid = uuidutils.generate_uuid()
+        mock_txn.add.return_value = mock_health_check
+
+        self.helper.ovn_nbdb_api.transaction.return_value \
+            .__enter__.return_value = mock_txn
+
+        result = self.helper._add_lbhc(ovn_lb, pool_key, info)
+
+        self.assertEqual(result[constants.ID], self.healthmonitor_id)
+        self.assertEqual(
+            result[constants.PROVISIONING_STATUS],
+            constants.ACTIVE
+        )
+        self.assertEqual(
+            result[constants.OPERATING_STATUS],
+            constants.ONLINE
+        )
+
+        self.helper.ovn_nbdb_api.transaction.assert_called_with(
+            check_error=True
+        )
+
+        self.helper._get_pool_listener_port.assert_called_once_with(
+            ovn_lb, pool_key
+        )
+
+    def test__add_lbhc_admin_state_down(self):
+        ovn_lb = mock.MagicMock()
+        ovn_lb.external_ids = {
+            ovn_const.LB_EXT_IDS_VIP_KEY: '192.168.1.100',
+            ovn_const.LB_EXT_IDS_HMS_KEY: '[]'
+        }
+
+        pool_key = f'{ovn_const.LB_EXT_IDS_POOL_PREFIX}{self.pool_id}'
+        info = {
+            constants.ID: self.healthmonitor_id,
+            'admin_state_up': False,
+            'interval': 30,
+            'timeout': 5,
+            'success_count': 2,
+            'failure_count': 3
+        }
+
+        mock.patch.object(
+            self.helper, '_get_pool_listener_port', return_value=80).start()
+
+        mock_txn = mock.MagicMock()
+        mock_health_check = mock.MagicMock()
+        mock_health_check.uuid = uuidutils.generate_uuid()
+        mock_txn.add.return_value = mock_health_check
+
+        self.helper.ovn_nbdb_api.transaction.return_value.\
+            __enter__.return_value = mock_txn
+
+        result = self.helper._add_lbhc(ovn_lb, pool_key, info)
+
+        self.assertEqual(result[constants.ID], self.healthmonitor_id)
+        self.assertEqual(result[constants.PROVISIONING_STATUS],
+                         constants.ACTIVE)
+        self.assertEqual(result[constants.OPERATING_STATUS],
+                         constants.OFFLINE)
+
+    def test__add_lbhc_with_additional_vips(self):
+        ovn_lb = mock.MagicMock()
+        ovn_lb.external_ids = {
+            ovn_const.LB_EXT_IDS_VIP_KEY: '192.168.1.100',
+            ovn_const.LB_EXT_IDS_ADDIT_VIP_KEY:
+                '192.168.1.101,192.168.1.102',
+            ovn_const.LB_EXT_IDS_HMS_KEY: '[]'
+        }
+
+        pool_key = (
+            f'{ovn_const.LB_EXT_IDS_POOL_PREFIX}{self.pool_id}'
+        )
+
+        info = {
+            constants.ID: self.healthmonitor_id,
+            'admin_state_up': True,
+            'interval': 30,
+            'timeout': 5,
+            'success_count': 2,
+            'failure_count': 3
+        }
+
+        mock.patch.object(
+            self.helper,
+            '_get_pool_listener_port',
+            return_value=80
+        ).start()
+
+        mock_txn = mock.MagicMock()
+        mock_health_check = mock.MagicMock()
+        mock_health_check.uuid = uuidutils.generate_uuid()
+        mock_txn.add.return_value = mock_health_check
+
+        self.helper.ovn_nbdb_api.transaction.return_value.\
+            __enter__.return_value = mock_txn
+
+        result = self.helper._add_lbhc(ovn_lb, pool_key, info)
+
+        self.assertEqual(result[constants.ID], self.healthmonitor_id)
+        self.assertEqual(
+            result[constants.PROVISIONING_STATUS], constants.ACTIVE
+        )
+        self.assertEqual(
+            result[constants.OPERATING_STATUS], constants.ONLINE
+        )
+        self.assertEqual(mock_txn.add.call_count, 9)
+
+    def test__add_lbhc_with_fips(self):
+        ovn_lb = mock.MagicMock()
+        ovn_lb.external_ids = {
+            ovn_const.LB_EXT_IDS_VIP_KEY: '192.168.1.100',
+            ovn_const.LB_EXT_IDS_VIP_FIP_KEY: '203.0.113.1',
+            ovn_const.LB_EXT_IDS_HMS_KEY: '[]'
+        }
+        pool_key = f'{ovn_const.LB_EXT_IDS_POOL_PREFIX}{self.pool_id}'
+        info = {
+            constants.ID: self.healthmonitor_id,
+            'admin_state_up': True,
+            'interval': 30,
+            'timeout': 5,
+            'success_count': 2,
+            'failure_count': 3
+        }
+        mock.patch.object(
+            self.helper, '_get_pool_listener_port', return_value=80).start()
+        mock_txn = mock.MagicMock()
+        mock_health_check = mock.MagicMock()
+        mock_health_check.uuid = uuidutils.generate_uuid()
+        mock_txn.add.return_value = mock_health_check
+        self.helper.ovn_nbdb_api.transaction.return_value.\
+            __enter__.return_value = mock_txn
+        result = self.helper._add_lbhc(ovn_lb, pool_key, info)
+        self.assertEqual(result[constants.ID], self.healthmonitor_id)
+        self.assertEqual(result[constants.PROVISIONING_STATUS],
+                         constants.ACTIVE)
+        self.assertEqual(result[constants.OPERATING_STATUS], constants.ONLINE)
+        self.assertEqual(mock_txn.add.call_count, 5)
+
+    def test__add_lbhc_with_additional_fips(self):
+        ovn_lb = mock.MagicMock()
+        ovn_lb.external_ids = {
+            ovn_const.LB_EXT_IDS_VIP_KEY: '192.168.1.100',
+            ovn_const.LB_EXT_IDS_VIP_FIP_KEY: '203.0.113.1',
+            ovn_const.LB_EXT_IDS_ADDIT_VIP_FIP_KEY: '203.0.113.2,203.0.113.3',
+            ovn_const.LB_EXT_IDS_HMS_KEY: '[]'
+        }
+        pool_key = f'{ovn_const.LB_EXT_IDS_POOL_PREFIX}{self.pool_id}'
+        info = {
+            constants.ID: self.healthmonitor_id,
+            'admin_state_up': True,
+            'interval': 30,
+            'timeout': 5,
+            'success_count': 2,
+            'failure_count': 3
+        }
+        mock.patch.object(
+            self.helper, '_get_pool_listener_port', return_value=80).start()
+        mock_txn = mock.MagicMock()
+        mock_health_check = mock.MagicMock()
+        mock_health_check.uuid = uuidutils.generate_uuid()
+        mock_txn.add.return_value = mock_health_check
+        self.helper.ovn_nbdb_api.transaction.return_value.\
+            __enter__.return_value = mock_txn
+        result = self.helper._add_lbhc(ovn_lb, pool_key, info)
+        self.assertEqual(result[constants.ID], self.healthmonitor_id)
+        self.assertEqual(result[constants.PROVISIONING_STATUS],
+                         constants.ACTIVE)
+        self.assertEqual(result[constants.OPERATING_STATUS], constants.ONLINE)
+        self.assertEqual(mock_txn.add.call_count, 9)
+
+    def test__add_lbhc_ipv6_vip(self):
+        ovn_lb = mock.MagicMock()
+        ovn_lb.external_ids = {
+            ovn_const.LB_EXT_IDS_VIP_KEY: '2001:db8::1',
+            ovn_const.LB_EXT_IDS_HMS_KEY: '[]'
+        }
+        pool_key = f'{ovn_const.LB_EXT_IDS_POOL_PREFIX}{self.pool_id}'
+        info = {
+            constants.ID: self.healthmonitor_id,
+            'admin_state_up': True,
+            'interval': 30,
+            'timeout': 5,
+            'success_count': 2,
+            'failure_count': 3
+        }
+        mock.patch.object(
+            self.helper, '_get_pool_listener_port', return_value=80).start()
+        mock_txn = mock.MagicMock()
+        mock_health_check = mock.MagicMock()
+        mock_health_check.uuid = uuidutils.generate_uuid()
+        mock_txn.add.return_value = mock_health_check
+        self.helper.ovn_nbdb_api.transaction.return_value.\
+            __enter__.return_value = mock_txn
+        result = self.helper._add_lbhc(ovn_lb, pool_key, info)
+        self.assertEqual(result[constants.ID], self.healthmonitor_id)
+        self.assertEqual(result[constants.PROVISIONING_STATUS],
+                         constants.ACTIVE)
+        self.assertEqual(result[constants.OPERATING_STATUS], constants.ONLINE)
+        self.helper.ovn_nbdb_api.transaction.assert_called_with(
+            check_error=True)
+
+    def test__add_lbhc_ipv6_fip(self):
+        ovn_lb = mock.MagicMock()
+        ovn_lb.external_ids = {
+            ovn_const.LB_EXT_IDS_VIP_KEY: '192.168.1.100',
+            ovn_const.LB_EXT_IDS_VIP_FIP_KEY: '2001:db8::1',
+            ovn_const.LB_EXT_IDS_HMS_KEY: '[]'
+        }
+        pool_key = f'{ovn_const.LB_EXT_IDS_POOL_PREFIX}{self.pool_id}'
+        info = {
+            constants.ID: self.healthmonitor_id,
+            'admin_state_up': True,
+            'interval': 30,
+            'timeout': 5,
+            'success_count': 2,
+            'failure_count': 3
+        }
+        mock.patch.object(
+            self.helper, '_get_pool_listener_port', return_value=80).start()
+        mock_txn = mock.MagicMock()
+        mock_health_check = mock.MagicMock()
+        mock_health_check.uuid = uuidutils.generate_uuid()
+        mock_txn.add.return_value = mock_health_check
+        self.helper.ovn_nbdb_api.transaction.return_value.\
+            __enter__.return_value = mock_txn
+        result = self.helper._add_lbhc(ovn_lb, pool_key, info)
+        self.assertEqual(result[constants.ID], self.healthmonitor_id)
+        self.assertEqual(result[constants.PROVISIONING_STATUS],
+                         constants.ACTIVE)
+        self.assertEqual(result[constants.OPERATING_STATUS], constants.ONLINE)
+        self.assertEqual(mock_txn.add.call_count, 5)
+
+    def test__add_lbhc_no_vips_error(self):
+        ovn_lb = mock.MagicMock()
+        ovn_lb.external_ids = {
+            ovn_const.LB_EXT_IDS_HMS_KEY: '[]'
+        }
+
+        pool_key = f'{ovn_const.LB_EXT_IDS_POOL_PREFIX}{self.pool_id}'
+        info = {
+            constants.ID: self.healthmonitor_id,
+            'admin_state_up': True,
+            'interval': 30,
+            'timeout': 5,
+            'success_count': 2,
+            'failure_count': 3
+        }
+        result = self.helper._add_lbhc(ovn_lb, pool_key, info)
+        self.assertEqual(self.healthmonitor_id, result[constants.ID])
+        self.assertEqual(
+            constants.ERROR, result[constants.PROVISIONING_STATUS])
+        self.assertEqual(constants.ERROR, result[constants.OPERATING_STATUS])
+
+    def test__add_lbhc_transaction_exception(self):
+        ovn_lb = mock.MagicMock()
+        ovn_lb.external_ids = {
+            ovn_const.LB_EXT_IDS_VIP_KEY: '192.168.1.100',
+            ovn_const.LB_EXT_IDS_HMS_KEY: '[]'
+        }
+
+        pool_key = f'{ovn_const.LB_EXT_IDS_POOL_PREFIX}{self.pool_id}'
+        info = {
+            constants.ID: self.healthmonitor_id,
+            'admin_state_up': True,
+            'interval': 30,
+            'timeout': 5,
+            'success_count': 2,
+            'failure_count': 3
+        }
+
+        mock.patch.object(
+            self.helper, '_get_pool_listener_port', return_value=80).start()
+
+        self.helper.ovn_nbdb_api.transaction.side_effect = Exception(
+            "DB Error")
+
+        result = self.helper._add_lbhc(ovn_lb, pool_key, info)
+
+        self.assertEqual(result[constants.ID], self.healthmonitor_id)
+        self.assertEqual(result[constants.PROVISIONING_STATUS],
+                         constants.ERROR)
+        self.assertEqual(result[constants.OPERATING_STATUS], constants.ERROR)
+
+    def test__add_lbhc_no_vip_port(self):
+        ovn_lb = mock.MagicMock()
+        ovn_lb.external_ids = {
+            ovn_const.LB_EXT_IDS_VIP_KEY: '192.168.1.100',
+            ovn_const.LB_EXT_IDS_HMS_KEY: '[]'
+        }
+
+        pool_key = f'{ovn_const.LB_EXT_IDS_POOL_PREFIX}{self.pool_id}'
+        info = {
+            constants.ID: self.healthmonitor_id,
+            'admin_state_up': True,
+            'interval': 30,
+            'timeout': 5,
+            'success_count': 2,
+            'failure_count': 3
+        }
+
+        mock.patch.object(
+            self.helper, '_get_pool_listener_port', return_value=None).start()
+
+        mock_txn = mock.MagicMock()
+        mock_health_check = mock.MagicMock()
+        mock_health_check.uuid = uuidutils.generate_uuid()
+        mock_txn.add.return_value = mock_health_check
+
+        self.helper.ovn_nbdb_api.transaction.return_value.\
+            __enter__.return_value = mock_txn
+
+        result = self.helper._add_lbhc(ovn_lb, pool_key, info)
+
+        self.assertEqual(result[constants.ID], self.healthmonitor_id)
+        self.assertEqual(result[constants.PROVISIONING_STATUS],
+                         constants.ACTIVE)
+        self.assertEqual(result[constants.OPERATING_STATUS], constants.ONLINE)
+
+        self.helper.ovn_nbdb_api.transaction.assert_called_with(
+            check_error=True)
+
+    def test__add_lbhc_existing_hms_key(self):
+        existing_hm_id = uuidutils.generate_uuid()
+        ovn_lb = mock.MagicMock()
+        ovn_lb.external_ids = {
+            ovn_const.LB_EXT_IDS_VIP_KEY: '192.168.1.100',
+            ovn_const.LB_EXT_IDS_HMS_KEY: jsonutils.dumps([existing_hm_id])
+        }
+
+        pool_key = f'{ovn_const.LB_EXT_IDS_POOL_PREFIX}{self.pool_id}'
+        info = {
+            constants.ID: self.healthmonitor_id,
+            'admin_state_up': True,
+            'interval': 30,
+            'timeout': 5,
+            'success_count': 2,
+            'failure_count': 3
+        }
+
+        mock.patch.object(
+            self.helper, '_get_pool_listener_port', return_value=80).start()
+
+        mock_txn = mock.MagicMock()
+        mock_health_check = mock.MagicMock()
+        mock_health_check.uuid = uuidutils.generate_uuid()
+        mock_txn.add.return_value = mock_health_check
+
+        self.helper.ovn_nbdb_api.transaction.return_value.\
+            __enter__.return_value = mock_txn
+
+        result = self.helper._add_lbhc(ovn_lb, pool_key, info)
+
+        self.assertEqual(result[constants.ID], self.healthmonitor_id)
+        self.assertEqual(result[constants.PROVISIONING_STATUS],
+                         constants.ACTIVE)
+        self.assertEqual(result[constants.OPERATING_STATUS], constants.ONLINE)
+
+        self.helper.ovn_nbdb_api.transaction.assert_called_with(
+            check_error=True)
+
+    def test__sync_lbhc_recreate_path(self):
+        ovn_lb = mock.MagicMock()
+        ovn_lb.external_ids = {
+            ovn_const.LB_EXT_IDS_VIP_KEY: '192.168.1.100',
+            ovn_const.LB_EXT_IDS_HMS_KEY: '[]'
+        }
+        ovn_lb.health_check = []
+
+        pool_key = (
+            f'{ovn_const.LB_EXT_IDS_POOL_PREFIX}{self.pool_id}'
+        )
+
+        hm = {
+            constants.ID: self.healthmonitor_id,
+            'interval': 30,
+            'timeout': 5,
+            'success_count': 2,
+            'failure_count': 3
+        }
+
+        mock_get_pool_listener_port = mock.patch.object(
+            self.helper,
+            '_get_pool_listener_port',
+            return_value=80
+        ).start()
+
+        mock_find_ovn_lb_from_hm_id = mock.patch.object(
+            self.helper,
+            '_find_ovn_lb_from_hm_id',
+            return_value=([], None)
+        ).start()
+
+        mock_txn = mock.MagicMock()
+        mock_health_check = mock.MagicMock()
+        mock_health_check.uuid = uuidutils.generate_uuid()
+        mock_txn.add.return_value = mock_health_check
+
+        self.helper.ovn_nbdb_api.transaction.return_value \
+            .__enter__.return_value = mock_txn
+
+        self.helper._sync_lbhc(ovn_lb, pool_key, hm)
+
+        self.helper.ovn_nbdb_api.transaction.assert_called_with(
+            check_error=True
+        )
+
+        mock_get_pool_listener_port.assert_called_once_with(ovn_lb, pool_key)
+        mock_find_ovn_lb_from_hm_id.assert_called()
+
+    def test__sync_lbhc_update_existing(self):
+        ovn_lb = mock.MagicMock()
+        ovn_lb.external_ids = {
+            ovn_const.LB_EXT_IDS_VIP_KEY: '192.168.1.100',
+            ovn_const.LB_EXT_IDS_HMS_KEY: jsonutils.dumps([
+                self.healthmonitor_id])
+        }
+
+        mock_lbhc = mock.MagicMock()
+        mock_lbhc.uuid = uuidutils.generate_uuid()
+        mock_lbhc.vip = '192.168.1.100:80'
+        mock_lbhc.options = {'interval': '20', 'timeout': '5'}
+        mock_lbhc.external_ids = {'old': 'value'}
+
+        ovn_lb.health_check = [mock_lbhc]
+
+        pool_key = f'{ovn_const.LB_EXT_IDS_POOL_PREFIX}{self.pool_id}'
+        hm = {
+            constants.ID: self.healthmonitor_id,
+            'interval': 30,
+            'timeout': 5,
+            'success_count': 2,
+            'failure_count': 3
+        }
+
+        mock.patch.object(
+            self.helper, '_get_pool_listener_port', return_value=80).start()
+        mock.patch.object(
+            self.helper, '_find_ovn_lb_from_hm_id',
+            return_value=([mock_lbhc], None)).start()
+        mock_execute_commands = mock.patch.object(
+            self.helper, '_execute_commands').start()
+
+        mock_txn = mock.MagicMock()
+        self.helper.ovn_nbdb_api.transaction.return_value.\
+            __enter__.return_value = mock_txn
+
+        self.helper._sync_lbhc(ovn_lb, pool_key, hm)
+
+        mock_execute_commands.assert_called()
+
+    def test__sync_lbhc_with_fips(self):
+        ovn_lb = mock.MagicMock()
+        ovn_lb.external_ids = {
+            ovn_const.LB_EXT_IDS_VIP_KEY: '192.168.1.100',
+            ovn_const.LB_EXT_IDS_VIP_FIP_KEY: '203.0.113.1',
+            ovn_const.LB_EXT_IDS_HMS_KEY: '[]'
+        }
+        ovn_lb.health_check = []
+
+        pool_key = f'{ovn_const.LB_EXT_IDS_POOL_PREFIX}{self.pool_id}'
+        hm = {
+            constants.ID: self.healthmonitor_id,
+            'interval': 30,
+            'timeout': 5,
+            'success_count': 2,
+            'failure_count': 3
+        }
+
+        mock.patch.object(self.helper, '_get_pool_listener_port',
+                          return_value=80).start()
+        mock.patch.object(self.helper, '_find_ovn_lb_from_hm_id',
+                          return_value=([], None)).start()
+
+        mock_txn = mock.MagicMock()
+        mock_health_check = mock.MagicMock()
+        mock_health_check.uuid = uuidutils.generate_uuid()
+        mock_txn.add.return_value = mock_health_check
+
+        self.helper.ovn_nbdb_api.transaction.return_value.\
+            __enter__.return_value = mock_txn
+
+        self.helper._sync_lbhc(ovn_lb, pool_key, hm)
+
+        self.helper.ovn_nbdb_api.transaction.assert_called_with(
+            check_error=True)
+
+    def test__sync_lbhc_additional_vips_and_fips(self):
+        ovn_lb = mock.MagicMock()
+        ovn_lb.external_ids = {
+            ovn_const.LB_EXT_IDS_VIP_KEY: '192.168.1.100',
+            ovn_const.LB_EXT_IDS_ADDIT_VIP_KEY: '192.168.1.101,192.168.1.102',
+            ovn_const.LB_EXT_IDS_VIP_FIP_KEY: '203.0.113.1',
+            ovn_const.LB_EXT_IDS_ADDIT_VIP_FIP_KEY: '203.0.113.2,203.0.113.3',
+            ovn_const.LB_EXT_IDS_HMS_KEY: '[]'
+        }
+        ovn_lb.health_check = []
+
+        pool_key = f'{ovn_const.LB_EXT_IDS_POOL_PREFIX}{self.pool_id}'
+        hm = {
+            constants.ID: self.healthmonitor_id,
+            'interval': 30,
+            'timeout': 5,
+            'success_count': 2,
+            'failure_count': 3
+        }
+
+        mock.patch.object(
+            self.helper, '_get_pool_listener_port', return_value=80).start()
+        mock.patch.object(
+            self.helper, '_find_ovn_lb_from_hm_id',
+            return_value=([], None)).start()
+
+        mock_txn = mock.MagicMock()
+        mock_health_check = mock.MagicMock()
+        mock_health_check.uuid = uuidutils.generate_uuid()
+        mock_txn.add.return_value = mock_health_check
+
+        self.helper.ovn_nbdb_api.transaction.return_value.\
+            __enter__.return_value = mock_txn
+
+        self.helper._sync_lbhc(ovn_lb, pool_key, hm)
+
+        self.helper.ovn_nbdb_api.transaction.assert_called_with(
+            check_error=True)
+
+    def test__sync_lbhc_ipv6_vips(self):
+        ovn_lb = mock.MagicMock()
+        ovn_lb.external_ids = {
+            ovn_const.LB_EXT_IDS_VIP_KEY: '2001:db8::1',
+            ovn_const.LB_EXT_IDS_HMS_KEY: '[]'
+        }
+        ovn_lb.health_check = []
+
+        pool_key = f'{ovn_const.LB_EXT_IDS_POOL_PREFIX}{self.pool_id}'
+        hm = {
+            constants.ID: self.healthmonitor_id,
+            'interval': 30,
+            'timeout': 5,
+            'success_count': 2,
+            'failure_count': 3
+        }
+
+        mock.patch.object(
+            self.helper, '_get_pool_listener_port', return_value=80).start()
+        mock.patch.object(
+            self.helper, '_find_ovn_lb_from_hm_id',
+            return_value=([], None)).start()
+
+        mock_txn = mock.MagicMock()
+        mock_health_check = mock.MagicMock()
+        mock_health_check.uuid = uuidutils.generate_uuid()
+        mock_txn.add.return_value = mock_health_check
+
+        self.helper.ovn_nbdb_api.transaction.return_value.\
+            __enter__.return_value = mock_txn
+
+        self.helper._sync_lbhc(ovn_lb, pool_key, hm)
+
+        self.helper.ovn_nbdb_api.transaction.assert_called_with(
+            check_error=True)
+
+    def test__sync_lbhc_ipv6_fips(self):
+        ovn_lb = mock.MagicMock()
+        ovn_lb.external_ids = {
+            ovn_const.LB_EXT_IDS_VIP_KEY: '192.168.1.100',
+            ovn_const.LB_EXT_IDS_VIP_FIP_KEY: '2001:db8::1',
+            ovn_const.LB_EXT_IDS_HMS_KEY: '[]'
+        }
+        ovn_lb.health_check = []
+
+        pool_key = f'{ovn_const.LB_EXT_IDS_POOL_PREFIX}{self.pool_id}'
+        hm = {
+            constants.ID: self.healthmonitor_id,
+            'interval': 30,
+            'timeout': 5,
+            'success_count': 2,
+            'failure_count': 3
+        }
+
+        mock.patch.object(
+            self.helper, '_get_pool_listener_port', return_value=80).start()
+        mock.patch.object(
+            self.helper, '_find_ovn_lb_from_hm_id',
+            return_value=([], None)).start()
+
+        mock_txn = mock.MagicMock()
+        mock_health_check = mock.MagicMock()
+        mock_health_check.uuid = uuidutils.generate_uuid()
+        mock_txn.add.return_value = mock_health_check
+
+        self.helper.ovn_nbdb_api.transaction.return_value.\
+            __enter__.return_value = mock_txn
+
+        self.helper._sync_lbhc(ovn_lb, pool_key, hm)
+
+        self.helper.ovn_nbdb_api.transaction.assert_called_with(
+            check_error=True)
+
+    def test__sync_lbhc_no_vips_raises_error(self):
+        ovn_lb = mock.MagicMock()
+        ovn_lb.external_ids = {
+            ovn_const.LB_EXT_IDS_HMS_KEY: '[]'
+        }
+
+        pool_key = f'{ovn_const.LB_EXT_IDS_POOL_PREFIX}{self.pool_id}'
+        hm = {
+            constants.ID: self.healthmonitor_id,
+            'interval': 30,
+            'timeout': 5,
+            'success_count': 2,
+            'failure_count': 3
+        }
+        self.assertRaises(
+            exceptions.DriverError,
+            self.helper._sync_lbhc,
+            ovn_lb,
+            pool_key,
+            hm)
+
+    def test__sync_lbhc_transaction_exception(self):
+        ovn_lb = mock.MagicMock()
+        ovn_lb.external_ids = {
+            ovn_const.LB_EXT_IDS_VIP_KEY: '192.168.1.100',
+            ovn_const.LB_EXT_IDS_HMS_KEY: '[]'
+        }
+        ovn_lb.health_check = []
+
+        pool_key = f'{ovn_const.LB_EXT_IDS_POOL_PREFIX}{self.pool_id}'
+        hm = {
+            constants.ID: self.healthmonitor_id,
+            'interval': 30,
+            'timeout': 5,
+            'success_count': 2,
+            'failure_count': 3
+        }
+
+        mock.patch.object(
+            self.helper, '_get_pool_listener_port', return_value=80).start()
+        mock.patch.object(
+            self.helper, '_find_ovn_lb_from_hm_id',
+            return_value=([], None)).start()
+
+        self.helper.ovn_nbdb_api.transaction.side_effect = Exception(
+            "DB Error")
+
+        self.assertRaises(
+            exceptions.DriverError,
+            self.helper._sync_lbhc,
+            ovn_lb,
+            pool_key,
+            hm)
+
+    def test__sync_lbhc_no_vip_port(self):
+        ovn_lb = mock.MagicMock()
+        ovn_lb.external_ids = {
+            ovn_const.LB_EXT_IDS_VIP_KEY: '192.168.1.100',
+            ovn_const.LB_EXT_IDS_HMS_KEY: '[]'
+        }
+        ovn_lb.health_check = []
+
+        pool_key = f'{ovn_const.LB_EXT_IDS_POOL_PREFIX}{self.pool_id}'
+        hm = {
+            constants.ID: self.healthmonitor_id,
+            'interval': 30,
+            'timeout': 5,
+            'success_count': 2,
+            'failure_count': 3
+        }
+
+        mock.patch.object(
+            self.helper, '_get_pool_listener_port', return_value=None).start()
+        mock.patch.object(
+            self.helper, '_find_ovn_lb_from_hm_id',
+            return_value=([], None)).start()
+
+        mock_txn = mock.MagicMock()
+        mock_health_check = mock.MagicMock()
+        mock_health_check.uuid = uuidutils.generate_uuid()
+        mock_txn.add.return_value = mock_health_check
+
+        self.helper.ovn_nbdb_api.transaction.return_value.\
+            __enter__.return_value = mock_txn
+
+        self.helper._sync_lbhc(ovn_lb, pool_key, hm)
+
+        self.helper.ovn_nbdb_api.transaction.assert_called_with(
+            check_error=True)
+
+    def test__sync_lbhc_update_vip_mismatch(self):
+        ovn_lb = mock.MagicMock()
+        ovn_lb.external_ids = {
+            ovn_const.LB_EXT_IDS_VIP_KEY: '192.168.1.100',
+            ovn_const.LB_EXT_IDS_HMS_KEY: jsonutils.dumps([
+                self.healthmonitor_id])
+        }
+
+        mock_lbhc = mock.MagicMock()
+        mock_lbhc.uuid = uuidutils.generate_uuid()
+        mock_lbhc.vip = '192.168.1.100:8080'
+        mock_lbhc.options = {
+            'interval': '30',
+            'timeout': '5',
+            'success_count': '2',
+            'failure_count': '3'
+        }
+        mock_lbhc.external_ids = {
+            ovn_const.LB_EXT_IDS_HM_KEY: self.healthmonitor_id,
+            ovn_const.LB_EXT_IDS_HM_POOL_KEY: self.pool_id,
+            ovn_const.LB_EXT_IDS_HM_VIP: '192.168.1.100'
+        }
+
+        ovn_lb.health_check = [mock_lbhc]
+
+        pool_key = f'{ovn_const.LB_EXT_IDS_POOL_PREFIX}{self.pool_id}'
+        hm = {
+            constants.ID: self.healthmonitor_id,
+            'interval': 30,
+            'timeout': 5,
+            'success_count': 2,
+            'failure_count': 3
+        }
+
+        mock.patch.object(
+            self.helper, '_get_pool_listener_port', return_value=80).start()
+        mock.patch.object(
+            self.helper, '_find_ovn_lb_from_hm_id',
+            return_value=([mock_lbhc], None)).start()
+        mock_execute_commands = mock.patch.object(
+            self.helper, '_execute_commands').start()
+
+        mock_txn = mock.MagicMock()
+        self.helper.ovn_nbdb_api.transaction.return_value.\
+            __enter__.return_value = mock_txn
+
+        self.helper._sync_lbhc(ovn_lb, pool_key, hm)
+
+        mock_execute_commands.assert_called()
+
+    def test__sync_lbhc_update_options_mismatch(self):
+        ovn_lb = mock.MagicMock()
+        ovn_lb.external_ids = {
+            ovn_const.LB_EXT_IDS_VIP_KEY: '192.168.1.100',
+            ovn_const.LB_EXT_IDS_HMS_KEY: jsonutils.dumps(
+                [self.healthmonitor_id])
+        }
+
+        mock_lbhc = mock.MagicMock()
+        mock_lbhc.uuid = uuidutils.generate_uuid()
+        mock_lbhc.vip = '192.168.1.100:80'
+        mock_lbhc.options = {'interval': '20', 'timeout': '10'}
+        mock_lbhc.external_ids = {
+            ovn_const.LB_EXT_IDS_HM_KEY: self.healthmonitor_id,
+            ovn_const.LB_EXT_IDS_HM_POOL_KEY: self.pool_id,
+            ovn_const.LB_EXT_IDS_HM_VIP: '192.168.1.100'
+        }
+
+        ovn_lb.health_check = [mock_lbhc]
+
+        pool_key = f'{ovn_const.LB_EXT_IDS_POOL_PREFIX}{self.pool_id}'
+        hm = {
+            constants.ID: self.healthmonitor_id,
+            'interval': 30,
+            'timeout': 5,
+            'success_count': 2,
+            'failure_count': 3
+        }
+
+        mock.patch.object(
+            self.helper, '_get_pool_listener_port', return_value=80).start()
+        mock.patch.object(
+            self.helper, '_find_ovn_lb_from_hm_id',
+            return_value=([mock_lbhc], None)).start()
+        mock_execute_commands = mock.patch.object(
+            self.helper, '_execute_commands').start()
+
+        mock_txn = mock.MagicMock()
+        self.helper.ovn_nbdb_api.transaction.return_value.\
+            __enter__.return_value = mock_txn
+
+        self.helper._sync_lbhc(ovn_lb, pool_key, hm)
+
+        mock_execute_commands.assert_called()
+
+    def test__sync_lbhc_update_external_ids_mismatch(self):
+        ovn_lb = mock.MagicMock()
+        ovn_lb.external_ids = {
+            ovn_const.LB_EXT_IDS_VIP_KEY: '192.168.1.100',
+            ovn_const.LB_EXT_IDS_HMS_KEY: jsonutils.dumps(
+                [self.healthmonitor_id])
+        }
+
+        mock_lbhc = mock.MagicMock()
+        mock_lbhc.uuid = uuidutils.generate_uuid()
+        mock_lbhc.vip = '192.168.1.100:80'
+        mock_lbhc.options = {
+            'interval': '30',
+            'timeout': '5',
+            'success_count': '2',
+            'failure_count': '3'
+        }
+        mock_lbhc.external_ids = {'old': 'external_ids'}
+
+        ovn_lb.health_check = [mock_lbhc]
+
+        pool_key = f'{ovn_const.LB_EXT_IDS_POOL_PREFIX}{self.pool_id}'
+        hm = {
+            constants.ID: self.healthmonitor_id,
+            'interval': 30,
+            'timeout': 5,
+            'success_count': 2,
+            'failure_count': 3
+        }
+
+        mock.patch.object(
+            self.helper, '_get_pool_listener_port', return_value=80).start()
+        mock.patch.object(
+            self.helper, '_find_ovn_lb_from_hm_id',
+            return_value=([mock_lbhc], None)).start()
+        mock_execute_commands = mock.patch.object(
+            self.helper, '_execute_commands').start()
+
+        mock_txn = mock.MagicMock()
+        self.helper.ovn_nbdb_api.transaction.return_value.\
+            __enter__.return_value = mock_txn
+
+        self.helper._sync_lbhc(ovn_lb, pool_key, hm)
+
+        mock_execute_commands.assert_called()
+
+    def test__sync_lbhc_health_check_not_in_lb(self):
+        ovn_lb = mock.MagicMock()
+        ovn_lb.external_ids = {
+            ovn_const.LB_EXT_IDS_VIP_KEY: '192.168.1.100',
+            ovn_const.LB_EXT_IDS_HMS_KEY: jsonutils.dumps(
+                [self.healthmonitor_id])
+        }
+
+        mock_lbhc = mock.MagicMock()
+        mock_lbhc.uuid = uuidutils.generate_uuid()
+        mock_lbhc.vip = '192.168.1.100:80'
+        mock_lbhc.options = {
+            'interval': '30',
+            'timeout': '5',
+            'success_count': '2',
+            'failure_count': '3'}
+        mock_lbhc.external_ids = {
+            ovn_const.LB_EXT_IDS_HM_KEY: self.healthmonitor_id,
+            ovn_const.LB_EXT_IDS_HM_POOL_KEY: self.pool_id,
+            ovn_const.LB_EXT_IDS_HM_VIP: '192.168.1.100'
+        }
+
+        ovn_lb.health_check = []
+
+        pool_key = f'{ovn_const.LB_EXT_IDS_POOL_PREFIX}{self.pool_id}'
+        hm = {
+            constants.ID: self.healthmonitor_id,
+            'interval': 30,
+            'timeout': 5,
+            'success_count': 2,
+            'failure_count': 3
+        }
+
+        mock.patch.object(
+            self.helper, '_get_pool_listener_port', return_value=80).start()
+        mock.patch.object(
+            self.helper, '_find_ovn_lb_from_hm_id',
+            return_value=([mock_lbhc], None)).start()
+        mock_execute_commands = mock.patch.object(
+            self.helper, '_execute_commands').start()
+
+        self.helper._sync_lbhc(ovn_lb, pool_key, hm)
+
+        mock_execute_commands.assert_called()
+
+    def test__sync_lbhc_hm_id_not_in_hms_key(self):
+        ovn_lb = mock.MagicMock()
+        ovn_lb.external_ids = {
+            ovn_const.LB_EXT_IDS_VIP_KEY: '192.168.1.100',
+            ovn_const.LB_EXT_IDS_HMS_KEY: jsonutils.dumps(['other_hm_id'])
+        }
+
+        mock_lbhc = mock.MagicMock()
+        mock_lbhc.uuid = uuidutils.generate_uuid()
+        mock_lbhc.vip = '192.168.1.100:80'
+        mock_lbhc.options = {
+            'interval': '30',
+            'timeout': '5',
+            'success_count': '2',
+            'failure_count': '3'
+        }
+
+        mock_lbhc.external_ids = {
+            ovn_const.LB_EXT_IDS_HM_KEY: self.healthmonitor_id,
+            ovn_const.LB_EXT_IDS_HM_POOL_KEY: self.pool_id,
+            ovn_const.LB_EXT_IDS_HM_VIP: '192.168.1.100'
+        }
+
+        ovn_lb.health_check = [mock_lbhc]
+
+        pool_key = f'{ovn_const.LB_EXT_IDS_POOL_PREFIX}{self.pool_id}'
+        hm = {
+            constants.ID: self.healthmonitor_id,
+            'interval': 30,
+            'timeout': 5,
+            'success_count': 2,
+            'failure_count': 3
+        }
+
+        mock.patch.object(
+            self.helper, '_get_pool_listener_port',
+            return_value=80).start()
+        mock.patch.object(
+            self.helper, '_find_ovn_lb_from_hm_id',
+            return_value=([mock_lbhc], None)).start()
+        mock_execute_commands = mock.patch.object(
+            self.helper, '_execute_commands').start()
+
+        mock_txn = mock.MagicMock()
+        self.helper.ovn_nbdb_api.transaction.return_value.\
+            __enter__.return_value = mock_txn
+
+        self.helper._sync_lbhc(ovn_lb, pool_key, hm)
+
+        mock_execute_commands.assert_called()
+
+    def test__lb_delete_cascade_with_members(self):
+        self.ovn_lb.external_ids.pop('pool_%s' % self.pool_id)
+        self.ovn_lb.external_ids.update({
+            'pool_test_pool': (
+                'member_mem1_10.1.1.1:80_subnet1,'
+                'member_mem2_10.1.1.2:80_subnet2'),
+            'listener_test_listener': '80:pool_test_pool'
+        })
+        status = {'pools': [], 'listeners': [], 'members': []}
+        lb = {'cascade': True}
+        with mock.patch.object(
+                self.helper, 'member_delete') as mock_member_delete, \
+             mock.patch.object(
+                self.helper, 'handle_member_dvr') as mock_handle_dvr:
+            result = self.helper._lb_delete(lb, self.ovn_lb, status)
+            self.assertEqual(len(result['members']), 2)
+            self.assertEqual(result['members'][0]['id'], 'mem1')
+            self.assertEqual(result['members'][1]['id'], 'mem2')
+            self.assertEqual(mock_member_delete.call_count, 2)
+            self.assertEqual(mock_handle_dvr.call_count, 2)
+
+    def test__lb_delete_cascade_with_listeners(self):
+        self.ovn_lb.external_ids.pop('listener_%s' % self.listener_id)
+        self.ovn_lb.external_ids.pop('pool_%s' % self.pool_id)
+        self.ovn_lb.external_ids.update({
+            'listener_testlistener1': '80:pool_test_pool',
+            'listener_testlistener2': '443:pool_test_pool2'
+        })
+        status = {'pools': [], 'listeners': [], 'members': []}
+        lb = {'cascade': True}
+        result = self.helper._lb_delete(lb, self.ovn_lb, status)
+        self.assertEqual(len(result['listeners']), 2)
+        self.assertEqual(result['listeners'][0]['id'], 'testlistener1')
+        self.assertEqual(result['listeners'][1]['id'], 'testlistener2')
+
+    def test__lb_delete_with_health_check_cleanup(self):
+        self.ovn_lb.health_check = [mock.MagicMock()]
+        status = {'pools': [], 'listeners': [], 'members': []}
+        lb = {'cascade': False}
+        self.helper._lb_delete(lb, self.ovn_lb, status)
+        self.helper.ovn_nbdb_api.db_clear.assert_called_once_with(
+            'Load_Balancer', self.ovn_lb.uuid, 'health_check')
+
+    def test__lb_delete_ls_refs_json_error(self):
+        self.ovn_lb.external_ids.update({
+            ovn_const.LB_EXT_IDS_LS_REFS_KEY: 'invalid_json'
+        })
+        status = {'pools': [], 'listeners': [], 'members': []}
+        lb = {'cascade': False}
+        self.helper._lb_delete(lb, self.ovn_lb, status)
+        self.helper.ovn_nbdb_api.ls_lb_del.assert_not_called()
+
+    def test__lb_delete_ls_refs_with_valid_json(self):
+        ls_refs = {'neutron-ls1': 1, 'neutron-ls2': 2}
+        self.ovn_lb.external_ids.update({
+            ovn_const.LB_EXT_IDS_LS_REFS_KEY: jsonutils.dumps(ls_refs)
+        })
+        status = {'pools': [], 'listeners': [], 'members': []}
+        lb = {'cascade': False}
+        mock_ls = mock.MagicMock()
+        mock_ls.uuid = 'ls_uuid'
+        self.helper.ovn_nbdb_api.ls_get.return_value.execute.return_value = \
+            mock_ls
+        self.helper._lb_delete(lb, self.ovn_lb, status)
+        self.assertEqual(self.helper.ovn_nbdb_api.ls_get.call_count, 2)
+        self.assertEqual(self.helper.ovn_nbdb_api.ls_lb_del.call_count, 2)
+
+    def test__lb_delete_lr_ref_found(self):
+        lr_ref = 'neutron-router-123'
+        self.ovn_lb.external_ids.update({
+            ovn_const.LB_EXT_IDS_LR_REF_KEY: lr_ref
+        })
+        status = {'pools': [], 'listeners': [], 'members': []}
+        lb = {'cascade': False}
+        mock_lr = mock.MagicMock()
+        mock_lr.uuid = 'lr_uuid'
+        self.helper.ovn_nbdb_api.lookup.return_value = mock_lr
+        self.helper._lb_delete(lb, self.ovn_lb, status)
+        self.helper.ovn_nbdb_api.lookup.assert_called_once_with(
+            'Logical_Router', lr_ref)
+        self.helper.ovn_nbdb_api.lr_lb_del.assert_called_once_with(
+            mock_lr.uuid, self.ovn_lb.uuid)
+
+    def test__lb_delete_lr_ref_not_found(self):
+        lr_ref = 'neutron-router-123'
+        self.ovn_lb.external_ids.update({
+            ovn_const.LB_EXT_IDS_LR_REF_KEY: lr_ref
+        })
+        status = {'pools': [], 'listeners': [], 'members': []}
+        lb = {'cascade': False}
+        self.helper.ovn_nbdb_api.lookup.side_effect = idlutils.RowNotFound
+        self.helper._lb_delete(lb, self.ovn_lb, status)
+        self.helper.ovn_nbdb_api.lookup.assert_called_once_with(
+            'Logical_Router', lr_ref)
+        self.helper.ovn_nbdb_api.lr_lb_del.assert_not_called()
+
+    def test__lb_delete_execute_commands_row_not_found_ls_command(self):
+        status = {'pools': [], 'listeners': [], 'members': []}
+        lb = {'cascade': False}
+        mock_ls_cmd = mock.MagicMock(spec=cmd.LsLbDelCommand)
+        mock_ls_cmd.switch = 'test-switch'
+        mock_ls_cmd.execute.side_effect = idlutils.RowNotFound
+        test_ovn_lb = mock.MagicMock()
+        test_ovn_lb.uuid = 'test-lb-uuid'
+        test_ovn_lb.health_check = []
+        test_ovn_lb.external_ids = {
+            ovn_const.LB_EXT_IDS_LS_REFS_KEY: '{"neutron-switch-uuid": 1}'}
+        mock_ls = mock.MagicMock()
+        mock_ls.uuid = 'switch-uuid'
+        mock_ls_get = mock.MagicMock()
+        mock_ls_get.execute.return_value = mock_ls
+        self.helper.ovn_nbdb_api.ls_get.return_value = mock_ls_get
+        self.helper.ovn_nbdb_api.ls_lb_del.return_value = mock_ls_cmd
+        with mock.patch.object(
+                self.helper, '_execute_commands') as mock_exec, \
+             mock.patch.object(
+                self.helper, '_find_lb_in_table', return_value=[]):
+            mock_exec.side_effect = idlutils.RowNotFound
+            with mock.patch(
+                    'ovn_octavia_provider.helper.LOG') as mock_log:
+                self.helper._lb_delete(lb, test_ovn_lb, status)
+                expected_msg = ('delete lb from ls fail because ls %s '
+                                'is not found, keep going on...')
+                mock_log.warning.assert_called_with(
+                    expected_msg, 'test-switch')
+
+    def test__lb_delete_execute_commands_row_not_found_lr_command(self):
+        status = {'pools': [], 'listeners': [], 'members': []}
+        lb = {'cascade': False}
+
+        mock_lr_cmd = mock.MagicMock(spec=cmd.LrLbDelCommand)
+        mock_lr_cmd.router = 'test-router'
+        mock_lr_cmd.execute.side_effect = idlutils.RowNotFound
+
+        self.ovn_lb.external_ids[ovn_const.LB_EXT_IDS_LR_REF_KEY] = (
+            'neutron-router-uuid')
+        mock_lr = mock.MagicMock()
+        mock_lr.uuid = 'router-uuid'
+        self.helper.ovn_nbdb_api.lookup.return_value = mock_lr
+        self.helper.ovn_nbdb_api.lr_lb_del.return_value = mock_lr_cmd
+
+        with mock.patch.object(
+                self.helper, '_execute_commands') as mock_exec:
+            mock_exec.side_effect = idlutils.RowNotFound
+            with mock.patch(
+                    'ovn_octavia_provider.helper.LOG') as mock_log:
+                self.helper._lb_delete(lb, self.ovn_lb, status)
+                expected_msg = ('delete lb to lr fail because lr %s '
+                                'is not found, keep going on...')
+                mock_log.warning.assert_called_with(
+                    expected_msg, 'test-router')
+
+    def test__lb_delete_execute_commands_row_not_found_other_command(self):
+        status = {'pools': [], 'listeners': [], 'members': []}
+        lb = {'cascade': False}
+
+        mock_other_cmd = mock.MagicMock()
+        mock_other_cmd.execute.side_effect = idlutils.RowNotFound
+
+        self.helper.ovn_nbdb_api.lb_del.return_value = mock_other_cmd
+        with mock.patch.object(
+                self.helper, '_execute_commands') as mock_exec:
+            mock_exec.side_effect = idlutils.RowNotFound
+            self.assertRaises(idlutils.RowNotFound,
+                              self.helper._lb_delete,
+                              lb,
+                              self.ovn_lb,
+                              status)
+
+    def test__lb_delete_clean_up_hm_port_called(self):
+        self.ovn_lb.health_check = [mock.MagicMock()]
+
+        status = {'pools': [], 'listeners': [], 'members': []}
+        lb = {'cascade': True}
+        with mock.patch.object(
+                self.helper, '_clean_up_hm_port') as mock_cleanup, \
+             mock.patch.object(self.helper, 'member_delete'), \
+             mock.patch.object(self.helper, 'handle_member_dvr'):
+            self.helper._lb_delete(lb, self.ovn_lb, status)
+            mock_cleanup.assert_called_once_with(self.member_subnet_id)
+
+    def test__lb_delete_clean_up_hm_port_multiple_subnets(self):
+        self.ovn_lb.health_check = [mock.MagicMock()]
+        self.ovn_lb.external_ids.pop('pool_%s' % self.pool_id)
+        self.ovn_lb.external_ids.update({
+            'pool_test_pool': ('member_mem1_10.1.1.1:80_subnet1,'
+                               'member_mem2_10.1.1.2:80_subnet1,'
+                               'member_mem3_10.1.1.3:80_subnet2')
+        })
+        status = {'pools': [], 'listeners': [], 'members': []}
+        lb = {'cascade': True}
+        with mock.patch.object(
+                self.helper, '_clean_up_hm_port') as mock_cleanup, \
+             mock.patch.object(self.helper, 'member_delete'), \
+             mock.patch.object(self.helper, 'handle_member_dvr'):
+            self.helper._lb_delete(lb, self.ovn_lb, status)
+            self.assertEqual(mock_cleanup.call_count, 2)
+            mock_cleanup.assert_any_call('subnet1')
+            mock_cleanup.assert_any_call('subnet2')
+
+    def test__lb_delete_cascade_member_dvr_handling(self):
+        self.ovn_lb.external_ids.pop('pool_%s' % self.pool_id)
+        self.ovn_lb.external_ids.update({
+            'pool_testpool': 'member_mem1_10.1.1.1:80_subnet1'
+        })
+        status = {'pools': [], 'listeners': [], 'members': []}
+        lb = {'cascade': True}
+        with mock.patch.object(
+                self.helper, 'handle_member_dvr') as mock_handle_dvr:
+            self.helper._lb_delete(lb, self.ovn_lb, status)
+            expected_member_info = {
+                'id': 'mem1',
+                'address': '10.1.1.1',
+                'pool_id': 'testpool',
+                'subnet_id': 'subnet1',
+                'action': ovn_const.REQ_INFO_MEMBER_DELETED
+            }
+            mock_handle_dvr.assert_called_once_with(expected_member_info)
+
+    def test__lb_delete_cascade_pool_status_update(self):
+        self.ovn_lb.external_ids.pop('pool_%s' % self.pool_id)
+        self.ovn_lb.external_ids.update({
+            'pool_testpool1': 'member_mem1_10.1.1.1:80_subnet1',
+            'pool_testpool2': ''
+        })
+        status = {'pools': [], 'listeners': [], 'members': []}
+        lb = {'cascade': True}
+        with mock.patch.object(self.helper, 'member_delete'), \
+             mock.patch.object(self.helper, 'handle_member_dvr'):
+            result = self.helper._lb_delete(lb, self.ovn_lb, status)
+            self.assertEqual(len(result['pools']), 2)
+            self.assertEqual(result['pools'][0]['id'], 'testpool1')
+            self.assertEqual(result['pools'][0]['provisioning_status'],
+                             constants.DELETED)
+            self.assertEqual(result['pools'][1]['id'], 'testpool2')
+            self.assertEqual(result['pools'][1]['provisioning_status'],
+                             constants.DELETED)
+
+    def test__members_in_subnet_found(self):
+        self.ovn_lb.external_ids.update({
+            'pool_test_pool': ('member_mem1_10.1.1.1:80_subnet1,'
+                               'member_mem2_10.1.1.2:80_subnet2')
+        })
+        result = self.helper._members_in_subnet(self.ovn_lb, 'subnet1')
+        self.assertTrue(result)
+
+    def test__members_in_subnet_not_found(self):
+        self.ovn_lb.external_ids.update({
+            'pool_test_pool': ('member_mem1_10.1.1.1:80_subnet1,'
+                               'member_mem2_10.1.1.2:80_subnet2')
+        })
+        result = self.helper._members_in_subnet(self.ovn_lb, 'subnet3')
+        self.assertFalse(result)
+
+    def test__members_in_subnet_empty_pool(self):
+        self.ovn_lb.external_ids.update({
+            'pool_test_pool': ''
+        })
+        result = self.helper._members_in_subnet(self.ovn_lb, 'subnet1')
+        self.assertFalse(result)
+
+    def test__members_in_subnet_multiple_pools(self):
+        self.ovn_lb.external_ids.update({
+            'pool_test_pool1': 'member_mem1_10.1.1.1:80_subnet1',
+            'pool_test_pool2': ('member_mem2_10.1.1.2:80_subnet2,'
+                                'member_mem3_10.1.1.3:80_subnet3')
+        })
+        result = self.helper._members_in_subnet(self.ovn_lb, 'subnet3')
+        self.assertTrue(result)
+
+    def test__members_in_subnet_multiple_pools_not_found(self):
+        self.ovn_lb.external_ids.update({
+            'pool_test_pool1': 'member_mem1_10.1.1.1:80_subnet1',
+            'pool_test_pool2': ('member_mem2_10.1.1.2:80_subnet2,'
+                                'member_mem3_10.1.1.3:80_subnet3')
+        })
+        result = self.helper._members_in_subnet(self.ovn_lb, 'subnet4')
+        self.assertFalse(result)
+
+    def test__members_in_subnet_non_pool_keys(self):
+        self.ovn_lb.external_ids.update({
+            'listener_test_listener': '80:pool_test_pool',
+            'pool_test_pool': 'member_mem1_10.1.1.1:80_subnet1',
+            'enabled': True
+        })
+        result = self.helper._members_in_subnet(self.ovn_lb, 'subnet1')
+        self.assertTrue(result)
+
+    def test__members_in_subnet_no_pool_keys(self):
+        self.ovn_lb.external_ids.update({
+            'listener_test_listener': '80:pool_test_pool',
+            'enabled': True
+        })
+        result = self.helper._members_in_subnet(self.ovn_lb, 'subnet1')
+        self.assertFalse(result)
+
+    def test__members_in_subnet_single_member(self):
+        self.ovn_lb.external_ids.update({
+            'pool_test_pool': 'member_mem1_10.1.1.1:80_subnet1'
+        })
+        result = self.helper._members_in_subnet(self.ovn_lb, 'subnet1')
+        self.assertTrue(result)
+
+    def test__members_in_subnet_first_member_match(self):
+        self.ovn_lb.external_ids.update({
+            'pool_test_pool': ('member_mem1_10.1.1.1:80_subnet1,'
+                               'member_mem2_10.1.1.2:80_subnet2')
+        })
+        result = self.helper._members_in_subnet(self.ovn_lb, 'subnet1')
+        self.assertTrue(result)
+
+    def test__members_in_subnet_last_member_match(self):
+        self.ovn_lb.external_ids.update({
+            'pool_test_pool': ('member_mem1_10.1.1.1:80_subnet1,'
+                               'member_mem2_10.1.1.2:80_subnet2')
+        })
+        result = self.helper._members_in_subnet(self.ovn_lb, 'subnet2')
+        self.assertTrue(result)

@@ -170,6 +170,13 @@ class HackingTestCase(base.BaseTestCase):
                 1, len(list(checks.check_assertempty(fail_code % (ec, ec),
                             "ovn_octavia_provider/tests/test_assert.py"))))
             self.assertEqual(
+                0, len(list(checks.check_assertempty(
+                    pass_code1 % (ec, ec),
+                    "ovn_octavia_provider/tests/test_file.py"))))
+            self.assertEqual(
+                0, len(list(checks.check_assertempty(fail_code % (ec, ec),
+                            "ovn_octavia_provider/test_fake/test_assert.py"))))
+            self.assertEqual(
                 0, len(list(checks.check_asserttruefalse(pass_code1 % (ec, ec),
                             "ovn_octavia_provider/tests/test_assert.py"))))
             self.assertEqual(
@@ -270,3 +277,20 @@ class HackingTestCase(base.BaseTestCase):
                         fail_line,
                         "ovn_octavia_provider/tests/test_fake.py",
                         True))))
+
+    def test_check_assertcountequal(self):
+        filename = "ovn_octavia_provider/tests/test_example.py"
+        logical_line = "self.assertItemsEqual(a, b)"
+        result = list(checks.check_assertcountequal(logical_line, filename))
+        expected_msg = ("N348: Use assertCountEqual(expected, observed) "
+                        "instead of assertItemsEqual(observed, expected)")
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0][1], expected_msg)
+
+        logical_line = "self.assertEqual(a, b)"
+        result = list(checks.check_assertcountequal(logical_line, filename))
+        self.assertEqual([], result)
+
+        filename = "some_other_path/test_example.py"
+        result = list(checks.check_assertcountequal(logical_line, filename))
+        self.assertEqual([], result)
