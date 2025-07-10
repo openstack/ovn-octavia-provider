@@ -155,3 +155,8 @@
         INSTALL_OVN: True
         OVN_BRANCH: v21.06.0
         OVS_BRANCH: "a4b04276ab5934d087669ff2d191a23931335c87"
+      devstack_local_conf:
+        test-config:
+          "$TEMPEST_CONFIG":
+            load_balancer:
+              RBAC_test_type: advanced
