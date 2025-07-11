@@ -1,0 +1,6 @@
+---
+fixes:
+  - |
+    Enabling and disabling Load Balancers with the OVN provider now works
+    properly, assigning or removing VIP definitions in the OVN Northbound
+    database according to the issued command.
