@@ -3787,7 +3787,8 @@ class OvnProviderHelper():
         :param ovn_lb: The OVN LoadBalancer object that needs to be sync
         :param pool_key: The pool_key where health monitor is associated
         """
-        lbhcs, ovn_lb = self._find_ovn_lb_from_hm_id(hm[constants.ID])
+        lbhcs, _ovn_lb = self._find_ovn_lb_from_hm_id(hm[constants.ID])
+        ovn_lb = _ovn_lb if _ovn_lb else ovn_lb
         if not lbhcs:
             LOG.debug("Loadbalancer health check %s not found!",
                       hm[constants.ID])
