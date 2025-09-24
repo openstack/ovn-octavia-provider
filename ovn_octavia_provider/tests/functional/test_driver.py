@@ -249,6 +249,22 @@ class TestOvnOctaviaProviderDriver(ovn_base.TestOvnOctaviaBase):
         pool_TCP_id = lb_data['pools'][0].pool_id
 
         self._o_driver_lib.get_pool.return_value = lb_data['pools'][0]
+
+        if not hasattr(lb_data['model'], 'pools'):
+            lb_data['model'].pools = []
+        if not hasattr(lb_data['model'], 'listeners'):
+            lb_data['model'].listeners = []
+
+        lb_data['model'].pools = [{
+            'pool_id': pool.pool_id,
+            'admin_state_up': pool.admin_state_up
+        } for pool in lb_data['pools']]
+
+        lb_data['model'].listeners = [{
+            'listener_id': listener.listener_id,
+            'admin_state_up': listener.admin_state_up
+        } for listener in lb_data['listeners']]
+
         self._o_driver_lib.get_loadbalancer.return_value = lb_data['model']
 
         # Test deleting a member without subnet
