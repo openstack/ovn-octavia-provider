@@ -4039,6 +4039,24 @@ class OvnProviderHelper():
         self.add_request({'type': ovn_const.REQ_TYPE_HM_UPDATE_EVENT,
                           'info': request_info})
 
+    # NOTE(froyo) those methods are to get the admin_state_up of the pool or
+    # listener independently of the type, octavia_lib when is requested by full
+    # lb is returning listeners and pools as dicts, but if a pool or listener
+    # is requested by id is returning the object.
+    def _get_pool_admin_state(self, pool):
+        if hasattr(pool, 'admin_state_up'):
+            return pool.admin_state_up
+        elif isinstance(pool, dict):
+            return pool.get('admin_state_up', True)
+        return None
+
+    def _get_listener_admin_state(self, listener):
+        if hasattr(listener, 'admin_state_up'):
+            return listener.admin_state_up
+        elif isinstance(listener, dict):
+            return listener.get('admin_state_up', True)
+        return None
+
     def _get_current_operating_statuses(self, ovn_lb):
         # NOTE (froyo) We would base all logic in the external_ids field
         # 'neutron:member_status' that should include all LB member status
@@ -4080,6 +4098,17 @@ class OvnProviderHelper():
                 constants.PROVISIONING_STATUS: constants.ACTIVE,
                 constants.OPERATING_STATUS: member_status})
 
+        _lb = self._octavia_driver_lib.get_loadbalancer(ovn_lb.name)
+
+        lb_pools = {}
+        if hasattr(_lb, "pools") and _lb.pools is not None:
+            lb_pools = {pool['pool_id']: pool for pool in _lb.pools}
+
+        lb_listeners = {}
+        if hasattr(_lb, "listeners") and _lb.listeners is not None:
+            lb_listeners = {listener['listener_id']: listener
+                            for listener in _lb.listeners}
+
         # get pool statuses
         for pool_id, members in pools.items():
             for i, member in enumerate(members):
@@ -4089,8 +4118,10 @@ class OvnProviderHelper():
                     # if we don't have local info we assume best option
                     members[i] = constants.ONLINE
 
-            _pool = self._octavia_driver_lib.get_pool(pool_id)
-            if not _pool.admin_state_up or not member_statuses:
+            _pool = lb_pools.get(pool_id)
+            if not _pool:
+                _pool = self._octavia_driver_lib.get_pool(pool_id)
+            if not self._get_pool_admin_state(_pool) or not member_statuses:
                 pools[pool_id] = constants.OFFLINE
             elif pools[pool_id] and all(constants.ERROR == member_status
                                         for member_status in pools[pool_id]):
@@ -4115,8 +4146,10 @@ class OvnProviderHelper():
                     # if we don't have local info we assume best option
                     listener_pools[i] = constants.ONLINE
 
-            _listener = self._octavia_driver_lib.get_listener(listener_id)
-            if not _listener.admin_state_up:
+            _listener = lb_listeners.get(listener_id)
+            if not _listener:
+                _listener = self._octavia_driver_lib.get_listener(listener_id)
+            if not self._get_listener_admin_state(_listener):
                 listeners[listener_id] = constants.OFFLINE
             elif any(constants.ERROR == pool_status
                      for pool_status in listeners[listener_id]):
@@ -4134,7 +4167,6 @@ class OvnProviderHelper():
 
         # get LB status
         lb_status = constants.ONLINE
-        _lb = self._octavia_driver_lib.get_loadbalancer(ovn_lb.name)
         if not _lb.admin_state_up:
             lb_status = constants.OFFLINE
         elif any(constants.ERROR == status
