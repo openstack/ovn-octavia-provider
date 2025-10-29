@@ -388,7 +388,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
 
     def test__update_external_ids_member_status(self):
         self.helper._update_external_ids_member_status(
-            self.ovn_lb, self.member_id, constants.NO_MONITOR)
+            self.ovn_lb, [(self.member_id, constants.NO_MONITOR)])
         member_status = {
             ovn_const.OVN_MEMBER_STATUS_KEY: '{"%s": "%s"}'
             % (self.member_id, constants.NO_MONITOR)}
@@ -400,14 +400,14 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
 
     def test__update_external_ids_member_status_delete(self):
         self.helper._update_external_ids_member_status(
-            self.ovn_lb, self.member_id, None, True)
+            self.ovn_lb, [(self.member_id, None)], True)
         self.helper.ovn_nbdb_api.db_remove.assert_called_once_with(
             'Load_Balancer', self.ovn_lb.uuid, 'external_ids',
             ovn_const.OVN_MEMBER_STATUS_KEY)
 
     def test__update_external_ids_member_status_delete_not_found(self):
         self.helper._update_external_ids_member_status(
-            self.ovn_lb, 'fool', None, True)
+            self.ovn_lb, [('fool', None)], True)
         member_status = {
             ovn_const.OVN_MEMBER_STATUS_KEY: '{"%s": "%s"}'
             % (self.member_id, constants.NO_MONITOR)}
@@ -2297,7 +2297,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         self._update_external_ids_member_status(self.ovn_lb, self.member['id'],
                                                 'offline')
         self.member['admin_state_up'] = False
-        status = self.helper.member_create(self.member)
+        status = self.helper.member_create([self.member])
         self.assertEqual(status['loadbalancers'][0]['provisioning_status'],
                          constants.ACTIVE)
         self.assertEqual(status['pools'][0]['provisioning_status'],
@@ -2318,7 +2318,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         pool_key = 'pool_%s' % self.pool_id
         folbpi.return_value = (pool_key, self.ovn_lb)
         self.ovn_lb.external_ids = mock.MagicMock()
-        status = self.helper.member_create(self.member)
+        status = self.helper.member_create([self.member])
         self.assertEqual(status['loadbalancers'][0]['provisioning_status'],
                          constants.ACTIVE)
         f_lr.assert_called_once_with(self.network, fake_subnet['gateway_ip'])
@@ -2334,7 +2334,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         self.ovn_lb.external_ids = mock.MagicMock()
         (self.helper.ovn_nbdb_api.ls_get.return_value.
          execute.side_effect) = [openstack.exceptions.ResourceNotFound]
-        status = self.helper.member_create(self.member)
+        status = self.helper.member_create([self.member])
         self.assertEqual(status['loadbalancers'][0]['provisioning_status'],
                          constants.ACTIVE)
         (self.helper.ovn_nbdb_api.ls_get.return_value.execute.
@@ -2347,7 +2347,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         mock_add_member.side_effect = [RuntimeError]
         self._update_external_ids_member_status(self.ovn_lb, self.member_id,
                                                 'error')
-        status = self.helper.member_create(self.member)
+        status = self.helper.member_create([self.member])
         self.assertEqual(status['pools'][0]['provisioning_status'],
                          constants.ACTIVE)
         self.assertEqual(status['pools'][0]['operating_status'],
@@ -2356,7 +2356,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
     def test_member_create_lb_disabled(self):
         self.helper._find_ovn_lb_with_pool_key.side_effect = [
             None, self.ovn_lb]
-        self.helper.member_create(self.member)
+        self.helper.member_create([self.member])
         self.helper._find_ovn_lb_with_pool_key.assert_has_calls(
             [mock.call('pool_%s' % self.pool_id),
              mock.call('pool_%s%s' % (self.pool_id, ':D'))])
@@ -2373,7 +2373,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         self.helper._update_lb_to_lr_association.side_effect = [
             idlutils.RowNotFound]
         self.ovn_lb.external_ids = mock.MagicMock()
-        status = self.helper.member_create(self.member)
+        status = self.helper.member_create([self.member])
         self.assertEqual(status['loadbalancers'][0]['provisioning_status'],
                          constants.ACTIVE)
         f_lr.assert_called_once_with(self.network, fake_subnet.gateway_ip)
@@ -2387,7 +2387,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
     @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
     def test_member_create(self, net_cli):
         net_cli.return_value.get_subnet.side_effect = [idlutils.RowNotFound]
-        status = self.helper.member_create(self.member)
+        status = self.helper.member_create([self.member])
         self.assertEqual(status['loadbalancers'][0]['provisioning_status'],
                          constants.ACTIVE)
         self.assertEqual(status['loadbalancers'][0]['operating_status'],
@@ -2408,7 +2408,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
                          constants.NO_MONITOR)
 
     def test_member_create_already_exists(self):
-        status = self.helper.member_create(self.member)
+        status = self.helper.member_create([self.member])
         member_status = {
             ovn_const.OVN_MEMBER_STATUS_KEY: '{"%s": "%s"}'
             % (self.member_id, constants.NO_MONITOR)}
@@ -2428,7 +2428,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
     def test_member_create_first_member_in_pool(self):
         self.ovn_lb.external_ids.update({
             'pool_' + self.pool_id: ''})
-        self.helper.member_create(self.member)
+        self.helper.member_create([self.member])
         expected_calls = [
             mock.call('Load_Balancer', self.ovn_lb.uuid,
                       ('external_ids',
@@ -2450,7 +2450,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
                          member2_port, member2_subnet_id))
         self.ovn_lb.external_ids.update(
             {'pool_%s' % self.pool_id: member2_line})
-        self.helper.member_create(self.member)
+        self.helper.member_create([self.member])
         all_member_line = (
             '%s,member_%s_%s:%s_%s' %
             (member2_line, self.member_id,
@@ -2472,7 +2472,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
             expected_calls)
 
     def test_member_update(self):
-        status = self.helper.member_update(self.member)
+        status = self.helper.member_update([self.member])
         self.assertEqual(status['loadbalancers'][0]['provisioning_status'],
                          constants.ACTIVE)
         self.assertEqual(status['pools'][0]['provisioning_status'],
@@ -2484,7 +2484,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         self.member['admin_state_up'] = False
         self._update_external_ids_member_status(self.ovn_lb, self.member_id,
                                                 'offline')
-        status = self.helper.member_update(self.member)
+        status = self.helper.member_update([self.member])
         self.assertEqual(status['loadbalancers'][0]['provisioning_status'],
                          constants.ACTIVE)
         self.assertEqual(status['pools'][0]['provisioning_status'],
@@ -2494,7 +2494,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         self.assertEqual(status['members'][0]['operating_status'],
                          constants.OFFLINE)
         self.member.pop('admin_state_up')
-        status = self.helper.member_update(self.member)
+        status = self.helper.member_update([self.member])
         self.assertEqual(status['loadbalancers'][0]['provisioning_status'],
                          constants.ACTIVE)
         self.assertEqual(status['pools'][0]['provisioning_status'],
@@ -2505,7 +2505,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         self.member['admin_state_up'] = True
         self._update_external_ids_member_status(self.ovn_lb, self.member_id,
                                                 'online')
-        status = self.helper.member_update(self.member)
+        status = self.helper.member_update([self.member])
         self.assertEqual(status['loadbalancers'][0]['provisioning_status'],
                          constants.ACTIVE)
         self.assertEqual(status['pools'][0]['provisioning_status'],
@@ -2521,7 +2521,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
             protocol_port=self.member_port)
         self.octavia_driver_lib.get_member.return_value = fake_member
         self.member['old_admin_state_up'] = None
-        status = self.helper.member_update(self.member)
+        status = self.helper.member_update([self.member])
         self.assertEqual(status['loadbalancers'][0]['provisioning_status'],
                          constants.ACTIVE)
         self.assertEqual(status['pools'][0]['provisioning_status'],
@@ -2534,7 +2534,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
     def test_member_update_disabled_lb(self):
         self.helper._find_ovn_lb_with_pool_key.side_effect = [
             None, self.ovn_lb]
-        self.helper.member_update(self.member)
+        self.helper.member_update([self.member])
         self.helper._find_ovn_lb_with_pool_key.assert_has_calls(
             [mock.call('pool_%s' % self.pool_id),
              mock.call('pool_%s%s' % (self.pool_id, ':D'))])
@@ -2542,14 +2542,14 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
     @mock.patch.object(ovn_helper.OvnProviderHelper, '_find_member_status')
     def test_member_update_exception(self, mock_find_member_status):
         mock_find_member_status.side_effect = [TypeError]
-        status = self.helper.member_update(self.member)
+        status = self.helper.member_update([self.member])
         self.assertEqual(status['pools'][0]['provisioning_status'],
                          constants.ACTIVE)
 
     @mock.patch('ovn_octavia_provider.helper.OvnProviderHelper.'
                 '_refresh_lb_vips')
     def test_member_delete(self, mock_vip_command):
-        status = self.helper.member_delete(self.member)
+        status = self.helper.member_delete([self.member])
         self.assertEqual(status['loadbalancers'][0]['provisioning_status'],
                          constants.ACTIVE)
         self.assertEqual(status['pools'][0]['provisioning_status'],
@@ -2573,11 +2573,11 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
              member2_id, member2_address, member2_port, member2_subnet_id))
         self.ovn_lb.external_ids.update({
             'pool_' + self.pool_id: member_line})
-        status = self.helper.member_delete(self.member)
+        status = self.helper.member_delete([self.member])
         rmmember.assert_called_once_with(
             self.member, self.ovn_lb, 'pool_' + self.pool_id)
         update_external_ids_members.assert_called_once_with(
-            self.ovn_lb, self.member_id, None, delete=True)
+            self.ovn_lb, [(self.member_id, None)], delete=True)
         self.assertEqual(status['members'][0]['provisioning_status'],
                          constants.DELETED)
         self.assertEqual(status['pools'][0]['provisioning_status'],
@@ -2591,7 +2591,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         self.ovn_hm_lb.external_ids[ovn_const.OVN_MEMBER_STATUS_KEY] = \
             '{"%s": "%s"}' % (self.member_id, constants.ONLINE)
         folbpi.return_value = (pool_key, self.ovn_hm_lb)
-        self.helper.member_delete(self.member)
+        self.helper.member_delete([self.member])
         uhm.assert_called_once_with(self.ovn_hm_lb,
                                     pool_key,
                                     self.member_address,
@@ -2614,7 +2614,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
             '{"%s": "%s","%s": "%s"}' % (self.member_id, constants.ONLINE,
                                          member2_id, constants.ONLINE)
         folbpi.return_value = (pool_key, self.ovn_hm_lb)
-        self.helper.member_delete(self.member)
+        self.helper.member_delete([self.member])
         uhm.assert_called_once_with(self.ovn_hm_lb,
                                     pool_key,
                                     self.member_address,
@@ -2624,7 +2624,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
     def test_member_delete_not_found_in_pool(self):
         self.ovn_lb.external_ids.update({'pool_' + self.pool_id: ''})
         self.ovn_lb.external_ids[ovn_const.OVN_MEMBER_STATUS_KEY] = '{}'
-        status = self.helper.member_delete(self.member)
+        status = self.helper.member_delete([self.member])
         self.assertEqual(status['loadbalancers'][0]['provisioning_status'],
                          constants.ACTIVE)
         self.assertEqual(status['listeners'][0]['provisioning_status'],
@@ -2637,7 +2637,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
     @mock.patch.object(ovn_helper.OvnProviderHelper, '_remove_member')
     def test_member_delete_exception(self, mock_remove_member):
         mock_remove_member.side_effect = [RuntimeError]
-        status = self.helper.member_delete(self.member)
+        status = self.helper.member_delete([self.member])
         self.assertEqual(status['pools'][0]['provisioning_status'],
                          constants.ACTIVE)
         self.assertEqual(status['members'][0]['provisioning_status'],
@@ -2646,7 +2646,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
     def test_member_delete_disabled_lb(self):
         self.helper._find_ovn_lb_with_pool_key.side_effect = [
             None, self.ovn_lb]
-        self.helper.member_delete(self.member)
+        self.helper.member_delete([self.member])
         self.helper._find_ovn_lb_with_pool_key.assert_has_calls(
             [mock.call('pool_%s' % self.pool_id),
              mock.call('pool_%s%s' % (self.pool_id, ':D'))])
@@ -4684,7 +4684,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
     @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
     def test_handle_member_dvr_lb_has_no_fip(self, net_cli):
         lb = mock.MagicMock()
-        info = {
+        member = {
             'id': self.member_id,
             'pool_id': self.pool_id,
             'action': ovn_const.REQ_INFO_MEMBER_ADDED}
@@ -4692,14 +4692,14 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
             'neutron:vip_fip': ''}
         lb.external_ids = external_ids
         self.mock_find_lb_pool_key.return_value = lb
-        self.helper.handle_member_dvr(info)
+        self.helper.handle_member_dvr([member])
         net_cli.get_subnet.assert_not_called()
         self.helper.ovn_nbdb_api.db_clear.assert_not_called()
 
     @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
     def test_handle_member_dvr_lb_fip_no_ls_ports(self, net_cli):
         lb = mock.MagicMock()
-        info = {
+        member = {
             'id': self.member_id,
             'subnet_id': self.member_subnet_id,
             'pool_id': self.pool_id,
@@ -4713,13 +4713,13 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
                 'external_ids': {},
                 'ports': {}})
         self.helper.ovn_nbdb_api.lookup.return_value = fake_ls
-        self.helper.handle_member_dvr(info)
+        self.helper.handle_member_dvr([member])
         self.helper.ovn_nbdb_api.db_clear.assert_not_called()
 
     @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
     def test_handle_member_dvr_lb_fip_no_subnet(self, net_cli):
         lb = mock.MagicMock()
-        info = {
+        member = {
             'id': self.member_id,
             'subnet_id': self.member_subnet_id,
             'pool_id': self.pool_id,
@@ -4730,13 +4730,13 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         self.mock_find_lb_pool_key.return_value = lb
         net_cli.return_value.get_subnet.side_effect = [
             openstack.exceptions.ResourceNotFound]
-        self.helper.handle_member_dvr(info)
+        self.helper.handle_member_dvr([member])
         self.helper.ovn_nbdb_api.db_clear.assert_not_called()
 
     @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
     def test_handle_member_dvr_lb_fip_no_ls(self, net_cli):
         lb = mock.MagicMock()
-        info = {
+        member = {
             'id': self.member_id,
             'subnet_id': self.member_subnet_id,
             'pool_id': self.pool_id,
@@ -4746,7 +4746,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         lb.external_ids = external_ids
         self.mock_find_lb_pool_key.return_value = lb
         self.helper.ovn_nbdb_api.lookup.side_effect = [idlutils.RowNotFound]
-        self.helper.handle_member_dvr(info)
+        self.helper.handle_member_dvr([member])
         self.helper.ovn_nbdb_api.db_clear.assert_not_called()
 
     def _test_handle_member_dvr_lb_fip(
@@ -4754,7 +4754,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         lb = mock.MagicMock()
         fake_port = fakes.FakePort.create_one_port(
             attrs={'allowed_address_pairs': ''})
-        info = {
+        member = {
             'id': self.member_id,
             'address': fake_port['fixed_ips'][0]['ip_address'],
             'pool_id': self.pool_id,
@@ -4785,7 +4785,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
             ovn_const.LB_EXT_IDS_VIP_FIP_KEY: '11.11.11.11'}
         lb.external_ids = external_ids
         self.mock_find_lb_pool_key.return_value = lb
-        self.helper.handle_member_dvr(info)
+        self.helper.handle_member_dvr([member])
 
         if action == ovn_const.REQ_INFO_MEMBER_ADDED:
             calls = [
