@@ -1334,6 +1334,8 @@ class OvnProviderHelper():
                 if key.startswith(ovn_const.LB_EXT_IDS_POOL_PREFIX):
                     pool_id = key.split('_')[1]
                     # Delete all members in the pool
+                    mb_delete_info = []
+                    mb_dvr_info = []
                     if value and len(value.split(',')) > 0:
                         for mem_info in value.split(','):
                             member_subnets.append(mem_info.split('_')[3])
@@ -1341,25 +1343,27 @@ class OvnProviderHelper():
                             member_ip = mem_info.split('_')[2].split(":")[0]
                             member_port = mem_info.split('_')[2].split(":")[1]
                             member_subnet = mem_info.split("_")[3]
-                            member = {
+                            mb_delete_info.append({
                                 'id': member_id,
                                 'address': member_ip,
                                 'protocol_port': member_port,
                                 'pool_id': pool_id,
-                                'subnet_id': member_subnet}
-                            self.member_delete(member)
-                            member_info = {
+                                'subnet_id': member_subnet})
+                            mb_dvr_info.append({
                                 'id': member_id,
                                 'address': member_ip,
                                 'pool_id': pool_id,
                                 'subnet_id': member_subnet,
-                                'action': ovn_const.REQ_INFO_MEMBER_DELETED}
-                            self.handle_member_dvr(member_info)
-
+                                'action': ovn_const.REQ_INFO_MEMBER_DELETED})
                             status[constants.MEMBERS].append({
-                                constants.ID: mem_info.split('_')[1],
+                                constants.ID: member_id,
                                 constants.PROVISIONING_STATUS:
                                     constants.DELETED})
+
+                        if mb_delete_info:
+                            self.member_delete(mb_delete_info)
+                            self.handle_member_dvr(mb_dvr_info)
+
                     status[constants.POOLS].append(
                         {constants.ID: pool_id,
                          constants.PROVISIONING_STATUS: constants.DELETED})
@@ -2003,12 +2007,13 @@ class OvnProviderHelper():
                     constants.OPERATING_STATUS: operating_status})
                 self._update_external_ids_member_status(
                     ovn_lb,
-                    mem_info.split('_')[1],
-                    operating_status)
+                    [(mem_info.split('_')[1],
+                      operating_status)])
         return member_statuses
 
-    def _update_external_ids_member_status(self, ovn_lb, member, status=None,
+    def _update_external_ids_member_status(self, ovn_lb, members_and_opstatus,
                                            delete=False):
+
         existing_members = ovn_lb.external_ids.get(
             ovn_const.OVN_MEMBER_STATUS_KEY)
         try:
@@ -2018,11 +2023,12 @@ class OvnProviderHelper():
                       str(existing_members))
             existing_members = {}
 
-        if delete:
-            if member in existing_members:
-                del existing_members[member]
-        else:
-            existing_members[member] = status
+        for (member, status) in members_and_opstatus:
+            if delete:
+                if member in existing_members:
+                    del existing_members[member]
+            else:
+                existing_members[member] = status
 
         try:
             if existing_members:
@@ -2037,9 +2043,8 @@ class OvnProviderHelper():
                     'Load_Balancer', ovn_lb.uuid, 'external_ids',
                     (ovn_const.OVN_MEMBER_STATUS_KEY)).execute()
         except Exception:
-            LOG.exception("Error storing member status on external_ids member:"
-                          " %s delete: %s status: %s", str(member),
-                          str(delete), str(status))
+            LOG.exception("Error storing member statuses on external_ids "
+                          "delete: %s", str(delete))
 
     def _add_member(self, member, ovn_lb, pool_key):
         external_ids = copy.deepcopy(ovn_lb.external_ids)
@@ -2105,33 +2110,58 @@ class OvnProviderHelper():
 
         return member_info
 
-    def member_create(self, member):
-        new_member = None
+    def member_create(self, members):
+        error_creating_member = False
+        member_status = []
         try:
             pool_key, ovn_lb = self._find_ovn_lb_by_pool_id(
-                member[constants.POOL_ID])
-            new_member = self._add_member(member, ovn_lb, pool_key)
-            operating_status = constants.NO_MONITOR
+                members[0][constants.POOL_ID])
         except Exception:
-            LOG.exception(ovn_const.EXCEPTION_MSG, "creation of member")
-            operating_status = constants.ERROR
-        if not member[constants.ADMIN_STATE_UP]:
-            operating_status = constants.OFFLINE
-        elif (new_member and operating_status == constants.NO_MONITOR and
-                ovn_lb.health_check):
-            operating_status = constants.ONLINE
-            mb_ip, mb_port, mb_subnet, mb_id = self._extract_member_info(
-                new_member)[0]
-            mb_status = self._update_hm_member(ovn_lb, pool_key, mb_ip)
-            operating_status = (
-                constants.ERROR
-                if mb_status != constants.ONLINE else mb_status
-            )
+            LOG.exception(ovn_const.EXCEPTION_MSG,
+                          "Not able to find ovn_lb from pool_id on create "
+                          "members")
+            error_creating_member = True
+
+        for member in members:
+            if error_creating_member:
+                member_status.append(
+                    {constants.ID: member[constants.ID],
+                     constants.PROVISIONING_STATUS: constants.ERROR,
+                     constants.OPERATING_STATUS: constants.NO_MONITOR})
+                continue
+            try:
+                new_member = self._add_member(member, ovn_lb, pool_key)
+            except Exception:
+                LOG.exception(ovn_const.EXCEPTION_MSG, "creation of member")
+                member_status.append(
+                    {constants.ID: member[constants.ID],
+                     constants.PROVISIONING_STATUS: constants.ERROR,
+                     constants.OPERATING_STATUS: constants.NO_MONITOR})
+                continue
+
+            operating_status = constants.NO_MONITOR
+
+            if not member[constants.ADMIN_STATE_UP]:
+                operating_status = constants.OFFLINE
+            elif (new_member and operating_status == constants.NO_MONITOR and
+                    ovn_lb.health_check):
+                operating_status = constants.ONLINE
+                mb_ip, mb_port, mb_subnet, mb_id = self._extract_member_info(
+                    new_member)[0]
+                mb_status = self._update_hm_member(ovn_lb, pool_key, mb_ip)
+                operating_status = (
+                    constants.ERROR
+                    if mb_status != constants.ONLINE else mb_status
+                )
+
+            member_status.append({
+                constants.ID: member[constants.ID],
+                constants.OPERATING_STATUS: operating_status})
 
         self._update_external_ids_member_status(
             ovn_lb,
-            member[constants.ID],
-            operating_status)
+            [(member[constants.ID], member[constants.OPERATING_STATUS])
+             for member in member_status])
 
         status = self._get_current_operating_statuses(ovn_lb)
         return status
@@ -2181,99 +2211,140 @@ class OvnProviderHelper():
                             return True
         return False
 
-    def member_delete(self, member):
+    def member_delete(self, members):
         error_deleting_member = False
+        member_status = []
         try:
             pool_key, ovn_lb = self._find_ovn_lb_by_pool_id(
-                member[constants.POOL_ID])
-
-            self._remove_member(member, ovn_lb, pool_key)
-
-            if ovn_lb.health_check:
-                mem_subnet = member[constants.SUBNET_ID]
-                if not self._members_in_subnet(ovn_lb, mem_subnet):
-                    # NOTE(froyo): if member is last member from the subnet
-                    # we should clean up the ovn-lb-hm-port.
-                    # We need to do this call after the cleaning of the
-                    # ip_port_mappings for the ovn LB.
-                    self._clean_up_hm_port(member[constants.SUBNET_ID])
+                members[0][constants.POOL_ID])
         except Exception:
-            LOG.exception(ovn_const.EXCEPTION_MSG, "deletion of member")
+            LOG.exception(ovn_const.EXCEPTION_MSG,
+                          "Not able to find ovn_lb from pool_id on delete "
+                          "members")
             error_deleting_member = True
+
+        for member in members:
+            try:
+                if error_deleting_member:
+                    member_status.append(
+                        {constants.ID: member[constants.ID],
+                         constants.PROVISIONING_STATUS: constants.ERROR})
+                    continue
+
+                self._remove_member(member, ovn_lb, pool_key)
+
+                if ovn_lb.health_check:
+                    mem_subnet = member[constants.SUBNET_ID]
+                    if not self._members_in_subnet(ovn_lb, mem_subnet):
+                        # NOTE(froyo): if member is last member from the
+                        # subnet we should clean up the ovn-lb-hm-port.
+                        # We need to do this call after the cleaning of the
+                        # ip_port_mappings for the ovn LB.
+                        self._clean_up_hm_port(member[constants.SUBNET_ID])
+                member_status.append(
+                    {constants.ID: member[constants.ID],
+                     constants.PROVISIONING_STATUS: constants.DELETED})
+            except Exception:
+                LOG.exception(ovn_const.EXCEPTION_MSG, "deletion of member")
+                member_status.append(
+                    {constants.ID: member[constants.ID],
+                     constants.PROVISIONING_STATUS: constants.ERROR})
+
         self._update_external_ids_member_status(
-            ovn_lb, member[constants.ID], None, delete=True)
+            ovn_lb,
+            [(member[constants.ID], None) for member in member_status],
+            delete=True)
+
         status = self._get_current_operating_statuses(ovn_lb)
-        status[constants.MEMBERS] = [
-            {constants.ID: member[constants.ID],
-             constants.PROVISIONING_STATUS: constants.DELETED}]
-        if error_deleting_member:
-            status[constants.MEMBERS][0][constants.PROVISIONING_STATUS] = (
-                constants.ERROR)
+        status[constants.MEMBERS] = member_status
         return status
 
-    def member_update(self, member):
+    def member_update(self, members):
+        error_updating_member = False
+        refresh_vips = False
+        member_status = []
+
         try:
-            error_updating_member = False
             pool_key, ovn_lb = self._find_ovn_lb_by_pool_id(
-                member[constants.POOL_ID])
-            member_operating_status = constants.NO_MONITOR
-            last_status = self._find_member_status(
-                ovn_lb, member[constants.ID])
-            if constants.ADMIN_STATE_UP in member:
-                if member[constants.ADMIN_STATE_UP]:
-                    # if HM exists trust on neutron:member_status
-                    # as the last status valid for the member
-                    if ovn_lb.health_check:
-                        # Put member ONLINE if was OFFLINE and trust on HM to
-                        # come back to ERROR in case neccesary, it was already
-                        # on ERROR keeps at that way.
-                        member_operating_status = (
-                            constants.ERROR
-                            if last_status == constants.ERROR
-                            else constants.ONLINE
-                        )
-                    else:
-                        member_operating_status = constants.NO_MONITOR
-                else:
-                    member_operating_status = constants.OFFLINE
-
-                self._update_external_ids_member_status(
-                    ovn_lb,
-                    member[constants.ID],
-                    member_operating_status)
-
-                # NOTE(froyo): If we are toggling from/to OFFLINE due to an
-                # admin_state_up change, in that case we should update vips
-                if (
-                    last_status != constants.OFFLINE and
-                    member_operating_status == constants.OFFLINE
-                ) or (
-                    last_status == constants.OFFLINE and
-                    member_operating_status != constants.OFFLINE
-                ) or (
-                    member[constants.ADMIN_STATE_UP]
-                ):
-                    commands = []
-                    commands.extend(self._refresh_lb_vips(ovn_lb,
-                                                          ovn_lb.external_ids))
-                    self._execute_commands(commands)
-                    if ovn_lb.health_check:
-                        delete = not member[constants.ADMIN_STATE_UP]
-                        self._update_hm_member(
-                            ovn_lb, pool_key, member.get(constants.ADDRESS),
-                            delete=delete)
+                members[0][constants.POOL_ID])
         except Exception:
-            LOG.exception(ovn_const.EXCEPTION_MSG, "update of member")
+            LOG.exception(ovn_const.EXCEPTION_MSG,
+                          "Not able to find ovn_lb from pool_id on update "
+                          "members")
             error_updating_member = True
 
+        for member in members:
+            if error_updating_member:
+                member_status.append(
+                    {constants.ID: member[constants.ID],
+                     constants.PROVISIONING_STATUS: constants.ERROR,
+                     constants.OPERATING_STATUS: constants.NO_MONITOR})
+                continue
+            try:
+                member_operating_status = constants.NO_MONITOR
+                last_status = self._find_member_status(
+                    ovn_lb, member[constants.ID])
+                if constants.ADMIN_STATE_UP in member:
+                    if member[constants.ADMIN_STATE_UP]:
+                        # if HM exists trust on neutron:member_status
+                        # as the last status valid for the member
+                        if ovn_lb.health_check:
+                            # Put member ONLINE if was OFFLINE and trust on
+                            # HM to come back to ERROR in case neccesary, it
+                            # was already on ERROR keeps at that way.
+                            member_operating_status = (
+                                constants.ERROR
+                                if last_status == constants.ERROR
+                                else constants.ONLINE
+                            )
+                        else:
+                            member_operating_status = constants.NO_MONITOR
+                    else:
+                        member_operating_status = constants.OFFLINE
+
+                    # NOTE(froyo): If we are toggling from/to OFFLINE due to an
+                    # admin_state_up change, in that case we should update vips
+                    if (
+                        last_status != constants.OFFLINE and
+                        member_operating_status == constants.OFFLINE
+                    ) or (
+                        last_status == constants.OFFLINE and
+                        member_operating_status != constants.OFFLINE
+                    ) or (
+                        member[constants.ADMIN_STATE_UP]
+                    ):
+                        refresh_vips = True
+
+                member_status.append({
+                    constants.ID: member[constants.ID],
+                    constants.PROVISIONING_STATUS: constants.ACTIVE,
+                    constants.OPERATING_STATUS: member_operating_status})
+
+            except Exception:
+                LOG.exception(ovn_const.EXCEPTION_MSG, "update of member")
+                error_updating_member = True
+
+        if member_status:
+            self._update_external_ids_member_status(
+                ovn_lb,
+                [(member[constants.ID], member[constants.OPERATING_STATUS])
+                 for member in member_status])
+
+        if refresh_vips:
+            commands = []
+            commands.extend(self._refresh_lb_vips(
+                ovn_lb, ovn_lb.external_ids))
+            self._execute_commands(commands)
+            if ovn_lb.health_check:
+                for member in members:
+                    delete = not member[constants.ADMIN_STATE_UP]
+                    self._update_hm_member(
+                        ovn_lb, pool_key,
+                        member.get(constants.ADDRESS),
+                        delete=delete)
+
         status = self._get_current_operating_statuses(ovn_lb)
-        status[constants.MEMBERS] = [
-            {constants.ID: member[constants.ID],
-             constants.PROVISIONING_STATUS: constants.ACTIVE,
-             constants.OPERATING_STATUS: member_operating_status}]
-        if error_updating_member:
-            status[constants.MEMBERS][0][constants.PROVISIONING_STATUS] = (
-                constants.ERROR)
+        status[constants.MEMBERS] = member_status
         return status
 
     def _get_existing_pool_members(self, pool_id):
@@ -2500,89 +2571,92 @@ class OvnProviderHelper():
         commands.extend(self._refresh_lb_vips(ovn_lb, external_ids))
         self._execute_commands(commands)
 
-    def handle_member_dvr(self, info):
-        pool_key, ovn_lb = self._find_ovn_lb_by_pool_id(info['pool_id'])
-        if ((not ovn_lb.external_ids.get(ovn_const.LB_EXT_IDS_VIP_FIP_KEY)) and
-                (not ovn_lb.external_ids.get(
-                    ovn_const.LB_EXT_IDS_ADDIT_VIP_FIP_KEY))):
-            LOG.debug("LB %(lb)s has no FIP on VIP configured. "
-                      "There is no need to centralize member %(member)s "
-                      "traffic.",
-                      {'lb': ovn_lb.uuid, 'member': info['id']})
-            return
+    def handle_member_dvr(self, members):
+        pool_key, ovn_lb = self._find_ovn_lb_by_pool_id(members[0]['pool_id'])
+        for member in members:
+            if ((not ovn_lb.external_ids.get(
+                ovn_const.LB_EXT_IDS_VIP_FIP_KEY)) and (
+                    not ovn_lb.external_ids.get(
+                        ovn_const.LB_EXT_IDS_ADDIT_VIP_FIP_KEY))):
+                LOG.debug("LB %(lb)s has no FIP on VIP configured. "
+                          "There is no need to centralize member %(member)s "
+                          "traffic.",
+                          {'lb': ovn_lb.uuid, 'member': member['id']})
+                return
 
-        # Find out if member has FIP assigned.
-        neutron_client = clients.get_neutron_client()
-        try:
-            subnet = neutron_client.get_subnet(info['subnet_id'])
-            ls_name = utils.ovn_name(subnet.network_id)
-        except openstack.exceptions.ResourceNotFound:
-            LOG.exception('Subnet %s not found while trying to '
-                          'fetch its data.', info['subnet_id'])
-            return
-
-        try:
-            ls = self.ovn_nbdb_api.lookup('Logical_Switch', ls_name)
-        except idlutils.RowNotFound:
-            LOG.warning("Logical Switch %s not found. "
-                        "Cannot verify member FIP configuration.",
-                        ls_name)
-            return
-
-        fip = None
-        f = utils.remove_macs_from_lsp_addresses
-        for port in ls.ports:
-            if info['address'] in f(port.addresses):
-                # We found particular port
-                fip = self.ovn_nbdb_api.db_find_rows(
-                    'NAT', ('external_ids', '=', {
-                        ovn_const.OVN_FIP_PORT_EXT_ID_KEY: port.name})
-                ).execute(check_error=True)
-                fip = fip[0] if fip else fip
-                break
-
-        if not fip:
-            LOG.debug('Member %s has no FIP assigned. '
-                      'There is no need to modify its NAT.',
-                      info['id'])
-            return
-
-        if info['action'] == ovn_const.REQ_INFO_MEMBER_ADDED:
-            LOG.info('Member %(member)s is added to Load Balancer %(lb)s '
-                     'and both have FIP assigned. Member FIP %(fip)s '
-                     'needs to be centralized in those conditions. '
-                     'Deleting external_mac/logical_port from it.',
-                     {'member': info['id'],
-                      'lb': ovn_lb.uuid,
-                      'fip': fip.external_ip})
-            self.ovn_nbdb_api.db_clear(
-                'NAT', fip.uuid, 'external_mac').execute(check_error=True)
-            self.ovn_nbdb_api.db_clear(
-                'NAT', fip.uuid, 'logical_port').execute(check_error=True)
-        else:
-            LOG.info('Member %(member)s is deleted from Load Balancer '
-                     '%(lb)s and both have FIP assigned. Member FIP %(fip)s '
-                     'can be decentralized now if environment has DVR '
-                     'enabled.  Updating FIP object for recomputation.',
-                     {'member': info['id'],
-                      'lb': ovn_lb.uuid,
-                      'fip': fip.external_ip})
-            # NOTE(mjozefcz): We don't know if this env is DVR or not.
-            # We should call neutron API to do 'empty' update of the FIP.
-            # It will bump revision number and do recomputation of the FIP.
+            # Find out if member has FIP assigned.
+            neutron_client = clients.get_neutron_client()
             try:
-                fip_info = neutron_client.get_ip(
-                    fip.external_ids[ovn_const.OVN_FIP_EXT_ID_KEY])
-                empty_update = {
-                    'description': fip_info['description']}
-                neutron_client.update_ip(
-                    fip.external_ids[ovn_const.OVN_FIP_EXT_ID_KEY],
-                    **empty_update)
+                subnet = neutron_client.get_subnet(member['subnet_id'])
+                ls_name = utils.ovn_name(subnet.network_id)
             except openstack.exceptions.ResourceNotFound:
-                LOG.warning('Member %(member)s FIP %(fip)s not found in '
-                            'Neutron. Cannot update it.',
-                            {'member': info['id'],
-                             'fip': fip.external_ip})
+                LOG.exception('Subnet %s not found while trying to '
+                              'fetch its data.', member['subnet_id'])
+                return
+
+            try:
+                ls = self.ovn_nbdb_api.lookup('Logical_Switch', ls_name)
+            except idlutils.RowNotFound:
+                LOG.warning("Logical Switch %s not found. "
+                            "Cannot verify member FIP configuration.",
+                            ls_name)
+                return
+
+            fip = None
+            f = utils.remove_macs_from_lsp_addresses
+            for port in ls.ports:
+                if member['address'] in f(port.addresses):
+                    # We found particular port
+                    fip = self.ovn_nbdb_api.db_find_rows(
+                        'NAT', ('external_ids', '=', {
+                            ovn_const.OVN_FIP_PORT_EXT_ID_KEY: port.name})
+                    ).execute(check_error=True)
+                    fip = fip[0] if fip else fip
+                    break
+
+            if not fip:
+                LOG.debug('Member %s has no FIP assigned. '
+                          'There is no need to modify its NAT.',
+                          member['id'])
+                return
+
+            if member['action'] == ovn_const.REQ_INFO_MEMBER_ADDED:
+                LOG.info('Member %(member)s is added to Load Balancer %(lb)s '
+                         'and both have FIP assigned. Member FIP %(fip)s '
+                         'needs to be centralized in those conditions. '
+                         'Deleting external_mac/logical_port from it.',
+                         {'member': member['id'],
+                          'lb': ovn_lb.uuid,
+                          'fip': fip.external_ip})
+                self.ovn_nbdb_api.db_clear(
+                    'NAT', fip.uuid, 'external_mac').execute(check_error=True)
+                self.ovn_nbdb_api.db_clear(
+                    'NAT', fip.uuid, 'logical_port').execute(check_error=True)
+            else:
+                LOG.info('Member %(member)s is deleted from Load Balancer '
+                         '%(lb)s and both have FIP assigned. Member FIP '
+                         '%(fip)s can be decentralized now if environment has '
+                         'DVR enabled.  Updating FIP object for '
+                         'recomputation.',
+                         {'member': member['id'],
+                          'lb': ovn_lb.uuid,
+                          'fip': fip.external_ip})
+                # NOTE(mjozefcz): We don't know if this env is DVR or not.
+                # We should call neutron API to do 'empty' update of the FIP.
+                # It will bump revision number and do recomputation of the FIP.
+                try:
+                    fip_info = neutron_client.get_ip(
+                        fip.external_ids[ovn_const.OVN_FIP_EXT_ID_KEY])
+                    empty_update = {
+                        'description': fip_info['description']}
+                    neutron_client.update_ip(
+                        fip.external_ids[ovn_const.OVN_FIP_EXT_ID_KEY],
+                        **empty_update)
+                except openstack.exceptions.ResourceNotFound:
+                    LOG.warning('Member %(member)s FIP %(fip)s not found in '
+                                'Neutron. Cannot update it.',
+                                {'member': member['id'],
+                                 'fip': fip.external_ip})
 
     def _get_member_lsp(self, member_ip, member_subnet_id):
         neutron_client = clients.get_neutron_client()
@@ -2969,7 +3043,7 @@ class OvnProviderHelper():
                     self._clean_ip_port_mappings(ovn_lb, pool_key)
                     break
                 self._update_external_ids_member_status(
-                    ovn_lb, mb_id, mb_status)
+                    ovn_lb, [(mb_id, mb_status)])
             else:
                 status = self._get_current_operating_statuses(ovn_lb)
         status[constants.HEALTHMONITORS] = [hm_status]
@@ -3369,8 +3443,9 @@ class OvnProviderHelper():
                 else:
                     member_status = constants.ONLINE
 
-                self._update_external_ids_member_status(ovn_lb, member_id,
-                                                        member_status)
+                self._update_external_ids_member_status(ovn_lb,
+                                                        [(member_id,
+                                                          member_status)])
                 statuses.append(self._get_current_operating_statuses(ovn_lb))
 
         if not statuses:

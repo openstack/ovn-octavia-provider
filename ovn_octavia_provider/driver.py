@@ -113,10 +113,13 @@ class OvnProviderDriver(driver_base.ProviderDriver):
         if not isinstance(loadbalancer.pools, o_datamodels.UnsetType):
             for pool in loadbalancer.pools:
                 self.pool_create(pool)
-                for member in pool.members:
-                    if not member.subnet_id:
-                        member.subnet_id = loadbalancer.vip_subnet_id
-                    self.member_create(member)
+                members = [
+                    member if member.subnet_id else setattr(
+                        member, "subnet_id", loadbalancer.vip_subnet_id) or
+                    member
+                    for member in pool.members
+                ]
+                self._members_create(members)
 
     def loadbalancer_delete(self, loadbalancer, cascade=False):
         request_info = {'id': loadbalancer.loadbalancer_id,
@@ -169,8 +172,8 @@ class OvnProviderDriver(driver_base.ProviderDriver):
         if pool.healthmonitor:
             self.health_monitor_delete(pool.healthmonitor)
 
-        for member in pool.members:
-            self.member_delete(member)
+        if pool.members:
+            self._members_delete(pool.members)
 
         request_info = {'id': pool.pool_id,
                         'protocol': pool.protocol,
@@ -283,88 +286,108 @@ class OvnProviderDriver(driver_base.ProviderDriver):
             return vip_version != (netaddr.IPNetwork(member.address).version)
 
     def member_create(self, member):
-        # Validate monitoring options if present
-        self._check_member_monitor_options(member)
-        if self._ip_version_differs(member):
-            raise ovn_exc.IPVersionsMixingNotSupportedError()
-        admin_state_up = member.admin_state_up
-        subnet_id = member.subnet_id
-        if (isinstance(subnet_id, o_datamodels.UnsetType) or not subnet_id):
-            subnet_id, subnet_cidr = self._ovn_helper._get_subnet_from_pool(
-                member.pool_id)
-            if not (subnet_id and
-                    self._ovn_helper._check_ip_in_subnet(member.address,
-                                                         subnet_cidr)):
-                msg = _('Subnet is required, or Loadbalancer associated with '
-                        'Pool must have a subnet, for Member creation '
-                        'with OVN Provider Driver if it is not the same as '
-                        'LB VIP subnet')
-                raise driver_exceptions.UnsupportedOptionError(
-                    user_fault_string=msg,
-                    operator_fault_string=msg)
+        self._members_create([member])
 
-        if isinstance(admin_state_up, o_datamodels.UnsetType):
-            admin_state_up = True
-        request_info = {'id': member.member_id,
-                        'address': member.address,
-                        'protocol_port': member.protocol_port,
-                        'pool_id': member.pool_id,
-                        'subnet_id': subnet_id,
-                        'admin_state_up': admin_state_up}
+    def _members_create(self, members):
+        request_info = []
+        request_info_dvr = []
+        for member in members:
+            # Validate monitoring options if present
+            self._check_member_monitor_options(member)
+            if self._ip_version_differs(member):
+                raise ovn_exc.IPVersionsMixingNotSupportedError()
+            admin_state_up = member.admin_state_up
+            subnt_id = member.subnet_id
+            if (isinstance(subnt_id, o_datamodels.UnsetType) or
+                    not subnt_id):
+                subnt_id, subnt_cidr = self._ovn_helper._get_subnet_from_pool(
+                    member.pool_id)
+
+                if not (subnt_id and
+                        self._ovn_helper._check_ip_in_subnet(member.address,
+                                                             subnt_cidr)):
+                    msg = _('Subnet is required, or Loadbalancer associated '
+                            'with Pool must have a subnet, for Member '
+                            'creation with OVN Provider Driver if it is not '
+                            'the same as LB VIP subnet')
+                    raise driver_exceptions.UnsupportedOptionError(
+                        user_fault_string=msg,
+                        operator_fault_string=msg)
+
+            if isinstance(admin_state_up, o_datamodels.UnsetType):
+                admin_state_up = True
+            request_info.append({'id': member.member_id,
+                                 'address': member.address,
+                                 'protocol_port': member.protocol_port,
+                                 'pool_id': member.pool_id,
+                                 'subnet_id': subnt_id,
+                                 'admin_state_up': admin_state_up})
+
+            # NOTE(mjozefcz): If LB has FIP on VIP
+            # and member has FIP we need to centralize
+            # traffic for member.
+            request_info_dvr.append({'id': member.member_id,
+                                     'address': member.address,
+                                     'pool_id': member.pool_id,
+                                     'subnet_id': subnt_id,
+                                     'action': ovn_const.REQ_INFO_MEMBER_ADDED}
+                                    )
+
         request = {'type': ovn_const.REQ_TYPE_MEMBER_CREATE,
                    'info': request_info}
         self._ovn_helper.add_request(request)
 
-        # NOTE(mjozefcz): If LB has FIP on VIP
-        # and member has FIP we need to centralize
-        # traffic for member.
-        request_info = {'id': member.member_id,
-                        'address': member.address,
-                        'pool_id': member.pool_id,
-                        'subnet_id': subnet_id,
-                        'action': ovn_const.REQ_INFO_MEMBER_ADDED}
         request = {'type': ovn_const.REQ_TYPE_HANDLE_MEMBER_DVR,
-                   'info': request_info}
+                   'info': request_info_dvr}
         self._ovn_helper.add_request(request)
 
     def member_delete(self, member):
+        self._members_delete([member])
+
+    def _members_delete(self, members):
         # NOTE(froyo): OVN provider allow to create member without param
         # subnet_id, in that case the driver search it according to the
         # pool_id, but it is not propagated to Octavia. In this case, if
         # the member is deleted, Octavia send the object without subnet_id.
-        subnet_id = member.subnet_id
-        if (isinstance(subnet_id, o_datamodels.UnsetType) or not subnet_id):
-            subnet_id, subnet_cidr = self._ovn_helper._get_subnet_from_pool(
-                member.pool_id)
-            if not (subnet_id and
-                    self._ovn_helper._check_ip_in_subnet(member.address,
-                                                         subnet_cidr)):
-                msg = _('Subnet is required, or Loadbalancer associated with '
-                        'Pool must have a subnet, for Member deletion if it is'
-                        'with OVN Provider Driver if it is not the same as '
-                        'LB VIP subnet')
-                raise driver_exceptions.UnsupportedOptionError(
-                    user_fault_string=msg,
-                    operator_fault_string=msg)
+        request_info = []
+        request_info_dvr = []
+        for member in members:
+            subnt_id = member.subnet_id
+            if (isinstance(subnt_id, o_datamodels.UnsetType) or not subnt_id):
+                subnt_id, subnt_cidr = self._ovn_helper._get_subnet_from_pool(
+                    member.pool_id)
+                if not (subnt_id and
+                        self._ovn_helper._check_ip_in_subnet(member.address,
+                                                             subnt_cidr)):
+                    msg = _('Subnet is required, or Loadbalancer associated '
+                            'with Pool must have a subnet, for Member '
+                            'deletion if it is with OVN Provider Driver if it '
+                            'is not the same as LB VIP subnet')
+                    raise driver_exceptions.UnsupportedOptionError(
+                        user_fault_string=msg,
+                        operator_fault_string=msg)
 
-        request_info = {'id': member.member_id,
-                        'address': member.address,
-                        'protocol_port': member.protocol_port,
-                        'pool_id': member.pool_id,
-                        'subnet_id': subnet_id}
+            request_info.append({'id': member.member_id,
+                                 'address': member.address,
+                                 'protocol_port': member.protocol_port,
+                                 'pool_id': member.pool_id,
+                                 'subnet_id': subnt_id})
+            # NOTE(mjozefcz): If LB has FIP on VIP
+            # and member had FIP we can decentralize
+            # the traffic now.
+            request_info_dvr.append(
+                {'id': member.member_id,
+                 'address': member.address,
+                 'pool_id': member.pool_id,
+                 'subnet_id': subnt_id,
+                 'action': ovn_const.REQ_INFO_MEMBER_DELETED})
+
         request = {'type': ovn_const.REQ_TYPE_MEMBER_DELETE,
                    'info': request_info}
         self._ovn_helper.add_request(request)
-        # NOTE(mjozefcz): If LB has FIP on VIP
-        # and member had FIP we can decentralize
-        # the traffic now.
-        request_info = {'id': member.member_id,
-                        'address': member.address,
-                        'pool_id': member.pool_id,
-                        'subnet_id': subnet_id,
-                        'action': ovn_const.REQ_INFO_MEMBER_DELETED}
+
         request = {'type': ovn_const.REQ_TYPE_HANDLE_MEMBER_DVR,
-                   'info': request_info}
+                   'info': request_info_dvr}
         self._ovn_helper.add_request(request)
 
     def member_update(self, old_member, new_member):
@@ -380,7 +403,7 @@ class OvnProviderDriver(driver_base.ProviderDriver):
         if not isinstance(new_member.admin_state_up, o_datamodels.UnsetType):
             request_info['admin_state_up'] = new_member.admin_state_up
         request = {'type': ovn_const.REQ_TYPE_MEMBER_UPDATE,
-                   'info': request_info}
+                   'info': [request_info]}
         self._ovn_helper.add_request(request)
 
     def member_batch_update(self, pool_id, members):
@@ -392,6 +415,10 @@ class OvnProviderDriver(driver_base.ProviderDriver):
         members_to_delete = copy.copy(existing_members)
         pool_subnet_id = None
         pool_subnet_cidr = None
+        request_info_create = []
+        request_info_update = []
+        request_info_delete = []
+        request_info_dvr_delete = []
         for member in members:
             # NOTE(froyo): in order to keep sync with Octavia DB, we raise
             # not supporting exceptions as soon as posible, considering the
@@ -430,49 +457,65 @@ class OvnProviderDriver(driver_base.ProviderDriver):
                 admin_state_up = True
 
             member_info = self._ovn_helper._get_member_info(member)
+            request_info = {
+                'id': member.member_id,
+                'address': member.address,
+                'protocol_port': member.protocol_port,
+                'pool_id': member.pool_id,
+                'subnet_id': member.subnet_id,
+                'admin_state_up': admin_state_up}
+
             if member_info not in existing_members:
-                req_type = ovn_const.REQ_TYPE_MEMBER_CREATE
+                request_info_create.append(request_info)
             else:
                 # If member exists in pool, then Update
-                req_type = ovn_const.REQ_TYPE_MEMBER_UPDATE
+                request_info_update.append(request_info)
                 # Remove all updating members so only deleted ones are left
                 members_to_delete.remove(member_info)
-
-            request_info = {'id': member.member_id,
-                            'address': member.address,
-                            'protocol_port': member.protocol_port,
-                            'pool_id': member.pool_id,
-                            'subnet_id': member.subnet_id,
-                            'admin_state_up': admin_state_up}
-            request = {'type': req_type,
-                       'info': request_info}
-            request_list.append(request)
 
         for member in members_to_delete:
             member_info = member.split('_')
             member_ip, member_port, subnet_id, member_id = (
                 self._ovn_helper._extract_member_info(member)[0])
-            request_info = {'id': member_info[1],
-                            'address': member_ip,
-                            'protocol_port': member_port,
-                            'pool_id': pool_id}
+            request_info = {
+                'id': member_info[1],
+                'address': member_ip,
+                'protocol_port': member_port,
+                'pool_id': pool_id}
             if len(member_info) == 4:
                 request_info['subnet_id'] = subnet_id
-            request = {'type': ovn_const.REQ_TYPE_MEMBER_DELETE,
-                       'info': request_info}
-            request_list.append(request)
+            request_info_delete.append(request_info)
 
             # NOTE(mjozefcz): If LB has FIP on VIP
             # and member had FIP we can decentralize
             # the traffic now.
-            request_info = {'id': member_id,
-                            'address': member_ip,
-                            'pool_id': pool_id,
-                            'action': ovn_const.REQ_INFO_MEMBER_DELETED}
+            request_info = {
+                'id': member_id,
+                'address': member_ip,
+                'pool_id': pool_id,
+                'action': ovn_const.REQ_INFO_MEMBER_DELETED}
             if len(member_info) == 4:
                 request_info['subnet_id'] = subnet_id
+            request_info_dvr_delete.append(request_info)
+
+        if request_info_create:
+            request = {'type': ovn_const.REQ_TYPE_MEMBER_CREATE,
+                       'info': request_info_create}
+            request_list.append(request)
+
+        if request_info_update:
+            request = {'type': ovn_const.REQ_TYPE_MEMBER_UPDATE,
+                       'info': request_info_update}
+            request_list.append(request)
+
+        if request_info_delete:
+            request = {'type': ovn_const.REQ_TYPE_MEMBER_DELETE,
+                       'info': request_info_delete}
+            request_list.append(request)
+
+        if request_info_dvr_delete:
             request = {'type': ovn_const.REQ_TYPE_HANDLE_MEMBER_DVR,
-                       'info': request_info}
+                       'info': request_info_dvr_delete}
             request_list.append(request)
 
         for request in request_list:
