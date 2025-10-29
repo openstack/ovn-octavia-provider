@@ -871,25 +871,27 @@ class TestOvnOctaviaBase(base.TestOVNFunctionalBase,
                  'pools': [{"id": p.pool_id,
                             "provisioning_status": o_constants.ACTIVE}],
                  'listeners': []})
-        for m in p.members:
+
+        if p.members:
+            member_delete_status = [
+                {"id": m.member_id, "provisioning_status": o_constants.DELETED}
+                for m in p.members]
+            for m in p.members:
+                self._update_ls_refs(
+                    lb_data, self._local_net_cache[m.subnet_id], add_ref=False)
+            # If Pool has members, delete all members of the pool. When the
+            # last member is processed set Operating status of Pool as Offline
             expected_status.append(
                 {'pools': [{"id": p.pool_id,
                             "provisioning_status": o_constants.ACTIVE,
-                            "operating_status": o_constants.ONLINE}],
-                 'members': [{"id": m.member_id,
-                              "provisioning_status": o_constants.DELETED}],
+                            "operating_status": o_constants.OFFLINE}],
+                 'members': member_delete_status,
                  'loadbalancers': [{
                      "id": p.loadbalancer_id,
                      "provisioning_status": o_constants.ACTIVE,
                      'operating_status': o_constants.ONLINE}],
                  'listeners': []})
-            self._update_ls_refs(
-                lb_data, self._local_net_cache[m.subnet_id], add_ref=False)
-        if p.members:
-            # If Pool has members, delete all members of the pool. When the
-            # last member is processed set Operating status of Pool as Offline
-            expected_status[-1]['pools'][0][
-                'operating_status'] = o_constants.OFFLINE
+
         pool_dict = {
             'pools': [{'id': p.pool_id,
                        'provisioning_status': 'DELETED'}],
