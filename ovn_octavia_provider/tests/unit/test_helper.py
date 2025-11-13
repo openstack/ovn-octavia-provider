@@ -8311,3 +8311,101 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         })
         result = self.helper._members_in_subnet(self.ovn_lb, 'subnet2')
         self.assertTrue(result)
+
+    def test__get_pool_admin_state_with_object(self):
+        class MockPool:
+            def __init__(self, admin_state_up=True):
+                self.admin_state_up = admin_state_up
+
+        pool_obj = MockPool(admin_state_up=True)
+        result = self.helper._get_pool_admin_state(pool_obj)
+        self.assertTrue(result)
+
+        pool_obj_false = MockPool(admin_state_up=False)
+        result = self.helper._get_pool_admin_state(pool_obj_false)
+        self.assertFalse(result)
+
+    def test__get_pool_admin_state_with_dict(self):
+        pool_dict = {'admin_state_up': True}
+        result = self.helper._get_pool_admin_state(pool_dict)
+        self.assertTrue(result)
+
+        pool_dict_false = {'admin_state_up': False}
+        result = self.helper._get_pool_admin_state(pool_dict_false)
+        self.assertFalse(result)
+
+        pool_dict_no_key = {'other_key': 'value'}
+        result = self.helper._get_pool_admin_state(pool_dict_no_key)
+        self.assertTrue(result)
+
+    def test__get_pool_admin_state_with_other_type(self):
+        result = self.helper._get_pool_admin_state(None)
+        self.assertIsNone(result)
+
+        result = self.helper._get_pool_admin_state("some_string")
+        self.assertIsNone(result)
+
+        result = self.helper._get_pool_admin_state(123)
+        self.assertIsNone(result)
+
+    def test__get_listener_admin_state_with_object(self):
+        class MockListener:
+            def __init__(self, admin_state_up=True):
+                self.admin_state_up = admin_state_up
+
+        listener_obj = MockListener(admin_state_up=True)
+        result = self.helper._get_listener_admin_state(listener_obj)
+        self.assertTrue(result)
+
+        listener_obj_false = MockListener(admin_state_up=False)
+        result = self.helper._get_listener_admin_state(listener_obj_false)
+        self.assertFalse(result)
+
+    def test__get_listener_admin_state_with_dict(self):
+        listener_dict = {'admin_state_up': True}
+        result = self.helper._get_listener_admin_state(listener_dict)
+        self.assertTrue(result)
+
+        listener_dict_false = {'admin_state_up': False}
+        result = self.helper._get_listener_admin_state(listener_dict_false)
+        self.assertFalse(result)
+
+        listener_dict_no_key = {'other_key': 'value'}
+        result = self.helper._get_listener_admin_state(listener_dict_no_key)
+        self.assertTrue(result)
+
+    def test__get_listener_admin_state_with_other_type(self):
+        result = self.helper._get_listener_admin_state(None)
+        self.assertIsNone(result)
+
+        result = self.helper._get_listener_admin_state("some_string")
+        self.assertIsNone(result)
+
+        result = self.helper._get_listener_admin_state(456)
+        self.assertIsNone(result)
+
+    def test__get_pool_admin_state_edge_cases(self):
+        class MockPoolNone:
+            def __init__(self):
+                self.admin_state_up = None
+
+        pool_none = MockPoolNone()
+        result = self.helper._get_pool_admin_state(pool_none)
+        self.assertIsNone(result)
+
+        pool_dict_none = {'admin_state_up': None}
+        result = self.helper._get_pool_admin_state(pool_dict_none)
+        self.assertIsNone(result)
+
+    def test__get_listener_admin_state_edge_cases(self):
+        class MockListenerNone:
+            def __init__(self):
+                self.admin_state_up = None
+
+        listener_none = MockListenerNone()
+        result = self.helper._get_listener_admin_state(listener_none)
+        self.assertIsNone(result)
+
+        listener_dict_none = {'admin_state_up': None}
+        result = self.helper._get_listener_admin_state(listener_dict_none)
+        self.assertIsNone(result)
