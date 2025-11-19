@@ -138,6 +138,28 @@ class OvnProviderHelper():
             self._clean_up_hm_port(subnet_id)
             return None
 
+    def _ls_is_provider_network(self, ovn_ls):
+        """Check if a Logical Switch is a provider network.
+
+        Provider networks have the 'neutron:provnet-physical-network'
+        external_id set. Load Balancers should not be associated to these
+        networks as it causes datapath confusion when traffic arrives via
+        Floating IPs.
+
+        :param ovn_ls: OVN Logical Switch object
+        :returns: True if the LS is a provider network, False otherwise
+        """
+        if not ovn_ls:
+            return False
+        physical_network = ovn_ls.external_ids.get(
+            'neutron:provnet-physical-network')
+        if physical_network:
+            LOG.debug("Logical Switch %s is a provider network "
+                      "(physical network: %s)",
+                      ovn_ls.name, physical_network)
+            return True
+        return False
+
     def _clean_up_hm_port(self, subnet_id):
         # Method to delete the hm port created for subnet_id it there isn't any
         # other health monitor using it
@@ -979,6 +1001,15 @@ class OvnProviderHelper():
                                 'not found in OVN NBDB. Exiting.',
                                 {'ls': ls_name, 'lb': ovn_lb.name})
                     return commands
+            # NOTE(froyo): Skip association if this is a provider network.
+            # Provider networks have localnet ports and associating LBs
+            # to them causes datapath issues when traffic arrives via Floating
+            # IPs, resulting in SYN packet drops and high latency.
+            if associate and ovn_ls and self._ls_is_provider_network(ovn_ls):
+                LOG.debug("Skipping LB %(lb)s association to provider network "
+                          "%(ls)s",
+                          {'lb': ovn_lb.name, 'ls': ls_name})
+                return commands
             # if is_sync and LB already in LS_LB, we don't need to call to
             # ls_lb_add
             if is_sync and ovn_ls:
@@ -1592,17 +1623,6 @@ class OvnProviderHelper():
                 protocol=protocol)
             ovn_lb = ovn_lb if protocol else ovn_lb[0]
 
-            # NOTE(ltomasbo): If the VIP is on a provider network, it does
-            # not need to be associated to its LS
-            network = neutron_client.get_network(port.network_id)
-            if not network.provider_physical_network:
-                # NOTE(froyo): This is the association of the lb to the VIP ls
-                # so this is executed right away. For the additional vip ports
-                # this step is not required since all subnets must belong to
-                # the same subnet, so just for the VIP LB port is enough.
-                self._update_lb_to_ls_association(
-                    ovn_lb, network_id=port.network_id,
-                    associate=True, update_ls_ref=True, additional_vips=True)
             ls_name = utils.ovn_name(port.network_id)
             ovn_ls = self.ovn_nbdb_api.ls_get(ls_name).execute(
                 check_error=True)
@@ -1621,6 +1641,17 @@ class OvnProviderHelper():
                                 "logical router %s failed, trying step by "
                                 "step", ovn_lb.uuid, ovn_lr.uuid)
                     self._update_lb_to_lr_association_by_step(ovn_lb, ovn_lr)
+
+            # NOTE(ltomasbo): If the VIP is on a provider network, it does
+            # not need to be associated to its L
+            if not self._ls_is_provider_network(ovn_ls):
+                # NOTE(froyo): This is the association of the lb to the VIP ls
+                # so this is executed right away. For the additional vip ports
+                # this step is not required since all subnets must belong to
+                # the same subnet, so just for the VIP LB port is enough.
+                self._update_lb_to_ls_association(
+                    ovn_lb, network_id=port.network_id,
+                    associate=True, update_ls_ref=True, additional_vips=True)
 
             # NOTE(mjozefcz): In case of LS references where passed -
             # apply LS to the new LB. That could happend in case we
