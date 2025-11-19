@@ -3910,6 +3910,88 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
             self.ref_lb1,
             network_id=self.network.uuid)
 
+    def test__ls_is_provider_network_true(self):
+        # Create a logical switch with provider network external_id
+        provider_ls = fakes.FakeOvsdbRow.create_one_ovsdb_row(
+            attrs={'name': 'provider-network',
+                   'ports': [],
+                   'load_balancer': [],
+                   'external_ids': {
+                       'neutron:provnet-physical-network': 'physnet1'}})
+
+        result = self.helper._ls_is_provider_network(provider_ls)
+        self.assertTrue(result)
+
+    def test__ls_is_provider_network_false(self):
+        # Create a logical switch without provider network external_id
+        tenant_ls = fakes.FakeOvsdbRow.create_one_ovsdb_row(
+            attrs={'name': 'tenant-network',
+                   'ports': [],
+                   'load_balancer': [],
+                   'external_ids': {}})
+
+        result = self.helper._ls_is_provider_network(tenant_ls)
+        self.assertFalse(result)
+
+    def test__ls_is_provider_network_none(self):
+        result = self.helper._ls_is_provider_network(None)
+        self.assertFalse(result)
+
+    def test__update_lb_to_ls_association_skips_provider_network(self):
+        self._update_lb_to_ls_association.stop()
+        self._get_lb_to_ls_association_commands.stop()
+
+        # Create a provider network with external_id
+        provider_network = fakes.FakeOvsdbRow.create_one_ovsdb_row(
+            attrs={'name': 'neutron-provider-net',
+                   'uuid': 'provider-net-uuid',
+                   'ports': [],
+                   'load_balancer': [],
+                   'external_ids': {
+                       'neutron:provnet-physical-network': 'physnet1'}})
+
+        # Mock ls_get to return the provider network
+        (self.helper.ovn_nbdb_api.ls_get.return_value.
+            execute.return_value) = provider_network
+
+        # Try to associate LB to the provider network
+        self.helper._update_lb_to_ls_association(
+            self.ref_lb1, network_id='provider-net-uuid',
+            associate=True, update_ls_ref=True)
+
+        # Verify that ls_lb_add was NOT called (no association)
+        self.helper.ovn_nbdb_api.ls_lb_add.assert_not_called()
+        # Verify that db_set was NOT called (no ls_refs update)
+        self.helper.ovn_nbdb_api.db_set.assert_not_called()
+
+    def test__update_lb_to_ls_association_allows_tenant_network(self):
+        self._update_lb_to_ls_association.stop()
+        self._get_lb_to_ls_association_commands.stop()
+
+        # Create a tenant network without provider external_id
+        tenant_network = fakes.FakeOvsdbRow.create_one_ovsdb_row(
+            attrs={'name': 'neutron-tenant-net',
+                   'uuid': 'tenant-net-uuid',
+                   'ports': [],
+                   'load_balancer': [],
+                   'external_ids': {}})
+
+        # Mock ls_get to return the tenant network
+        (self.helper.ovn_nbdb_api.ls_get.return_value.
+            execute.return_value) = tenant_network
+
+        # Associate LB to the tenant network
+        self.helper._update_lb_to_ls_association(
+            self.ref_lb1, network_id='tenant-net-uuid',
+            associate=True, update_ls_ref=True)
+
+        # Verify that ls_lb_add WAS called (association happened)
+        self.helper.ovn_nbdb_api.ls_lb_add.assert_called_once_with(
+            'tenant-net-uuid', self.ref_lb1.uuid, may_exist=True)
+        # Verify that db_set WAS called (ls_refs updated)
+        self.helper.ovn_nbdb_api.db_set.assert_called_once_with(
+            'Load_Balancer', self.ref_lb1.uuid, mock.ANY)
+
     @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
     def test_logical_switch_port_update_event_vip_port_associate(self,
                                                                  net_cli):
