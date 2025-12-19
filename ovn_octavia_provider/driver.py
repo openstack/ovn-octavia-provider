@@ -749,7 +749,7 @@ class OvnProviderDriver(driver_base.ProviderDriver):
                         if not member.subnet_id:
                             member.subnet_id = loadbalancer.vip_subnet_id
                         status_member = self._ovn_helper.member_create(
-                            self._get_member_request_info(member))
+                            [self._get_member_request_info(member)])
                         status[constants.MEMBERS].append(
                             status_member[constants.MEMBERS][0])
                     if pool.healthmonitor is not None and not isinstance(
@@ -819,7 +819,7 @@ class OvnProviderDriver(driver_base.ProviderDriver):
                                         'subnet_id': ovn_mb_info[2],
                                     }
                                     self._ovn_helper.member_delete(
-                                        mb_delete_info)
+                                        [mb_delete_info])
 
                                     mb_delete_dvr_info = {
                                         'id': ovn_mb_info[3],
@@ -830,7 +830,7 @@ class OvnProviderDriver(driver_base.ProviderDriver):
                                             ovn_const.REQ_INFO_MEMBER_DELETED
                                     }
                                     self._ovn_helper.handle_member_dvr(
-                                        mb_delete_dvr_info)
+                                        [mb_delete_dvr_info])
                         # Check health monitor
                         if pool.healthmonitor is not None and not isinstance(
                                 pool.healthmonitor, o_datamodels.UnsetType):

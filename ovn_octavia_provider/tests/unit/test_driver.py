@@ -1648,8 +1648,8 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
                 self.ref_lb_fully_populated.pools[0]),
         )
         mock_member_create.assert_called_once_with(
-            self.driver._get_member_request_info(
-                self.ref_lb_fully_populated.pools[0].members[0]),
+            [self.driver._get_member_request_info(
+                self.ref_lb_fully_populated.pools[0].members[0])],
         )
         expected_status = {
             constants.LOADBALANCERS: [{'id': self.loadbalancer_id}],
@@ -1712,8 +1712,8 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
         self.ref_lb_fully_populated.pools[0].members[0].subnet_id = None
         self.driver._ensure_loadbalancer(self.ref_lb_fully_populated)
         mock_member_create.assert_called_once_with(
-            self.driver._get_member_request_info(
-                self.ref_lb_fully_populated.pools[0].members[0]),
+            [self.driver._get_member_request_info(
+                self.ref_lb_fully_populated.pools[0].members[0])],
         )
         expected_status = {
             constants.LOADBALANCERS: [{'id': self.loadbalancer_id}],
@@ -1954,8 +1954,8 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
                 self.ref_lb_fully_populated.pools[0]),
         )
         mock_member_create.assert_called_once_with(
-            self.driver._get_member_request_info(
-                self.ref_lb_fully_populated.pools[0].members[0]),
+            [self.driver._get_member_request_info(
+                self.ref_lb_fully_populated.pools[0].members[0])],
         )
         expected_status = {
             constants.LOADBALANCERS: [{'id': self.loadbalancer_id}],
@@ -2262,9 +2262,9 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
             mock.ANY,
             f"pool_{self.ref_lb_fully_populated.pools[0].pool_id}"
         )
-        mock_member_delete.assert_called_once_with({
+        mock_member_delete.assert_called_once_with([{
             'id': 'foo',
-            'subnet_id': 'subnet'}
+            'subnet_id': 'subnet'}]
         )
 
     @mock.patch.object(ovn_helper.OvnProviderHelper, 'get_octavia_lbs')
