@@ -275,7 +275,7 @@ class TestOvnOctaviaBase(base.TestOVNFunctionalBase,
         router = {'router':
                   {'name': name,
                    'admin_state_up': True,
-                   'tenant_id': self._tenant_id}}
+                   'tenant_id': self._project_id}}
         if gw_info:
             router['router']['external_gateway_info'] = gw_info
         router = self.l3_plugin.create_router(self.context, router)

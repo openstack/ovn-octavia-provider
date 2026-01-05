@@ -122,7 +122,7 @@ class TestOvnOctaviaProviderIntegration(ovn_base.TestOvnOctaviaBase):
         self._attach_router_to_subnet(sub2_id, router_id)
         p1_ip, p1_id = self._create_port_on_network(network_N1)
         fip_info = {'floatingip': {
-            'tenant_id': self._tenant_id,
+            'tenant_id': self._project_id,
             'floating_network_id': ext_net['id'],
             'port_id': None,
             'fixed_ip_address': None}}

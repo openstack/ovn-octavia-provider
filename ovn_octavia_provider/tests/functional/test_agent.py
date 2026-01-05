@@ -238,7 +238,7 @@ class TestOvnOctaviaProviderAgent(ovn_base.TestOvnOctaviaBase):
             self.context, filters={'id': [vip_port_id]})[0]
         self.l3_plugin.create_floatingip(
             self.context, {'floatingip': {
-                'tenant_id': self._tenant_id,
+                'tenant_id': self._project_id,
                 'floating_network_id': e1['network']['id'],
                 'subnet_id': None,
                 'floating_ip_address': '100.0.0.20',
@@ -330,7 +330,7 @@ class TestOvnOctaviaProviderAgent(ovn_base.TestOvnOctaviaBase):
             self.context, filters={'id': [addi_vip_port_id]})[0]
         self.l3_plugin.create_floatingip(
             self.context, {'floatingip': {
-                'tenant_id': self._tenant_id,
+                'tenant_id': self._project_id,
                 'floating_network_id': e1['network']['id'],
                 'subnet_id': None,
                 'floating_ip_address': '100.0.0.20',
