@@ -118,11 +118,19 @@ class NeutronAuth(metaclass=Singleton):
         try:
             ksession = KeystoneSession('neutron')
 
-            kwargs = {}
+            kwargs = {'region_name': CONF.neutron.region_name}
+            try:
+                interface = CONF.neutron.valid_interfaces[0]
+            except (TypeError, LookupError):
+                interface = CONF.neutron.valid_interfaces
+            if interface:
+                kwargs['interface'] = interface
             if CONF.neutron.endpoint_override:
                 kwargs['network_endpoint_override'] = (
                     CONF.neutron.endpoint_override)
-
+                if CONF.neutron.endpoint_override.startswith("https"):
+                    kwargs['insecure'] = CONF.neutron.insecure
+                    kwargs['cacert'] = CONF.neutron.cafile
             self.network_proxy = openstack.connection.Connection(
                 session=ksession.session, **kwargs).network
         except Exception:
