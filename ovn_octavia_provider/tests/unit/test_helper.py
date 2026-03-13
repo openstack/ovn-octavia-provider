@@ -890,7 +890,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
             mock.call('port_addi_vip_id')]
         del_port.assert_has_calls(expected_calls)
 
-    @mock.patch.object(ovn_helper.OvnProviderHelper, '_find_lr_of_ls')
+    @mock.patch.object(ovn_helper.OvnProviderHelper, '_find_lrs_of_ls')
     @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
     def test_lb_create_assoc_lb_to_lr_by_step(self, net_cli, f_lr):
         self.mock_find_ovn_lbs.stop()
@@ -899,7 +899,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
             execute.return_value = [self.ovn_lb]
         self._update_lb_to_ls_association.stop()
         self.lb['admin_state_up'] = True
-        f_lr.return_value = self.router
+        f_lr.return_value = [self.router]
         net_cli.return_value.ports.return_value = self.ports
         self.helper._update_lb_to_lr_association.side_effect = [
             idlutils.RowNotFound]
@@ -1147,13 +1147,13 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
                  "balancer sync: fail")
             )
 
-    @mock.patch.object(ovn_helper.OvnProviderHelper, '_find_lr_of_ls')
+    @mock.patch.object(ovn_helper.OvnProviderHelper, '_find_lrs_of_ls')
     @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
     def test_lb_sync_no_selection_fields(self, net_cli, m_f):
         self.lb['admin_state_up'] = True
         self.ovn_lb.selection_fields = []
         net_cli.return_value.ports.return_value = self.ports
-        m_f.return_value = self.router
+        m_f.return_value = [self.router]
         self.helper.lb_sync(self.lb, self.ovn_lb)
         self.helper._update_lb_to_ls_association.assert_not_called()
         self.helper.ovn_nbdb_api.db_set.assert_has_calls([
@@ -1170,12 +1170,12 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         self.helper._update_lb_to_lr_association.assert_called_once_with(
             self.ovn_lb, self.router, is_sync=True)
 
-    @mock.patch.object(ovn_helper.OvnProviderHelper, '_find_lr_of_ls')
+    @mock.patch.object(ovn_helper.OvnProviderHelper, '_find_lrs_of_ls')
     @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
     def test_lb_sync_get_lr(self, net_cli, m_f):
         self.lb['admin_state_up'] = True
         net_cli.return_value.ports.return_value = self.ports
-        m_f.return_value = self.router
+        m_f.return_value = [self.router]
         self.helper.lb_sync(self.lb, self.ovn_lb)
         self.helper._update_lb_to_ls_association.assert_not_called()
         self.helper.ovn_nbdb_api.db_set.assert_called_once_with(
@@ -1187,14 +1187,14 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         self.helper._update_lb_to_lr_association.assert_called_once_with(
             self.ovn_lb, self.router, is_sync=True)
 
-    @mock.patch.object(ovn_helper.OvnProviderHelper, '_find_lr_of_ls')
+    @mock.patch.object(ovn_helper.OvnProviderHelper, '_find_lrs_of_ls')
     @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
     def test_lb_sync_get_lr_by_step(self, net_cli, m_f):
         self.helper._update_lb_to_lr_association.side_effect = [
             idlutils.RowNotFound]
         self.lb['admin_state_up'] = True
         net_cli.return_value.ports.return_value = self.ports
-        m_f.return_value = self.router
+        m_f.return_value = [self.router]
         self.helper.lb_sync(self.lb, self.ovn_lb)
         self.helper._update_lb_to_ls_association.assert_not_called()
         self.helper.ovn_nbdb_api.db_set.assert_called_once_with(
@@ -2345,24 +2345,24 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         self.helper.ovn_nbdb_api.db_clear.assert_not_called()
 
     @mock.patch.object(ovn_helper.OvnProviderHelper, '_find_ovn_lb_by_pool_id')
-    @mock.patch.object(ovn_helper.OvnProviderHelper, '_find_lr_of_ls')
+    @mock.patch.object(ovn_helper.OvnProviderHelper, '_find_lrs_of_ls')
     @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
     def test_member_create_lb_add_from_lr(self, net_cli, f_lr, folbpi):
         fake_subnet = fakes.FakeSubnet.create_one_subnet()
         net_cli.return_value.get_subnet.return_value = fake_subnet
-        f_lr.return_value = self.router
+        f_lr.return_value = [self.router]
         pool_key = 'pool_%s' % self.pool_id
         folbpi.return_value = (pool_key, self.ovn_lb)
         self.ovn_lb.external_ids = mock.MagicMock()
         status = self.helper.member_create([self.member])
         self.assertEqual(status['loadbalancers'][0]['provisioning_status'],
                          constants.ACTIVE)
-        f_lr.assert_called_once_with(self.network, fake_subnet['gateway_ip'])
+        f_lr.assert_called_once_with(self.network, fake_subnet['cidr'])
         self.helper._update_lb_to_lr_association.assert_called_once_with(
             self.ovn_lb, self.router)
 
     @mock.patch.object(ovn_helper.OvnProviderHelper, '_find_ls_for_lr')
-    @mock.patch.object(ovn_helper.OvnProviderHelper, '_find_lr_of_ls')
+    @mock.patch.object(ovn_helper.OvnProviderHelper, '_find_lrs_of_ls')
     @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
     def test_member_create_lb_add_from_lr_no_ls(self, net_cli, f_lr, f_ls):
         fake_subnet = fakes.FakeSubnet.create_one_subnet()
@@ -2398,12 +2398,12 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
              mock.call('pool_%s%s' % (self.pool_id, ':D'))])
 
     @mock.patch.object(ovn_helper.OvnProviderHelper, '_find_ovn_lb_by_pool_id')
-    @mock.patch.object(ovn_helper.OvnProviderHelper, '_find_lr_of_ls')
+    @mock.patch.object(ovn_helper.OvnProviderHelper, '_find_lrs_of_ls')
     @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
     def test_member_create_lb_add_from_lr_retry(self, net_cli, f_lr, folbpi):
         fake_subnet = fakes.FakeSubnet.create_one_subnet()
         net_cli.return_value.get_subnet.return_value = fake_subnet
-        f_lr.return_value = self.router
+        f_lr.return_value = [self.router]
         pool_key = 'pool_%s' % self.pool_id
         folbpi.return_value = (pool_key, self.ovn_lb)
         self.helper._update_lb_to_lr_association.side_effect = [
@@ -2412,7 +2412,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         status = self.helper.member_create([self.member])
         self.assertEqual(status['loadbalancers'][0]['provisioning_status'],
                          constants.ACTIVE)
-        f_lr.assert_called_once_with(self.network, fake_subnet.gateway_ip)
+        f_lr.assert_called_once_with(self.network, fake_subnet.cidr)
         self.helper._update_lb_to_lr_association.assert_called_once_with(
             self.ovn_lb, self.router)
         self.helper._update_lb_to_lr_association_by_step \
@@ -2687,11 +2687,11 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
             [mock.call('pool_%s' % self.pool_id),
              mock.call('pool_%s%s' % (self.pool_id, ':D'))])
 
-    @mock.patch.object(ovn_helper.OvnProviderHelper, '_find_lr_of_ls')
+    @mock.patch.object(ovn_helper.OvnProviderHelper, '_find_lrs_of_ls')
     @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
     @mock.patch.object(ovn_helper.OvnProviderHelper, '_find_ovn_lb_by_pool_id')
     def test_member_sync_exist_member(self, folbpi, net_cli, m_flrols):
-        m_flrols.return_value = self.router
+        m_flrols.return_value = [self.router]
         pool_key = 'pool_%s' % self.pool_id
         self.ovn_lb.external_ids.update(
             {pool_key: self.member_line})
@@ -2709,7 +2709,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         self.assertEqual(
             self.helper._update_lb_to_lr_association_by_step.call_count, 0)
 
-    @mock.patch.object(ovn_helper.OvnProviderHelper, '_find_lr_of_ls')
+    @mock.patch.object(ovn_helper.OvnProviderHelper, '_find_lrs_of_ls')
     @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
     @mock.patch.object(ovn_helper.OvnProviderHelper, '_find_ovn_lb_by_pool_id')
     def test_member_sync_exist_member_lr_error(
@@ -2717,7 +2717,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
     ):
         self.helper._update_lb_to_lr_association.side_effect = [
             idlutils.RowNotFound]
-        m_flrols.return_value = self.router
+        m_flrols.return_value = [self.router]
         pool_key = 'pool_%s' % self.pool_id
         self.ovn_lb.external_ids.update(
             {pool_key: self.member_line})
@@ -2735,7 +2735,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         self.assertEqual(
             self.helper._update_lb_to_lr_association_by_step.call_count, 1)
 
-    @mock.patch.object(ovn_helper.OvnProviderHelper, '_find_lr_of_ls')
+    @mock.patch.object(ovn_helper.OvnProviderHelper, '_find_lrs_of_ls')
     @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
     @mock.patch.object(ovn_helper.OvnProviderHelper, '_find_ovn_lb_by_pool_id')
     def test_member_sync_exist_member_lr_not_found(
@@ -3280,6 +3280,34 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
             (mock.call('neutron-qwr', self.ref_lb1.uuid, if_exists=True))])
 
     @mock.patch.object(ovn_helper.OvnProviderHelper, '_find_ls_for_lr')
+    def test__del_lb_to_lr_association_with_remaining_routers(self, f_ls):
+        # Test that when deleting LB from one router, networks connected to
+        # remaining routers are preserved (not removed from the LB)
+        router2 = fakes.FakeOVNRouter.create_one_router(
+            attrs={'name': 'router2'})
+        # LB is associated with both routers
+        lr_ref = '%s,%s' % (self.router.name, router2.name)
+
+        # router1 is connected to neutron-xyz and neutron-qwr
+        # router2 is connected to neutron-xyz (shared) and neutron-abc
+        def find_ls_for_lr_side_effect(router, ip_version):
+            if router.name == self.router.name:
+                return ['neutron-xyz', 'neutron-qwr']
+            elif router.name == router2.name:
+                return ['neutron-xyz', 'neutron-abc']
+            return []
+
+        f_ls.side_effect = find_ls_for_lr_side_effect
+        self.helper.ovn_nbdb_api.lookup.return_value = router2
+
+        self.helper._del_lb_to_lr_association(self.ref_lb1, self.router,
+                                              lr_ref)
+        # neutron-xyz should NOT be removed because router2 is still connected
+        # neutron-qwr should be removed because only router1 was connected
+        self.helper.ovn_nbdb_api.ls_lb_del.assert_called_once_with(
+            'neutron-qwr', self.ref_lb1.uuid, if_exists=True)
+
+    @mock.patch.object(ovn_helper.OvnProviderHelper, '_find_ls_for_lr')
     def test__add_lb_to_lr_association(self, f_ls):
         lr_ref = 'foo'
         f_ls.return_value = ['neutron-xyz', 'neutron-qwr']
@@ -3409,7 +3437,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
             ('listener', '123'),
             self.helper._extract_listener_key_value('listener:123'))
 
-    def test__find_lr_of_ls(self):
+    def test__find_lrs_of_ls(self):
         lsp = fakes.FakeOvsdbRow.create_one_ovsdb_row(
             attrs={
                 'external_ids': {
@@ -3453,10 +3481,10 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
 
         (self.helper.ovn_nbdb_api.get_lrs.return_value.
             execute.return_value) = [lr2, lr]
-        returned_lr = self.helper._find_lr_of_ls(ls, '10.10.10.1')
-        self.assertEqual(lr, returned_lr)
+        returned_lr = self.helper._find_lrs_of_ls(ls, '10.10.10.0/24')
+        self.assertListEqual([lr], returned_lr)
 
-    def test__find_lr_of_ls_multiple_address_ipv4(self):
+    def test__find_lrs_of_ls_multiple_address_ipv4(self):
         lsp = fakes.FakeOvsdbRow.create_one_ovsdb_row(
             attrs={
                 'external_ids': {
@@ -3484,10 +3512,64 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
 
         (self.helper.ovn_nbdb_api.get_lrs.return_value.
             execute.return_value) = [lr]
-        returned_lr = self.helper._find_lr_of_ls(ls, '10.10.20.1')
-        self.assertEqual(lr, returned_lr)
+        returned_lr = self.helper._find_lrs_of_ls(ls, '10.10.20.0/24')
+        self.assertListEqual([lr], returned_lr)
 
-    def test__find_lr_of_ls_multiple_address_ipv6(self):
+    def test__find_lrs_of_ls_multiple_lrps(self):
+        lsp1 = fakes.FakeOvsdbRow.create_one_ovsdb_row(
+            attrs={
+                'external_ids': {
+                    ovn_const.OVN_ROUTER_NAME_EXT_ID_KEY: 'router1',
+                    'neutron:cidrs': (
+                        '10.10.10.1/24 10.10.20.1/24'
+                    ),
+                    ovn_const.OVN_DEVICE_OWNER_EXT_ID_KEY:
+                        n_const.DEVICE_OWNER_ROUTER_INTF},
+                'type': 'router',
+                'options': {
+                    'router-port': 'lrp-foo-name'},
+            })
+        lsp2 = fakes.FakeOvsdbRow.create_one_ovsdb_row(
+            attrs={
+                'external_ids': {
+                    ovn_const.OVN_ROUTER_NAME_EXT_ID_KEY: 'router2',
+                    'neutron:cidrs': (
+                        '10.10.20.250/24'
+                    ),
+                    ovn_const.OVN_DEVICE_OWNER_EXT_ID_KEY:
+                        n_const.DEVICE_OWNER_ROUTER_INTF},
+                'type': 'router',
+                'options': {
+                    'router-port': 'lrp-bar-name'},
+            })
+        lrp1 = fakes.FakeOvsdbRow.create_one_ovsdb_row(
+            attrs={
+                'name': 'lrp-foo-name',
+            })
+        lrp2 = fakes.FakeOvsdbRow.create_one_ovsdb_row(
+            attrs={
+                'name': 'lrp-bar-name',
+            })
+        lr1 = fakes.FakeOVNRouter.create_one_router(
+            attrs={
+                'name': 'router1',
+                'ports': [lrp1]
+            })
+        lr2 = fakes.FakeOVNRouter.create_one_router(
+            attrs={
+                'name': 'router2',
+                'ports': [lrp2]
+            })
+
+        ls = fakes.FakeOvsdbRow.create_one_ovsdb_row(
+            attrs={'ports': [lsp1, lsp2]})
+
+        (self.helper.ovn_nbdb_api.get_lrs.return_value.
+            execute.return_value) = [lr1, lr2]
+        returned_lr = self.helper._find_lrs_of_ls(ls, '10.10.20.0/24')
+        self.assertCountEqual([lr2, lr1], returned_lr)
+
+    def test__find_lrs_of_ls_multiple_address_ipv6(self):
         lsp = fakes.FakeOvsdbRow.create_one_ovsdb_row(
             attrs={
                 'external_ids': {
@@ -3516,11 +3598,11 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
 
         (self.helper.ovn_nbdb_api.get_lrs.return_value.
             execute.return_value) = [lr]
-        returned_lr = self.helper._find_lr_of_ls(
-            ls, 'fd61:5fe4:978c:a334:0:3eff:24ab:f816')
-        self.assertEqual(lr, returned_lr)
+        returned_lr = self.helper._find_lrs_of_ls(
+            ls, 'fd61:5fe4:978c:a334::/64')
+        self.assertListEqual([lr], returned_lr)
 
-    def test__find_lr_of_ls_no_lrs(self):
+    def test__find_lrs_of_ls_no_lrs(self):
         lsp = fakes.FakeOvsdbRow.create_one_ovsdb_row(
             attrs={
                 'external_ids': {
@@ -3547,10 +3629,10 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
             attrs={'ports': [lsp2, lsp]})
         (self.helper.ovn_nbdb_api.get_lrs.return_value.
             execute.return_value) = []
-        returned_lr = self.helper._find_lr_of_ls(ls, '10.10.10.1')
-        self.assertIsNone(returned_lr)
+        returned_lr = self.helper._find_lrs_of_ls(ls, '10.10.10.0/24')
+        self.assertListEqual(returned_lr, [])
 
-    def test__find_lr_of_ls_gw_port_id(self):
+    def test__find_lrs_of_ls_gw_port_id(self):
         lsp = fakes.FakeOvsdbRow.create_one_ovsdb_row(
             attrs={
                 'external_ids': {
@@ -3572,10 +3654,10 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
 
         (self.helper.ovn_nbdb_api.get_lrs.return_value.
             execute.return_value) = [lr]
-        returned_lr = self.helper._find_lr_of_ls(ls)
-        self.assertEqual(lr, returned_lr)
+        returned_lr = self.helper._find_lrs_of_ls(ls)
+        self.assertListEqual([lr], returned_lr)
 
-    def test__find_lr_of_ls_no_lrp_name(self):
+    def test__find_lrs_of_ls_no_lrp_name(self):
         lsp = fakes.FakeOvsdbRow.create_one_ovsdb_row(
             attrs={
                 'external_ids': {
@@ -3588,10 +3670,10 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
             })
         ls = fakes.FakeOvsdbRow.create_one_ovsdb_row(
             attrs={'ports': [lsp]})
-        returned_lr = self.helper._find_lr_of_ls(ls)
-        self.assertIsNone(returned_lr)
+        returned_lr = self.helper._find_lrs_of_ls(ls)
+        self.assertListEqual(returned_lr, [])
 
-    def test__find_lr_of_ls_no_router_type_port(self):
+    def test__find_lrs_of_ls_no_router_type_port(self):
         lsp = fakes.FakeOvsdbRow.create_one_ovsdb_row(
             attrs={
                 'external_ids': {
@@ -3604,16 +3686,16 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
             })
         ls = fakes.FakeOvsdbRow.create_one_ovsdb_row(
             attrs={'ports': [lsp]})
-        returned_lr = self.helper._find_lr_of_ls(ls)
-        self.assertIsNone(returned_lr)
+        returned_lr = self.helper._find_lrs_of_ls(ls)
+        self.assertListEqual(returned_lr, [])
 
-    def test__find_lr_of_ls_no_lrp(self):
+    def test__find_lrs_of_ls_no_lrp(self):
         ls = fakes.FakeOvsdbRow.create_one_ovsdb_row(
             attrs={'ports': []})
-        returned_lr = self.helper._find_lr_of_ls(ls)
+        returned_lr = self.helper._find_lrs_of_ls(ls)
         (self.helper.ovn_nbdb_api.tables['Logical_Router'].rows.
             values.assert_not_called())
-        self.assertIsNone(returned_lr)
+        self.assertListEqual(returned_lr, [])
 
     def test__get_lb_to_ls_association_command_empty_network_and_subnet(self):
         self._get_lb_to_ls_association_commands.stop()
