@@ -594,12 +594,12 @@ class OvnProviderHelper():
         try:
             ovn_ls = self.ovn_nbdb_api.ls_get(ls_name).execute(
                 check_error=True)
-            ovn_lr = self._find_lr_of_ls(ovn_ls, subnet.gateway_ip)
+            ovn_lrs = self._find_lrs_of_ls(ovn_ls, subnet.cidr)
         except Exception as e:
             LOG.warning("OVN Logical Switch or Logical Router not found: "
                         f"{e}")
-            ovn_lr = None
-        if ovn_lr:
+            ovn_lrs = []
+        for ovn_lr in ovn_lrs:
             self._sync_lb_to_lr_association(ovn_lb, ovn_lr)
 
         # NOTE(mjozefcz): In case of LS references where passed -
@@ -770,17 +770,17 @@ class OvnProviderHelper():
                                          ('external_ids', pool_data))
             )
 
-    def _get_related_lr(self, member):
-        """Retrieve the logical router related to the member's subnet."""
+    def _get_related_lrs(self, member):
+        """Retrieve the logical routers related to the member's subnet."""
         neutron_client = clients.get_neutron_client()
         try:
             subnet = neutron_client.get_subnet(member[constants.SUBNET_ID])
             ls_name = utils.ovn_name(subnet.network_id)
             ovn_ls = self.ovn_nbdb_api.ls_get(ls_name).execute(
                 check_error=True)
-            return self._find_lr_of_ls(ovn_ls, subnet.gateway_ip)
+            return self._find_lrs_of_ls(ovn_ls, subnet.cidr)
         except (idlutils.RowNotFound, openstack.exceptions.ResourceNotFound):
-            return None
+            return []
 
     def _lb_status(self, loadbalancer, provisioning_status, operating_status):
         """Return status for the LoadBalancer."""
@@ -1091,21 +1091,23 @@ class OvnProviderHelper():
 
     def _del_lb_to_lr_association(self, ovn_lb, ovn_lr, lr_ref):
         commands = []
+        remaining_lr_refs = []
         if lr_ref:
             try:
-                lr_ref = [r for r in
-                          [lr.strip() for lr in lr_ref.split(',')]
-                          if r != ovn_lr.name]
+                remaining_lr_refs = [r for r in
+                                     [lr.strip() for lr in lr_ref.split(',')]
+                                     if r != ovn_lr.name]
             except ValueError:
                 LOG.warning('The loadbalancer %(lb)s is not associated with '
                             'the router %(router)s',
                             {'lb': ovn_lb.name, 'router': ovn_lr.name})
-            if lr_ref:
+            if remaining_lr_refs:
                 commands.append(
                     self.ovn_nbdb_api.db_set(
                         'Load_Balancer', ovn_lb.uuid,
                         ('external_ids',
-                         {ovn_const.LB_EXT_IDS_LR_REF_KEY: ','.join(lr_ref)})))
+                         {ovn_const.LB_EXT_IDS_LR_REF_KEY:
+                          ','.join(remaining_lr_refs)})))
             else:
                 commands.append(
                     self.ovn_nbdb_api.db_remove(
@@ -1116,9 +1118,28 @@ class OvnProviderHelper():
                                             if_exists=True))
         lb_vip = netaddr.IPNetwork(
             ovn_lb.external_ids.get(ovn_const.LB_EXT_IDS_VIP_KEY))
+
+        # Get networks still connected to remaining routers that have this LB
+        # to avoid removing the LB from networks that are still reachable
+        # through other routers
+        networks_in_remaining_routers = set()
+        for lr_name in remaining_lr_refs:
+            try:
+                remaining_lr = self.ovn_nbdb_api.lookup(
+                    'Logical_Router', lr_name)
+                for net in self._find_ls_for_lr(
+                        remaining_lr, ip_version=lb_vip.version):
+                    networks_in_remaining_routers.add(net)
+            except idlutils.RowNotFound:
+                LOG.debug("Router %s not found when checking remaining "
+                          "associations", lr_name)
+
         for net in self._find_ls_for_lr(ovn_lr, ip_version=lb_vip.version):
-            commands.append(self.ovn_nbdb_api.ls_lb_del(
-                net, ovn_lb.uuid, if_exists=True))
+            # Only remove LB from network if it's not connected to other
+            # routers that still have this LB
+            if net not in networks_in_remaining_routers:
+                commands.append(self.ovn_nbdb_api.ls_lb_del(
+                    net, ovn_lb.uuid, if_exists=True))
         return commands
 
     def _add_lb_to_lr_association(self, ovn_lb, ovn_lr, lr_rf, is_sync=False):
@@ -1216,26 +1237,32 @@ class OvnProviderHelper():
                 ls.append(utils.ovn_name(port_network_name))
         return ls
 
-    def _find_lr_of_ls(self, ovn_ls, subnet_gateway_ip=None):
-        lsp_router_port = None
+    def _find_lrs_of_ls(self, ovn_ls, subnet_cidr=None):
+        lsp_router_ports = []
         for port in ovn_ls.ports or []:
             if (port.type == 'router' and
                     port.external_ids.get(
                         ovn_const.OVN_DEVICE_OWNER_EXT_ID_KEY) ==
                     n_const.DEVICE_OWNER_ROUTER_INTF):
-                if subnet_gateway_ip:
+                if subnet_cidr:
                     for port_cidr in port.external_ids[
                             ovn_const.OVN_PORT_CIDR_EXT_ID_KEY].split():
-                        port_ip = netaddr.IPNetwork(port_cidr).ip
-                        if netaddr.IPAddress(subnet_gateway_ip) == port_ip:
+                        port_cidr = netaddr.IPNetwork(port_cidr).cidr
+                        if port_cidr == netaddr.IPNetwork(subnet_cidr).cidr:
                             break
                     else:
                         continue
-                lsp_router_port = port
-                break
-        else:
-            return
+                lsp_router_ports.append(port)
+        # Avoiding duplicated routers while using routers
+        # with multiple gateway ports
+        result = set()
+        for lsp in lsp_router_ports:
+            lr = self._find_lr_from_lsp(lsp)
+            if lr:
+                result.add(lr)
+        return list(result)
 
+    def _find_lr_from_lsp(self, lsp_router_port):
         lrp_name = lsp_router_port.options.get('router-port')
         if not lrp_name:
             return
@@ -1626,8 +1653,8 @@ class OvnProviderHelper():
             ls_name = utils.ovn_name(port.network_id)
             ovn_ls = self.ovn_nbdb_api.ls_get(ls_name).execute(
                 check_error=True)
-            ovn_lr = self._find_lr_of_ls(ovn_ls, subnet.gateway_ip)
-            if ovn_lr:
+            ovn_lrs = self._find_lrs_of_ls(ovn_ls, subnet.cidr)
+            for ovn_lr in ovn_lrs:
                 try:
                     # NOTE(froyo): This is the association of the lb to the
                     # router associated to VIP ls and all ls connected to that
@@ -2632,13 +2659,13 @@ class OvnProviderHelper():
             ovn_lb, subnet_id=member[constants.SUBNET_ID], associate=True,
             update_ls_ref=True, is_sync=True)
 
-        # Make sure that all logical switches related to logical router
+        # Make sure that all logical switches related to logical routers
         # are associated with the load balancer. This is needed to handle
         # potential race that happens when lrp and lb are created at the
         # same time.
-        ovn_lr = self._get_related_lr(member)
+        ovn_lrs = self._get_related_lrs(member)
 
-        if ovn_lr:
+        for ovn_lr in ovn_lrs:
             self._sync_lb_to_lr_association(ovn_lb, ovn_lr)
 
         # TODO(froyo): Check if originally status in Octavia is ERROR if
@@ -2686,20 +2713,19 @@ class OvnProviderHelper():
         # potential race that happens when lrp and lb are created at the
         # same time.
         neutron_client = clients.get_neutron_client()
-        ovn_lr = None
+        ovn_lrs = []
         try:
             subnet = neutron_client.get_subnet(subnet_id)
             ls_name = utils.ovn_name(subnet.network_id)
             ovn_ls = self.ovn_nbdb_api.ls_get(ls_name).execute(
                 check_error=True)
-            ovn_lr = self._find_lr_of_ls(
-                ovn_ls, subnet.gateway_ip)
+            ovn_lrs = self._find_lrs_of_ls(
+                ovn_ls, subnet.cidr)
         except openstack.exceptions.ResourceNotFound:
             pass
         except idlutils.RowNotFound:
             pass
-
-        if ovn_lr:
+        for ovn_lr in ovn_lrs:
             try:
                 self._update_lb_to_lr_association(ovn_lb, ovn_lr)
             except idlutils.RowNotFound:
