@@ -31,3 +31,7 @@
             voting: true
             vars:
               pytest_addopts_global: "--skipregex=OctaviaBasicTrafficScenarioTest"
+    periodic-weekly:
+      jobs:
+        - openstack-tox-py313
+        - ovn-octavia-provider-functional-master
