@@ -133,6 +133,110 @@ class TestDBInconsistenciesPeriodics(ovn_base.TestOvnOctaviaBase):
         net_cli.assert_has_calls(expected_call)
         self.maint.ovn_nbdb_api.db_find_rows.assert_not_called()
 
+    @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
+    def test_add_device_owner_lb_vip_ports(self, net_cli):
+        legacy_lb_id = 'lb-uuid-legacy'
+        protected_lb_id = 'lb-uuid-protected'
+        addit_port_id = 'addit-port-uuid'
+        ovn_lbs = [
+            fakes.FakeOVNLB.create_one_lb(
+                attrs={
+                    'uuid': 'ovn-lb-uuid-legacy',
+                    'name': legacy_lb_id,
+                    'external_ids': {
+                        ovn_const.LB_EXT_IDS_VIP_PORT_ID_KEY:
+                            'vip-port-legacy',
+                        ovn_const.LB_EXT_IDS_ADDIT_VIP_PORT_ID_KEY:
+                            addit_port_id,
+                    }}),
+            fakes.FakeOVNLB.create_one_lb(
+                attrs={
+                    'uuid': 'ovn-lb-uuid-protected',
+                    'name': protected_lb_id,
+                    'external_ids': {
+                        ovn_const.LB_EXT_IDS_VIP_PORT_ID_KEY:
+                            'vip-port-protected',
+                    }}),
+        ]
+        self.maint.ovn_nbdb_api.db_list_rows.return_value.\
+            execute.return_value = ovn_lbs
+
+        legacy_vip = fakes.FakePort.create_one_port(
+            attrs={'id': 'vip-port-legacy',
+                   'name': '%s%s' % (ovn_const.LB_VIP_PORT_PREFIX,
+                                     legacy_lb_id),
+                   'device_owner': '',
+                   'device_id': ''})
+        legacy_addit = fakes.FakePort.create_one_port(
+            attrs={'id': addit_port_id,
+                   'name': '%s1-%s' % (ovn_const.LB_VIP_ADDIT_PORT_PREFIX,
+                                       legacy_lb_id),
+                   'device_owner': '',
+                   'device_id': ''})
+        protected_vip = fakes.FakePort.create_one_port(
+            attrs={'id': 'vip-port-protected',
+                   'name': '%s%s' % (ovn_const.LB_VIP_PORT_PREFIX,
+                                     protected_lb_id),
+                   'device_owner': ovn_const.OVN_LB_VIP_PORT,
+                   'device_id': 'lb-%s' % protected_lb_id})
+
+        net_cli.return_value.get_port.side_effect = [
+            legacy_vip, legacy_addit, protected_vip]
+
+        self.assertRaises(periodics.NeverAgain,
+                          self.maint.add_device_owner_lb_vip_ports)
+
+        expected_owner = ovn_const.OVN_LB_VIP_PORT
+        expected_calls = [
+            mock.call('vip-port-legacy',
+                      device_owner=expected_owner,
+                      device_id='lb-%s' % legacy_lb_id),
+            mock.call(addit_port_id,
+                      device_owner=expected_owner,
+                      device_id='lb-%s' % legacy_lb_id),
+        ]
+        net_cli.return_value.update_port.assert_has_calls(expected_calls)
+        self.assertEqual(2, net_cli.return_value.update_port.call_count)
+
+    @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
+    def test_add_device_owner_lb_vip_ports_skips_hijacked(self, net_cli):
+        lb_id = 'lb-uuid-hijacked'
+        ovn_lbs = [
+            fakes.FakeOVNLB.create_one_lb(
+                attrs={
+                    'uuid': 'ovn-lb-uuid-hijacked',
+                    'name': lb_id,
+                    'external_ids': {
+                        ovn_const.LB_EXT_IDS_VIP_PORT_ID_KEY:
+                            'vip-port-hijacked',
+                    }}),
+        ]
+        self.maint.ovn_nbdb_api.db_list_rows.return_value.\
+            execute.return_value = ovn_lbs
+
+        hijacked = fakes.FakePort.create_one_port(
+            attrs={'id': 'vip-port-hijacked',
+                   'name': '%s%s' % (ovn_const.LB_VIP_PORT_PREFIX, lb_id),
+                   'device_owner': 'compute:nova',
+                   'device_id': 'some-instance-uuid'})
+        net_cli.return_value.get_port.return_value = hijacked
+
+        self.assertRaises(periodics.NeverAgain,
+                          self.maint.add_device_owner_lb_vip_ports)
+
+        net_cli.return_value.update_port.assert_not_called()
+
+    @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
+    def test_add_device_owner_lb_vip_ports_no_lbs(self, net_cli):
+        self.maint.ovn_nbdb_api.db_list_rows.return_value.\
+            execute.return_value = []
+
+        self.assertRaises(periodics.NeverAgain,
+                          self.maint.add_device_owner_lb_vip_ports)
+
+        net_cli.return_value.get_port.assert_not_called()
+        net_cli.return_value.update_port.assert_not_called()
+
     def test_format_ip_port_mappings_ipv6_no_ip_port_mappings_to_change(self):
         self.maint.ovn_nbdb_api.db_find_rows.return_value.\
             execute.return_value = []

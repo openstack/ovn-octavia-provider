@@ -4917,7 +4917,9 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
                 'ip_address': '10.1.10.1'}],
             'network_id': self.vip_dict['vip_network_id'],
             'admin_state_up': True,
-            'project_id': self.project_id}
+            'project_id': self.project_id,
+            'device_owner': ovn_const.OVN_LB_VIP_PORT,
+            'device_id': 'lb-%s' % self.loadbalancer_id}
         with mock.patch.object(clients, 'get_neutron_client') as net_cli:
             self.vip_dict['vip_address'] = '10.1.10.1'
             self.helper.create_vip_port(self.project_id,
@@ -4935,7 +4937,9 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
                 'subnet_id': self.vip_dict['vip_subnet_id']}],
             'network_id': self.vip_dict['vip_network_id'],
             'admin_state_up': True,
-            'project_id': self.project_id}
+            'project_id': self.project_id,
+            'device_owner': ovn_const.OVN_LB_VIP_PORT,
+            'device_id': 'lb-%s' % self.loadbalancer_id}
         with mock.patch.object(clients, 'get_neutron_client') as net_cli:
             self.helper.create_vip_port(self.project_id,
                                         self.loadbalancer_id,
@@ -4943,6 +4947,34 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
             expected_call = [
                 mock.call().create_port(**expected_dict)]
             net_cli.assert_has_calls(expected_call)
+
+    def test_create_vip_port_protects_additional_vip(self):
+        additional_vip_dicts = [{
+            'ip_address': '10.1.10.2',
+            'network_id': self.vip_dict['vip_network_id'],
+            'port_id': uuidutils.generate_uuid(),
+            'subnet_id': self.vip_dict['vip_subnet_id'],
+        }]
+        with mock.patch.object(clients, 'get_neutron_client') as net_cli:
+            self.helper.create_vip_port(self.project_id,
+                                        self.loadbalancer_id,
+                                        self.vip_dict,
+                                        additional_vip_dicts)
+            create_port_calls = [
+                c for c in net_cli.return_value.create_port.call_args_list]
+            self.assertEqual(2, len(create_port_calls))
+            for call in create_port_calls:
+                kwargs = call.kwargs
+                self.assertEqual(
+                    ovn_const.OVN_LB_VIP_PORT,
+                    kwargs.get('device_owner'))
+                self.assertEqual(
+                    'lb-%s' % self.loadbalancer_id,
+                    kwargs.get('device_id'))
+            self.assertEqual(
+                ('%s1-%s' % (ovn_const.LB_VIP_ADDIT_PORT_PREFIX,
+                             self.loadbalancer_id)),
+                create_port_calls[1].kwargs['name'])
 
     @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
     def test_create_vip_port_vip_selected_already_exist(self, net_cli):

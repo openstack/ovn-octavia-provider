@@ -1,0 +1,22 @@
+---
+upgrade:
+  - |
+    OVN Octavia provider load balancer VIP and additional VIP Neutron
+    ports are now created with ``device_id`` set to ``lb-<lb_id>`` and
+    ``device_owner`` set to ``ovn-lb:vip``. This matches
+    the protection the Amphora driver has always provided and prevents
+    other workloads (e.g. Nova instances) from attaching the VIP port,
+    which would otherwise leave OVN NAT state for an attached floating
+    IP inconsistent and break external access to the load balancer.
+fixes:
+  - |
+    [`bug 2150682 <https://bugs.launchpad.net/neutron/+bug/2150682>`_]
+    OVN Octavia provider VIP ports were unprotected because they were
+    created with empty ``device_id`` and ``device_owner``, allowing
+    them to be attached to other workloads and breaking the load
+    balancer (a stale ``external_mac`` could remain on the OVN NAT
+    entry for the attached floating IP after the misuse, breaking
+    external connectivity to the VIP). VIP ports created from now on
+    are protected at creation time, and a new periodic maintenance
+    task backfills the same fields on legacy OVN provider VIP ports
+    created before this fix.

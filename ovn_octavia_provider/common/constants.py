@@ -37,6 +37,11 @@ OVN_ROUTER_IS_EXT_GW = 'neutron:is_ext_gw'
 
 # TODO(froyo): Use from neutron-lib once released.
 OVN_LB_HM_PORT_DISTRIBUTED = 'ovn-lb-hm:distributed'
+# NOTE(LP#2150682): Do NOT use a ":distributed" suffix here. Neutron's OVN
+# mech driver pattern-matches on that suffix (is_ovn_metadata_port /
+# is_ovn_lb_hm_port) to force the LSP to ``localport``. LB VIP ports are
+# ``virtual`` (or unbound) LSPs and must not be turned into localports.
+OVN_LB_VIP_PORT = 'ovn-lb:vip'
 
 LB_EXT_IDS_LS_REFS_KEY = 'ls_refs'
 LB_EXT_IDS_LR_REF_KEY = 'lr_ref'
