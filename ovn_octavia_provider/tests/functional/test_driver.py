@@ -13,11 +13,14 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+from unittest import mock
+
 from neutron_lib import constants as n_const
 from octavia_lib.api.drivers import exceptions as o_exceptions
 from octavia_lib.common import constants as o_constants
 from oslo_utils import uuidutils
 
+from ovn_octavia_provider.common import constants as ovn_const
 from ovn_octavia_provider.tests.functional import base as ovn_base
 
 
@@ -615,3 +618,66 @@ class TestOvnOctaviaProviderDriver(ovn_base.TestOvnOctaviaBase):
                           pool_id,
                           members)
         self._delete_load_balancer_and_validate(lb_data)
+
+    def test_create_vip_port_protected(self):
+        """LP#2150682: VIP and additional VIP ports must be protected.
+
+        The OVN provider must set ``device_id='lb-<lb_id>'`` and
+        ``device_owner='ovn-lb:vip'`` on every port it creates for a
+        load balancer VIP, so that Nova rejects any attempt to attach
+        the VIP port to another workload.
+        """
+        network_N1 = self._create_net('N' + uuidutils.generate_uuid()[:4])
+        network_id, subnet_id = self._create_subnet_from_net(
+            network_N1, '10.0.0.0/24')
+
+        lb_id = uuidutils.generate_uuid()
+        vip_port_id = uuidutils.generate_uuid()
+        addit_port_id = uuidutils.generate_uuid()
+
+        def _fake_create_port(**kwargs):
+            port = mock.Mock()
+            port.id = (vip_port_id
+                       if kwargs.get('name', '').startswith(
+                           ovn_const.LB_VIP_PORT_PREFIX +
+                           lb_id)
+                       else addit_port_id)
+            port.network_id = kwargs['network_id']
+            port.fixed_ips = [{
+                'subnet_id': kwargs['fixed_ips'][0]['subnet_id'],
+                'ip_address': kwargs['fixed_ips'][0].get(
+                    'ip_address', '10.0.0.50'),
+            }]
+            port.__getitem__ = lambda self, key: getattr(self, key)
+            return port
+
+        self.fake_neutron_client.create_port.side_effect = _fake_create_port
+
+        vip_dict = {
+            'vip_network_id': network_id,
+            'vip_subnet_id': subnet_id,
+        }
+        additional_vip_dicts = [{
+            'network_id': network_id,
+            'subnet_id': subnet_id,
+        }]
+
+        self.ovn_driver.create_vip_port(
+            lb_id, self._project_id, vip_dict, additional_vip_dicts)
+
+        create_port_calls = (
+            self.fake_neutron_client.create_port.call_args_list)
+        self.assertEqual(2, len(create_port_calls))
+        for call in create_port_calls:
+            kwargs = call.kwargs
+            self.assertEqual(
+                ovn_const.OVN_LB_VIP_PORT,
+                kwargs.get('device_owner'),
+                'VIP port must be created with device_owner=%s '
+                '(LP#2150682)' %
+                ovn_const.OVN_LB_VIP_PORT)
+            self.assertEqual(
+                'lb-%s' % lb_id,
+                kwargs.get('device_id'),
+                'VIP port must be created with device_id=lb-<lb_id> '
+                'so Nova rejects attach-interface (LP#2150682)')
