@@ -18,6 +18,7 @@ import threading
 from futurist import periodics
 import netaddr
 from neutron_lib import constants as n_const
+import openstack
 from oslo_config import cfg
 from oslo_log import log as logging
 from ovsdbapp.backend.ovs_idl import connection
@@ -123,6 +124,89 @@ class DBInconsistenciesPeriodics(object):
             raise periodics.NeverAgain()
         LOG.debug('Maintenance task: device_owner and device_id checked for '
                   'OVN LB HM ports.')
+
+    @periodics.periodic(spacing=600, run_immediately=True)
+    def add_device_owner_lb_vip_ports(self):
+        """Backfill device_owner and device_id on legacy OVN LB VIP ports.
+
+        Until LP#2150682 was fixed, the OVN Octavia provider created VIP
+        and additional-VIP ports with empty ``device_owner`` and empty
+        ``device_id``. With those fields empty, Nova accepts an
+        ``attach-interface`` request that targets the VIP port, which can
+        leave OVN NAT state for an attached floating IP inconsistent
+        (e.g. stale ``external_mac``) and break external connectivity to
+        the load balancer.
+
+        This task walks every OVN load balancer row and, for each VIP
+        and additional-VIP port referenced from its ``external_ids``,
+        sets ``device_id='lb-<lb_id>'`` and
+        ``device_owner=ovn-lb:vip`` so existing deployments are aligned
+        with the protection now applied at creation time.
+        Ports whose ``device_id`` is already set to a different value
+        are intentionally skipped: rewriting them could mask a misuse
+        the operator still needs to investigate.
+        """
+        LOG.debug('Maintenance task: checking device_owner and device_id '
+                  'for OVN LB VIP ports.')
+        neutron_client = clients.get_neutron_client()
+        ovn_lbs = self.ovn_nbdb_api.db_list_rows(
+            'Load_Balancer').execute(check_error=True)
+
+        for ovn_lb in ovn_lbs:
+            lb_id = ovn_lb.name
+            if not lb_id:
+                continue
+            expected_device_id = f'lb-{lb_id}'
+            expected_device_owner = ovn_const.OVN_LB_VIP_PORT
+
+            port_ids = []
+            vip_port_id = ovn_lb.external_ids.get(
+                ovn_const.LB_EXT_IDS_VIP_PORT_ID_KEY)
+            if vip_port_id:
+                port_ids.append(vip_port_id)
+            addit_vip_port_ids = ovn_lb.external_ids.get(
+                ovn_const.LB_EXT_IDS_ADDIT_VIP_PORT_ID_KEY, '')
+            if addit_vip_port_ids:
+                port_ids.extend(
+                    [p for p in addit_vip_port_ids.split(',') if p])
+
+            for port_id in port_ids:
+                try:
+                    port = neutron_client.get_port(port_id)
+                except openstack.exceptions.ResourceNotFound:
+                    LOG.debug('Maintenance task: VIP port %s no longer '
+                              'exists, skipping', port_id)
+                    continue
+
+                if (port.device_owner == expected_device_owner and
+                        port.device_id == expected_device_id):
+                    continue
+
+                if port.device_id and port.device_id != expected_device_id:
+                    # Something else already claimed this port (e.g. a
+                    # Nova instance through the very misuse this fix
+                    # prevents). Do not silently overwrite it; leave it
+                    # for the operator to inspect.
+                    LOG.warning(
+                        'Maintenance task: VIP port %(port)s for LB '
+                        '%(lb)s has unexpected device_id %(did)s, not '
+                        'backfilling',
+                        {'port': port.id, 'lb': lb_id,
+                         'did': port.device_id})
+                    continue
+
+                LOG.debug('Maintenance task: setting device_owner=%s and '
+                          'device_id=%s on VIP port %s',
+                          expected_device_owner, expected_device_id,
+                          port.id)
+                neutron_client.update_port(
+                    port.id,
+                    device_owner=expected_device_owner,
+                    device_id=expected_device_id)
+
+        LOG.debug('Maintenance task: device_owner and device_id checked '
+                  'for OVN LB VIP ports.')
+        raise periodics.NeverAgain()
 
     # TODO(froyo): Remove this in the Caracal+4 cycle
     @periodics.periodic(spacing=600, run_immediately=True)

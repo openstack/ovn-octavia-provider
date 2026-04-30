@@ -2974,7 +2974,8 @@ class OvnProviderHelper():
                 return meminf.split('_')[1]
 
     def _create_neutron_port(self, neutron_client, name, project_id, net_id,
-                             subnet_id, address=None):
+                             subnet_id, address=None, device_owner=None,
+                             device_id=None):
         port = {'name': name,
                 'network_id': net_id,
                 'fixed_ips': [{'subnet_id': subnet_id}],
@@ -2982,6 +2983,15 @@ class OvnProviderHelper():
                 'project_id': project_id}
         if address:
             port['fixed_ips'][0]['ip_address'] = address
+        # NOTE(LP#2150682): VIP and additional-VIP ports are protected by
+        # setting a non-empty ``device_id`` so that Nova rejects any attempt
+        # to attach the port to a workload (PortInUse). ``device_owner`` is
+        # set in parallel for consistency with the OVN HM port and with the
+        # Amphora driver convention.
+        if device_owner is not None:
+            port['device_owner'] = device_owner
+        if device_id is not None:
+            port['device_id'] = device_id
 
         try:
             return neutron_client.create_port(**port)
@@ -3006,6 +3016,16 @@ class OvnProviderHelper():
         neutron_client = clients.get_neutron_client()
         additional_vip_ports = []
         vip_port = None
+        # NOTE(LP#2150682): Mirror the Amphora driver protection on the VIP
+        # port. Setting ``device_id`` to ``lb-<lb_id>`` causes Nova to raise
+        # PortInUse if anything tries to attach the port to a server, which
+        # otherwise can leave OVN NAT state for an attached FIP in a stale
+        # state. ``device_owner`` is set in parallel for observability; it
+        # does NOT carry the ``:distributed`` suffix used by the HM port,
+        # because Neutron's OVN mech driver maps that suffix to LSP
+        # ``localport`` and a VIP LSP is ``virtual`` (or unbound).
+        vip_device_id = f'lb-{lb_id}'
+        vip_device_owner = ovn_const.OVN_LB_VIP_PORT
         try:
             vip_port = self._create_neutron_port(
                 neutron_client,
@@ -3013,7 +3033,9 @@ class OvnProviderHelper():
                 project_id,
                 vip_d.get(constants.VIP_NETWORK_ID),
                 vip_d.get('vip_subnet_id'),
-                vip_d.get(constants.VIP_ADDRESS, None))
+                vip_d.get(constants.VIP_ADDRESS, None),
+                device_owner=vip_device_owner,
+                device_id=vip_device_id)
             if additional_vip_dicts:
                 for index, additional_vip in enumerate(additional_vip_dicts,
                                                        start=1):
@@ -3023,7 +3045,9 @@ class OvnProviderHelper():
                         project_id,
                         additional_vip.get(constants.NETWORK_ID),
                         additional_vip.get('subnet_id'),
-                        additional_vip.get('ip_address', None)))
+                        additional_vip.get('ip_address', None),
+                        device_owner=vip_device_owner,
+                        device_id=vip_device_id))
             return vip_port, additional_vip_ports
 
         except openstack.exceptions.HttpException as e:
