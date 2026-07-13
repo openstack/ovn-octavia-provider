@@ -1567,7 +1567,7 @@ class OvnProviderHelper():
             LOG.error('Cannot get info from neutron')
             LOG.exception(ovn_const.EXCEPTION_MSG, "creation of loadbalancer")
             # Any Exception set the status to ERROR
-            if port:
+            if port and port.name.startswith(ovn_const.LB_VIP_PORT_PREFIX):
                 try:
                     self.delete_port(port.id)
                     LOG.warning("Deleting the VIP port %s since LB went into "
@@ -1717,7 +1717,7 @@ class OvnProviderHelper():
         except Exception:
             LOG.exception(ovn_const.EXCEPTION_MSG, "creation of loadbalancer")
             # Any Exception set the status to ERROR
-            if port:
+            if port and port.name.startswith(ovn_const.LB_VIP_PORT_PREFIX):
                 try:
                     self.delete_port(port.id)
                     LOG.warning("Deleting the VIP port %s since LB went into "
@@ -1773,9 +1773,25 @@ class OvnProviderHelper():
                 vip_port_id = self._get_vip_port_from_loadbalancer_id(
                     loadbalancer[constants.ID])
                 if vip_port_id:
-                    LOG.warning("Deleting the VIP port %s associated to LB "
-                                "missing in OVN DBs", str(vip_port_id))
-                    self.delete_port(vip_port_id)
+                    neutron_client = clients.get_neutron_client()
+                    try:
+                        vip_port = neutron_client.get_port(vip_port_id)
+                    except Exception:
+                        vip_port = None
+                        LOG.warning("VIP port %s not found or "
+                                    "not accessible",
+                                    str(vip_port_id))
+                    if vip_port and vip_port.name.startswith(
+                            ovn_const.LB_VIP_PORT_PREFIX):
+                        LOG.warning(
+                            "Deleting the VIP port %s associated "
+                            "to LB missing in OVN DBs",
+                            str(vip_port_id))
+                        self.delete_port(vip_port_id)
+                    elif vip_port:
+                        LOG.info(
+                            "Preserving user-provided VIP "
+                            "port %s", str(vip_port_id))
             except Exception:
                 LOG.exception("Error deleting the VIP port %s",
                               str(vip_port_id))
@@ -1813,8 +1829,18 @@ class OvnProviderHelper():
             # dict while iterating over it. So first get a list of keys.
             # https://cito.github.io/blog/never-iterate-a-changing-dict/
             status = {key: value for key, value in status.items() if value}
-            # Delete VIP port from neutron.
-            self.delete_port(port_id)
+            # Delete VIP port from neutron only if provider-created.
+            neutron_client = clients.get_neutron_client()
+            try:
+                vip_port = neutron_client.get_port(port_id)
+                if vip_port.name.startswith(
+                        ovn_const.LB_VIP_PORT_PREFIX):
+                    self.delete_port(port_id)
+                else:
+                    LOG.info("Preserving user-provided VIP port %s",
+                             str(port_id))
+            except openstack.exceptions.ResourceNotFound:
+                LOG.warning("VIP port %s not found", str(port_id))
             # Also delete additional_vip ports from neutron.
             if additional_vip_port_ids:
                 for addit_vip_port_id in additional_vip_port_ids.split(','):
@@ -3053,15 +3079,19 @@ class OvnProviderHelper():
         vip_device_id = f'lb-{lb_id}'
         vip_device_owner = ovn_const.OVN_LB_VIP_PORT
         try:
-            vip_port = self._create_neutron_port(
-                neutron_client,
-                f'{ovn_const.LB_VIP_PORT_PREFIX}{lb_id}',
-                project_id,
-                vip_d.get(constants.VIP_NETWORK_ID),
-                vip_d.get('vip_subnet_id'),
-                vip_d.get(constants.VIP_ADDRESS, None),
-                device_owner=vip_device_owner,
-                device_id=vip_device_id)
+            existing_port_id = vip_d.get(constants.VIP_PORT_ID)
+            if existing_port_id:
+                vip_port = neutron_client.get_port(existing_port_id)
+            else:
+                vip_port = self._create_neutron_port(
+                    neutron_client,
+                    f'{ovn_const.LB_VIP_PORT_PREFIX}{lb_id}',
+                    project_id,
+                    vip_d.get(constants.VIP_NETWORK_ID),
+                    vip_d.get('vip_subnet_id'),
+                    vip_d.get(constants.VIP_ADDRESS, None),
+                    device_owner=vip_device_owner,
+                    device_id=vip_device_id)
             if additional_vip_dicts:
                 for index, additional_vip in enumerate(additional_vip_dicts,
                                                        start=1):
@@ -3079,7 +3109,7 @@ class OvnProviderHelper():
         except openstack.exceptions.HttpException as e:
             # NOTE (froyo): whatever other exception as e.g. Timeout
             # we should try to ensure no leftover port remains
-            if vip_port:
+            if vip_port and not existing_port_id:
                 LOG.debug('Leftover port %s has been found. Trying to '
                           'delete it', vip_port.id)
                 self.delete_port(vip_port.id)
