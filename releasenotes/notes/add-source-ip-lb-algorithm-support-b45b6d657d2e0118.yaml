@@ -1,0 +1,8 @@
+---
+features:
+  - |
+    Add support for the SOURCE_IP load balancer algorithm in the OVN
+    provider driver. When a pool is created with SOURCE_IP, the OVN
+    load balancer selection_fields are set to [ip_src, ip_dst], ensuring
+    all traffic from the same source IP is directed to the same backend
+    regardless of port.

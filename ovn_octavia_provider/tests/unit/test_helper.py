@@ -2032,6 +2032,23 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         self.assertEqual(status['pools'][0]['operating_status'],
                          constants.OFFLINE)
 
+    def test_pool_create_source_ip_port_lb_algorithm(self):
+        status = self.helper.pool_create(self.pool)
+        self.assertEqual(status['pools'][0]['provisioning_status'],
+                         constants.ACTIVE)
+        self.helper.ovn_nbdb_api.db_set.assert_any_call(
+            'Load_Balancer', self.ovn_lb.uuid,
+            ('selection_fields', ['ip_dst', 'ip_src', 'tp_dst', 'tp_src']))
+
+    def test_pool_create_source_ip_lb_algorithm(self):
+        self.pool['lb_algorithm'] = constants.LB_ALGORITHM_SOURCE_IP
+        status = self.helper.pool_create(self.pool)
+        self.assertEqual(status['pools'][0]['provisioning_status'],
+                         constants.ACTIVE)
+        self.helper.ovn_nbdb_api.db_set.assert_any_call(
+            'Load_Balancer', self.ovn_lb.uuid,
+            ('selection_fields', ['ip_src', 'ip_dst']))
+
     def test_pool_create_exception(self):
         self.helper.ovn_nbdb_api.db_set.side_effect = [
             RuntimeError, RuntimeError]

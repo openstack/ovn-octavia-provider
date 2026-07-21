@@ -553,12 +553,33 @@ class OvnProviderHelper():
                     ('external_ids', external_ids))
             )
 
-    def _build_selection_fields(self, loadbalancer):
+    def _build_selection_fields(self, loadbalancer, ovn_lb=None):
+        """Build selection_fields for a load balancer.
+
+        Selection fields are derived from the pool's lb_algorithm. Since the
+        algorithm is set at pool creation time and not stored in the OVN LB
+        external_ids, we:
+        1. If ovn_lb is provided and already has selection_fields, keep them
+           (they were set correctly at pool creation time)
+        2. If loadbalancer dict has LB_ALGORITHM (during lb_create), use it
+        3. Otherwise default to SOURCE_IP_PORT for backwards compatibility
+
+        :param loadbalancer: Octavia loadbalancer dict
+        :param ovn_lb: Optional existing OVN LB row
+        :returns: List of selection field names or None
+        """
+        if not self._are_selection_fields_supported():
+            return None
+
+        # If OVN LB already has selection_fields set, preserve them
+        # They were set correctly when the pool was created
+        if ovn_lb and ovn_lb.selection_fields:
+            return ovn_lb.selection_fields
+
+        # Use algorithm from loadbalancer dict if available (lb_create case)
         lb_algorithm = loadbalancer.get(constants.LB_ALGORITHM,
                                         constants.LB_ALGORITHM_SOURCE_IP_PORT)
-        if self._are_selection_fields_supported():
-            return self._get_selection_keys(lb_algorithm)
-        return None
+        return self._get_selection_keys(lb_algorithm)
 
     def _sync_selection_fields(self, ovn_lb, selection_fields, commands):
         if selection_fields and selection_fields != ovn_lb.selection_fields:
@@ -1515,7 +1536,7 @@ class OvnProviderHelper():
         external_ids = self._build_external_ids(loadbalancer, port)
         self._sync_external_ids(ovn_lb, external_ids, commands)
 
-        selection_fields = self._build_selection_fields(loadbalancer)
+        selection_fields = self._build_selection_fields(loadbalancer, ovn_lb)
         self._sync_selection_fields(ovn_lb, selection_fields, commands)
 
         try:
@@ -2298,6 +2319,14 @@ class OvnProviderHelper():
                 commands.append(self.ovn_nbdb_api.db_set(
                     'Load_Balancer', ovn_lb.uuid,
                     ('options', options)))
+
+            # Update selection_fields based on pool's lb_algorithm
+            if self._are_selection_fields_supported():
+                lb_algorithm = pool[constants.LB_ALGORITHM]
+                selection_fields = self._get_selection_keys(lb_algorithm)
+                commands.append(self.ovn_nbdb_api.db_set(
+                    'Load_Balancer', ovn_lb.uuid,
+                    ('selection_fields', selection_fields)))
 
             self._execute_commands(commands)
 
