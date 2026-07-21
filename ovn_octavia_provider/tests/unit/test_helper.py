@@ -16,7 +16,6 @@ import copy
 from unittest import mock
 
 from neutron_lib import constants as n_const
-from neutronclient.common import exceptions as n_exc
 from octavia_lib.api.drivers import data_models
 from octavia_lib.api.drivers import exceptions
 from octavia_lib.common import constants
@@ -1481,7 +1480,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
     @mock.patch.object(ovn_helper.OvnProviderHelper, 'delete_port')
     def test_lb_delete_port_not_found(self, del_port, net_cli):
         net_cli.return_value.delete_port.side_effect = (
-            [n_exc.PortNotFoundClient])
+            [openstack.exceptions.ResourceNotFound])
         status = self.helper.lb_delete(self.ovn_lb)
         self.assertEqual(status['loadbalancers'][0]['provisioning_status'],
                          constants.DELETED)
