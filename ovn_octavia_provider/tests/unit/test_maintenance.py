@@ -227,6 +227,34 @@ class TestDBInconsistenciesPeriodics(ovn_base.TestOvnOctaviaBase):
         net_cli.return_value.update_port.assert_not_called()
 
     @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
+    def test_add_device_owner_lb_vip_ports_skips_user_port(self, net_cli):
+        lb_id = 'lb-uuid-user-port'
+        ovn_lbs = [
+            fakes.FakeOVNLB.create_one_lb(
+                attrs={
+                    'uuid': 'ovn-lb-uuid-user-port',
+                    'name': lb_id,
+                    'external_ids': {
+                        ovn_const.LB_EXT_IDS_VIP_PORT_ID_KEY:
+                            'vip-port-user',
+                    }}),
+        ]
+        self.maint.ovn_nbdb_api.db_list_rows.return_value.\
+            execute.return_value = ovn_lbs
+
+        user_port = fakes.FakePort.create_one_port(
+            attrs={'id': 'vip-port-user',
+                   'name': 'my-custom-vip-port',
+                   'device_owner': '',
+                   'device_id': ''})
+        net_cli.return_value.get_port.return_value = user_port
+
+        self.assertRaises(periodics.NeverAgain,
+                          self.maint.add_device_owner_lb_vip_ports)
+
+        net_cli.return_value.update_port.assert_not_called()
+
+    @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
     def test_add_device_owner_lb_vip_ports_no_lbs(self, net_cli):
         self.maint.ovn_nbdb_api.db_list_rows.return_value.\
             execute.return_value = []
