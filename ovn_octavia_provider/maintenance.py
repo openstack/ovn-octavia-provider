@@ -129,9 +129,9 @@ class DBInconsistenciesPeriodics(object):
     def add_device_owner_lb_vip_ports(self):
         """Backfill device_owner and device_id on legacy OVN LB VIP ports.
 
-        Until LP#2150682 was fixed, the OVN Octavia provider created VIP
-        and additional-VIP ports with empty ``device_owner`` and empty
-        ``device_id``. With those fields empty, Nova accepts an
+        Until LP#2150682 was fixed, the OVN Octavia provider
+        created VIP and additional-VIP ports with empty ``device_owner``
+        and empty ``device_id``. With those fields empty, Nova accepts an
         ``attach-interface`` request that targets the VIP port, which can
         leave OVN NAT state for an attached floating IP inconsistent
         (e.g. stale ``external_mac``) and break external connectivity to
@@ -142,6 +142,13 @@ class DBInconsistenciesPeriodics(object):
         sets ``device_id='lb-<lb_id>'`` and
         ``device_owner=ovn-lb:vip`` so existing deployments are aligned
         with the protection now applied at creation time.
+
+        Since LP#2160551 was fixed, users can pass a
+        pre-existing port via ``--vip-port-id``. Those ports are owned
+        by the user and must not be modified by this task. Port
+        provenance is determined by checking the port name prefix
+        (``ovn-lb-vip-``): only provider-created ports are backfilled.
+
         Ports whose ``device_id`` is already set to a different value
         are intentionally skipped: rewriting them could mask a misuse
         the operator still needs to investigate.
@@ -180,6 +187,16 @@ class DBInconsistenciesPeriodics(object):
 
                 if (port.device_owner == expected_device_owner and
                         port.device_id == expected_device_id):
+                    continue
+
+                if not port.name.startswith(
+                        ovn_const.LB_VIP_PORT_PREFIX):
+                    LOG.debug(
+                        'Maintenance task: VIP port %(port)s for LB '
+                        '%(lb)s is user-provided (name=%(name)s), '
+                        'not backfilling',
+                        {'port': port.id, 'lb': lb_id,
+                         'name': port.name})
                     continue
 
                 if port.device_id and port.device_id != expected_device_id:
