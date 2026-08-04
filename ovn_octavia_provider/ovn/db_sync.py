@@ -26,6 +26,12 @@ from ovn_octavia_provider import driver
 
 LOG = log.getLogger(__name__)
 
+DEFAULT_OCTAVIA_CONFIG_PATHS = (
+    '/etc/octavia/octavia.conf',
+    os.path.expanduser('~/octavia.conf'),
+    './octavia.conf',
+)
+
 
 class OctaviaOvnSynchronizer(db_sync.BaseOvnDbSynchronizer):
     """Synchronizer for Octavia Load Balancers in OVN.
@@ -46,9 +52,9 @@ class OctaviaOvnSynchronizer(db_sync.BaseOvnDbSynchronizer):
         2. Temporarily swaps cfg.CONF when calling Octavia code
         3. Restores Neutron's cfg.CONF afterwards
 
-        This approach is necessary because modifying the underlying code
-        to accept configuration as a parameter would require extensive
-        changes across multiple modules.
+        When invoked via neutron-ovn-db-sync-util, Octavia configuration is
+        loaded from ``--octavia-config-file`` (or the default location) into
+        an isolated ConfigOpts object and passed as ``plugin_conf``.
     """
 
     # Explicitly require 'ovn-sync' mechanism driver.
@@ -65,18 +71,43 @@ class OctaviaOvnSynchronizer(db_sync.BaseOvnDbSynchronizer):
     # No additional ML2 extension drivers required
     _required_ml2_ext_drivers = []
 
-    def __init__(self, core_plugin, ovn_driver, mode, is_maintenance=False):
+    @classmethod
+    def register_additional_cli_opts(cls, conf):
+        conf.register_cli_opts([
+            cfg.ListOpt(
+                'octavia-config-file',
+                default=[],
+                deprecated_opts=[cfg.DeprecatedOpt('octavia_config_file')],
+                help='Path(s) to Octavia configuration file(s).'),
+        ])
+
+    @classmethod
+    def register_plugin_config_opts(cls, conf):
+        ovn_octavia_config.register_plugin_opts(conf)
+        log.register_options(conf)
+
+    @classmethod
+    def get_plugin_config_files(cls, global_conf):
+        if global_conf.octavia_config_file:
+            return global_conf.octavia_config_file
+        default = cls._find_octavia_config()
+        return [default] if default else []
+
+    def __init__(self, core_plugin, ovn_driver, mode, is_maintenance=False,
+                 plugin_conf=None):
         """Initialize the Octavia OVN synchronizer.
 
         :param core_plugin: Neutron core plugin instance
         :param ovn_driver: OVN mechanism driver instance
         :param mode: Sync mode (log, repair, migrate)
         :param is_maintenance: Whether running in maintenance mode
+        :param plugin_conf: Isolated ConfigOpts with Octavia configuration
         """
-        super().__init__(core_plugin, ovn_driver, mode, is_maintenance)
+        super().__init__(
+            core_plugin, ovn_driver, mode, is_maintenance,
+            plugin_conf=plugin_conf)
 
-        # Load Octavia configuration into a separate ConfigOpts instance
-        self.octavia_conf = self._load_octavia_config()
+        self.octavia_conf = plugin_conf or self._load_octavia_config_fallback()
 
         # Initialize the Octavia OVN provider driver with Octavia config
         with self._use_octavia_config():
@@ -86,21 +117,20 @@ class OctaviaOvnSynchronizer(db_sync.BaseOvnDbSynchronizer):
         if hasattr(self.ovn_octavia_driver, '_ovn_helper'):
             self.ovn_octavia_driver._ovn_helper._nb_idl = self.ovn_nb_api
 
-    def _load_octavia_config(self):
-        """Load Octavia configuration from its config file.
+    @classmethod
+    def _find_octavia_config(cls):
+        """Find Octavia configuration file in standard locations."""
+        for location in DEFAULT_OCTAVIA_CONFIG_PATHS:
+            if os.path.exists(location):
+                return location
+        return None
 
-        Returns a separate ConfigOpts instance to avoid interfering with
-        Neutron's cfg.CONF.
-        """
+    def _load_octavia_config_fallback(self):
+        """Load Octavia configuration when plugin_conf is not provided."""
         octavia_conf = cfg.ConfigOpts()
+        self.register_plugin_config_opts(octavia_conf)
 
-        # Register Octavia configuration options
-        ovn_octavia_config.register_opts()
-        log.register_options(octavia_conf)
-
-        # Find Octavia config file
         octavia_conf_file = self._find_octavia_config()
-
         if octavia_conf_file:
             try:
                 octavia_conf(
@@ -118,36 +148,16 @@ class OctaviaOvnSynchronizer(db_sync.BaseOvnDbSynchronizer):
 
         return octavia_conf
 
-    def _find_octavia_config(self):
-        """Find Octavia configuration file in standard locations."""
-        locations = [
-            '/etc/octavia/octavia.conf',
-            os.path.expanduser('~/octavia.conf'),
-            './octavia.conf',
-        ]
-        for location in locations:
-            if os.path.exists(location):
-                return location
-        return None
-
     @contextlib.contextmanager
     def _use_octavia_config(self):
-        """Context manager to temporarily use Octavia configuration.
-
-        This swaps cfg.CONF to use Octavia's configuration, allowing
-        ovn-octavia-provider code to access its settings without
-        conflicting with Neutron's configuration.
-        """
-        # Save original cfg.CONF references
+        """Context manager to temporarily use Octavia configuration."""
         original_conf = cfg.CONF
 
         try:
-            # Swap to Octavia config
             cfg.CONF = self.octavia_conf
             clients.CONF = self.octavia_conf
             yield
         finally:
-            # Restore Neutron config
             cfg.CONF = original_conf
             clients.CONF = original_conf
 

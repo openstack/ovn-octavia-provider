@@ -14,6 +14,8 @@
 
 from unittest import mock
 
+from oslo_config import cfg
+
 from neutron.tests import base
 from neutron_lib.ovn import db_sync as neutron_db_sync
 from ovn_octavia_provider.ovn import db_sync
@@ -34,13 +36,14 @@ class TestOctaviaOvnSynchronizer(base.BaseTestCase):
         # Mock the BaseOvnDbSynchronizer to avoid neutron-lib dependencies
         # The mock needs to set the attributes that the real __init__ would set
         def _mock_base_init(self_instance, core_plugin, ovn_driver, mode,
-                            is_maintenance=False):
+                            is_maintenance=False, plugin_conf=None):
             self_instance.core_plugin = core_plugin
             self_instance.ovn_driver = ovn_driver
             self_instance.ovn_nb_api = self.mock_ovn_nb_api
             self_instance.ovn_sb_api = self.mock_ovn_sb_api
             self_instance.mode = mode
             self_instance.is_maintenance = is_maintenance
+            self_instance.plugin_conf = plugin_conf
 
         self.mock_base_init = mock.patch.object(
             neutron_db_sync.BaseOvnDbSynchronizer,
@@ -50,7 +53,13 @@ class TestOctaviaOvnSynchronizer(base.BaseTestCase):
 
         # Mock configuration registration
         mock.patch(
-            'ovn_octavia_provider.ovn.db_sync.ovn_octavia_config.register_opts'
+            'ovn_octavia_provider.ovn.db_sync.ovn_octavia_config.'
+            'register_plugin_opts'
+        ).start()
+        mock.patch(
+            'ovn_octavia_provider.ovn.db_sync.OctaviaOvnSynchronizer.'
+            '_load_octavia_config_fallback',
+            return_value=mock.Mock()
         ).start()
 
         # Mock the OvnProviderDriver
@@ -60,13 +69,15 @@ class TestOctaviaOvnSynchronizer(base.BaseTestCase):
 
         self.addCleanup(mock.patch.stopall)
 
-    def _create_synchronizer(self, mode='repair', is_maintenance=False):
+    def _create_synchronizer(self, mode='repair', is_maintenance=False,
+                             plugin_conf=None):
         """Helper to create a synchronizer instance."""
         return db_sync.OctaviaOvnSynchronizer(
             self.mock_core_plugin,
             self.mock_ovn_driver,
             mode,
-            is_maintenance
+            is_maintenance,
+            plugin_conf=plugin_conf,
         )
 
     def test_class_attributes(self):
@@ -217,3 +228,47 @@ class TestOctaviaOvnSynchronizer(base.BaseTestCase):
         cls = db_sync.OctaviaOvnSynchronizer
         result = cls.get_required_ml2_extension_drivers()
         self.assertIsInstance(result, list)
+
+    def test_register_additional_cli_opts(self):
+        conf = cfg.ConfigOpts()
+        db_sync.OctaviaOvnSynchronizer.register_additional_cli_opts(conf)
+        conf(['--octavia-config-file', '/etc/octavia/octavia.conf'])
+        self.assertEqual(['/etc/octavia/octavia.conf'],
+                         conf.octavia_config_file)
+
+    def test_register_additional_cli_opts_deprecated_name(self):
+        conf = cfg.ConfigOpts()
+        db_sync.OctaviaOvnSynchronizer.register_additional_cli_opts(conf)
+        conf(['--octavia_config_file', '/etc/octavia/octavia.conf'])
+        self.assertEqual(['/etc/octavia/octavia.conf'],
+                         conf.octavia_config_file)
+
+    @mock.patch(
+        'ovn_octavia_provider.ovn.db_sync.ovn_octavia_config.'
+        'register_plugin_opts'
+    )
+    def test_register_plugin_config_opts(self, mock_register):
+        conf = cfg.ConfigOpts()
+        db_sync.OctaviaOvnSynchronizer.register_plugin_config_opts(conf)
+        mock_register.assert_called_once_with(conf)
+
+    def test_get_plugin_config_files_from_cli(self):
+        conf = cfg.ConfigOpts()
+        db_sync.OctaviaOvnSynchronizer.register_additional_cli_opts(conf)
+        conf(['--octavia-config-file', '/custom/octavia.conf'])
+        files = db_sync.OctaviaOvnSynchronizer.get_plugin_config_files(conf)
+        self.assertEqual(['/custom/octavia.conf'], files)
+
+    @mock.patch.object(db_sync.OctaviaOvnSynchronizer, '_find_octavia_config',
+                       return_value='/etc/octavia/octavia.conf')
+    def test_get_plugin_config_files_default(self, mock_find):
+        conf = cfg.ConfigOpts()
+        db_sync.OctaviaOvnSynchronizer.register_additional_cli_opts(conf)
+        files = db_sync.OctaviaOvnSynchronizer.get_plugin_config_files(conf)
+        mock_find.assert_called_once_with()
+        self.assertEqual(['/etc/octavia/octavia.conf'], files)
+
+    def test_init_uses_plugin_conf(self):
+        plugin_conf = mock.Mock()
+        sync = self._create_synchronizer(plugin_conf=plugin_conf)
+        self.assertIs(plugin_conf, sync.octavia_conf)

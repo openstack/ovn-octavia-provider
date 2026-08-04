@@ -1,0 +1,7 @@
+---
+features:
+  - |
+    The Octavia OVN DB sync plugin for ``neutron-ovn-db-sync-util`` now
+    registers ``--octavia-config-file`` to load Octavia configuration into an
+    isolated oslo.config object. When the option is not provided, the plugin
+    still falls back to ``/etc/octavia/octavia.conf``.

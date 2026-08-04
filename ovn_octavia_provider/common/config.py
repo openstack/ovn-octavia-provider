@@ -106,70 +106,72 @@ neutron_opts = [
 ]
 
 
-def handle_neutron_deprecations():
+def handle_neutron_deprecations(conf=None):
     # Apply neutron deprecated options to their new setting if needed
+    if conf is None:
+        conf = cfg.CONF
 
     # Basicaly: if the value of the deprecated option is not the default:
     # * convert it to a valid "new" value if needed
     # * set it as the default for the new option
     # Thus [neutron].<new_option> has an higher precedence than
     # [neutron].<deprecated_option>
-    loc = cfg.CONF.get_location('endpoint', 'neutron')
+    loc = conf.get_location('endpoint', 'neutron')
     if loc and loc.location != cfg.Locations.opt_default:
-        cfg.CONF.set_default('endpoint_override', cfg.CONF.neutron.endpoint,
-                             'neutron')
+        conf.set_default('endpoint_override', conf.neutron.endpoint,
+                         'neutron')
 
-    loc = cfg.CONF.get_location('endpoint_type', 'neutron')
+    loc = conf.get_location('endpoint_type', 'neutron')
     if loc and loc.location != cfg.Locations.opt_default:
-        endpoint_type = cfg.CONF.neutron.endpoint_type.replace('URL', '')
-        cfg.CONF.set_default('valid_interfaces', [endpoint_type],
-                             'neutron')
+        endpoint_type = conf.neutron.endpoint_type.replace('URL', '')
+        conf.set_default('valid_interfaces', [endpoint_type],
+                         'neutron')
 
-    loc = cfg.CONF.get_location('ca_certificates_file', 'neutron')
+    loc = conf.get_location('ca_certificates_file', 'neutron')
     if loc and loc.location != cfg.Locations.opt_default:
-        cfg.CONF.set_default('cafile', cfg.CONF.neutron.ca_certificates_file,
-                             'neutron')
+        conf.set_default('cafile', conf.neutron.ca_certificates_file,
+                         'neutron')
+
+
+def register_plugin_opts(conf):
+    """Register ovn-octavia-provider options on the given ConfigOpts."""
+    not_found_msg = 'Not found any opts under group ovn registered by Neutron'
+    _register_opts(ovn_opts, 'ovn', conf, not_found_msg)
+
+    _register_opts(neutron_opts, 'neutron', conf)
+
+    ks_loading.register_auth_conf_options(conf, 'service_auth')
+    _register_opts(ks_loading.session.get_conf_options(), 'service_auth', conf)
+    _register_opts(
+        ks_loading.adapter.get_conf_options(include_deprecated=False),
+        'service_auth', conf, replace=('-', '_')
+    )
+
+    ks_loading.register_auth_conf_options(conf, 'neutron')
+    _register_opts(ks_loading.session.get_conf_options(), 'neutron', conf)
+    _register_opts(
+        ks_loading.adapter.get_conf_options(include_deprecated=False),
+        'neutron', conf, replace=('-', '_')
+    )
+
+    auth_type = conf.service_auth.auth_type
+    conf.set_default('auth_type', auth_type, 'neutron')
+
+    handle_neutron_deprecations(conf)
 
 
 def register_opts():
-    # NOTE (froyo): just to not try to re-register options already done
-    # by Neutron, specially in test scope, that will get a DuplicateOptError
-    not_found_msg = 'Not found any opts under group ovn registered by Neutron'
-    _register_opts(ovn_opts, 'ovn', not_found_msg)
-
-    # Do the same for neutron options that have been already registered by
-    # Octavia
-    _register_opts(neutron_opts, 'neutron')
-
-    ks_loading.register_auth_conf_options(cfg.CONF, 'service_auth')
-    _register_opts(ks_loading.session.get_conf_options(), 'service_auth')
-    # adapter accepts either '-' or '_' in config name, so need to check both.
-    _register_opts(
-        ks_loading.adapter.get_conf_options(include_deprecated=False),
-        'service_auth', replace=('-', '_')
-    )
-
-    ks_loading.register_auth_conf_options(cfg.CONF, 'neutron')
-    _register_opts(ks_loading.session.get_conf_options(), 'neutron')
-
-    # adapter accepts either '-' or '_' in config name, so need to check both.
-    _register_opts(
-        ks_loading.adapter.get_conf_options(include_deprecated=False),
-        'neutron', replace=('-', '_')
-    )
-
-    # Override default auth_type for plugins with the default from service_auth
-    auth_type = cfg.CONF.service_auth.auth_type
-    cfg.CONF.set_default('auth_type', auth_type, 'neutron')
-
-    handle_neutron_deprecations()
+    register_plugin_opts(cfg.CONF)
 
 
-def _register_opts(opts, group, not_found_msg=None, replace=('', '')):
+def _register_opts(opts, group, conf=None, not_found_msg=None,
+                   replace=('', '')):
+    if conf is None:
+        conf = cfg.CONF
     # NOTE (ricolin): To prevent DuplicateOptError
     missing_opts = opts
     try:
-        registered_opts = [opt for opt in getattr(cfg.CONF, group)]
+        registered_opts = [opt for opt in getattr(conf, group)]
         missing_opts = [
             opt for opt in opts if (
                 opt.name not in registered_opts and
@@ -180,7 +182,7 @@ def _register_opts(opts, group, not_found_msg=None, replace=('', '')):
         msg = not_found_msg if not_found_msg else (
             f"Not found any opts under group {group}")
         LOG.info(msg)
-    cfg.CONF.register_opts(missing_opts, group=group)
+    conf.register_opts(missing_opts, group=group)
 
 
 def list_opts():

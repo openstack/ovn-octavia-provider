@@ -48,8 +48,8 @@ The plugin is automatically loaded when running ``neutron-ovn-db-sync-util``:
         --ovn-neutron_sync_mode repair
 
 **Important:** Do NOT pass ``/etc/octavia/octavia.conf`` via ``--config-file``.
-The plugin loads it automatically to avoid conflicts with Neutron's database
-connection configuration.
+Use ``--octavia-config-file`` instead (or rely on the default path) to avoid
+conflicts with Neutron's database connection configuration.
 
 For more details, see the administration documentation in
 ``doc/source/admin/ovn-db-sync-plugin.rst``.

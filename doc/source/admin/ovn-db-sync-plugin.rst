@@ -42,14 +42,16 @@ To synchronize both Neutron and Octavia resources with OVN, run the
     neutron-ovn-db-sync-util \
         --config-file /etc/neutron/neutron.conf \
         --config-file /etc/neutron/plugins/ml2/ml2_conf.ini \
+        --octavia-config-file /etc/octavia/octavia.conf \
         --ovn-neutron_sync_mode repair
 
 .. note::
 
-    You do NOT need to pass ``/etc/octavia/octavia.conf`` as a config file.
-    The Octavia plugin automatically loads it from the standard location
-    (``/etc/octavia/octavia.conf``). Passing it would cause conflicts with
-    Neutron's database connection configuration.
+    Octavia configuration is loaded via ``--octavia-config-file`` or, if not
+    specified, from the default location ``/etc/octavia/octavia.conf``.
+    Do **not** pass ``/etc/octavia/octavia.conf`` via ``--config-file``, as
+    that merges into Neutron's global configuration and can overwrite settings
+    such as the database connection.
 
 This will:
 
@@ -126,6 +128,7 @@ Recommended Workflows
     neutron-ovn-db-sync-util \
         --config-file /etc/neutron/neutron.conf \
         --config-file /etc/neutron/plugins/ml2/ml2_conf.ini \
+        --octavia-config-file /etc/octavia/octavia.conf \
         --ovn-neutron_sync_mode repair
 
     # Restart services
@@ -162,14 +165,18 @@ Required Configuration Files
     - ``/etc/neutron/plugins/ml2/ml2_conf.ini`` - ML2 plugin configuration
       (includes OVN connection settings)
 
-**Configuration automatically loaded by the plugin:**
+**Configuration for Octavia synchronization:**
+
+    - ``--octavia-config-file`` - Path to Octavia configuration (optional;
+      defaults to ``/etc/octavia/octavia.conf`` if present)
+
+**Configuration loaded by the plugin when not specified via CLI:**
     - ``/etc/octavia/octavia.conf`` - Octavia configuration
       (includes Octavia database connection and OVN provider settings)
 
-The Octavia plugin automatically searches for and loads ``octavia.conf`` from
-standard locations (``/etc/octavia/octavia.conf``, ``~/octavia.conf``,
-``./octavia.conf``). You should **NOT** pass it via ``--config-file`` to
-avoid database connection conflicts.
+The Octavia plugin loads configuration into an isolated ``cfg.ConfigOpts``
+object. You should **not** pass ``octavia.conf`` via ``--config-file`` to
+avoid database connection conflicts with Neutron.
 
 OVN Connection Sharing
 ----------------------
@@ -195,9 +202,9 @@ The Octavia OVN synchronizer has the following limitations:
    synchronized. Load balancers using other providers (e.g., Amphora) are
    not affected.
 
-3. **Octavia Configuration Location**: The plugin expects Octavia configuration
-   at ``/etc/octavia/octavia.conf`` or other standard locations. It cannot be
-   passed via ``--config-file`` to avoid database connection conflicts.
+3. **Octavia Configuration**: Use ``--octavia-config-file`` to specify a
+   non-default Octavia config path. If omitted, the plugin loads
+   ``/etc/octavia/octavia.conf`` when present.
 
 Best Practices
 ==============
