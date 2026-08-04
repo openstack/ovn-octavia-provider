@@ -18,9 +18,10 @@ from octavia_lib.api.drivers import data_models
 from octavia_lib.api.drivers import driver_lib as o_driver_lib
 from octavia_lib.api.drivers import exceptions
 from octavia_lib.common import constants
-import openstack
 from oslo_utils import uuidutils
 from ovsdbapp.backend.ovs_idl import idlutils
+
+import openstack
 
 from ovn_octavia_provider.common import clients
 from ovn_octavia_provider.common import constants as ovn_const
@@ -1130,6 +1131,21 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
         self.ref_pool.lb_algorithm = constants.LB_ALGORITHM_LEAST_CONNECTIONS
         self.assertRaises(exceptions.UnsupportedOptionError,
                           self.driver.pool_create, self.ref_pool)
+
+    def test_pool_create_source_ip_lb_algorithm(self):
+        """Test pool creation with SOURCE_IP algorithm."""
+        self.ref_pool.lb_algorithm = constants.LB_ALGORITHM_SOURCE_IP
+        info = {'id': self.ref_pool.pool_id,
+                'loadbalancer_id': self.ref_pool.loadbalancer_id,
+                'listener_id': self.ref_pool.listener_id,
+                'protocol': self.ref_pool.protocol,
+                'lb_algorithm': constants.LB_ALGORITHM_SOURCE_IP,
+                'admin_state_up': self.ref_pool.admin_state_up,
+                'session_persistence': {'type': 'SOURCE_IP'}}
+        expected_dict = {'type': ovn_const.REQ_TYPE_POOL_CREATE,
+                         'info': info}
+        self.driver.pool_create(self.ref_pool)
+        self.mock_add_request.assert_called_once_with(expected_dict)
 
     def test_pool_create(self):
         info = {'id': self.ref_pool.pool_id,
