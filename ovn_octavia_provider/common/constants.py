@@ -108,7 +108,6 @@ OVN_NATIVE_LB_PROTOCOLS = [constants.PROTOCOL_TCP,
                            constants.PROTOCOL_SCTP, ]
 
 # Supported LB algorithms
-# NOTE(froyo): Requires OVN >= 20.03.0 with selection_fields support
 OVN_NATIVE_LB_ALGORITHMS = [constants.LB_ALGORITHM_SOURCE_IP_PORT,
                             constants.LB_ALGORITHM_SOURCE_IP, ]
 

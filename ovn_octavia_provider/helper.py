@@ -566,11 +566,8 @@ class OvnProviderHelper():
 
         :param loadbalancer: Octavia loadbalancer dict
         :param ovn_lb: Optional existing OVN LB row
-        :returns: List of selection field names or None
+        :returns: List of selection field names
         """
-        if not self._are_selection_fields_supported():
-            return None
-
         # If OVN LB already has selection_fields set, preserve them
         # They were set correctly when the pool was created
         if ovn_lb and ovn_lb.selection_fields:
@@ -1453,10 +1450,6 @@ class OvnProviderHelper():
                 return True
         return False
 
-    def _are_selection_fields_supported(self):
-        return self.ovn_nbdb_api.is_col_present(
-            'Load_Balancer', 'selection_fields')
-
     @staticmethod
     def _get_selection_keys(lb_algorithm):
         # pylint: disable=multiple-statements
@@ -1659,9 +1652,8 @@ class OvnProviderHelper():
         kwargs = {
             'name': loadbalancer[constants.ID],
             'protocol': protocol,
-            'external_ids': external_ids}
-        if self._are_selection_fields_supported():
-            kwargs['selection_fields'] = self._get_selection_keys(lb_algorithm)
+            'external_ids': external_ids,
+            'selection_fields': self._get_selection_keys(lb_algorithm)}
         try:
             self.ovn_nbdb_api.db_create(
                 'Load_Balancer',
@@ -2347,12 +2339,11 @@ class OvnProviderHelper():
                     ('options', options)))
 
             # Update selection_fields based on pool's lb_algorithm
-            if self._are_selection_fields_supported():
-                lb_algorithm = pool[constants.LB_ALGORITHM]
-                selection_fields = self._get_selection_keys(lb_algorithm)
-                commands.append(self.ovn_nbdb_api.db_set(
-                    'Load_Balancer', ovn_lb.uuid,
-                    ('selection_fields', selection_fields)))
+            lb_algorithm = pool[constants.LB_ALGORITHM]
+            selection_fields = self._get_selection_keys(lb_algorithm)
+            commands.append(self.ovn_nbdb_api.db_set(
+                'Load_Balancer', ovn_lb.uuid,
+                ('selection_fields', selection_fields)))
 
             self._execute_commands(commands)
 

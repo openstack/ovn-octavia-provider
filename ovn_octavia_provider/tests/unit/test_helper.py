@@ -924,25 +924,6 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
                 self.router)
 
     @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
-    def test_lb_create_selection_fields_not_supported(self, net_cli):
-        self.lb['admin_state_up'] = True
-        net_cli.return_value.ports.return_value = self.ports
-        self.helper._are_selection_fields_supported = (
-            mock.Mock(return_value=False))
-        status = self.helper.lb_create(self.lb)
-        self.assertEqual(status['loadbalancers'][0]['provisioning_status'],
-                         constants.ACTIVE)
-        self.assertEqual(status['loadbalancers'][0]['operating_status'],
-                         constants.ONLINE)
-        self.helper.ovn_nbdb_api.db_create.assert_called_once_with(
-            'Load_Balancer', external_ids={
-                ovn_const.LB_EXT_IDS_VIP_KEY: mock.ANY,
-                ovn_const.LB_EXT_IDS_VIP_PORT_ID_KEY: mock.ANY,
-                'enabled': 'True'},
-            name=mock.ANY,
-            protocol=[])
-
-    @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
     def test_lb_create_selection_fields_not_supported_algo(self, net_cli):
         self.lb['admin_state_up'] = True
         net_cli.return_value.ports.return_value = self.ports
@@ -6842,15 +6823,6 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
             ('protocol', '=', 'tcp')
         )
         self.assertEqual(result, [fake_lb])
-
-    @mock.patch.object(ovn_helper.OvnProviderHelper,
-                       '_are_selection_fields_supported')
-    def test_selection_fields_not_supported(self, mock_supported):
-        loadbalancer = {}
-        mock_supported.return_value = False
-        result = self.helper._build_selection_fields(loadbalancer)
-        mock_supported.assert_called_once_with()
-        self.assertIsNone(result)
 
     @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
     @mock.patch.object(ovn_helper.OvnProviderHelper, 'delete_port')
