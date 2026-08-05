@@ -215,11 +215,8 @@ class TestOvnOctaviaBase(base.TestOVNFunctionalBase,
                     ovn_const.OVN_MEMBER_STATUS_KEY] = jsonutils.loads(
                         member_status)
             lb_dict = {'name': lb.name, 'protocol': lb.protocol,
-                       'vips': lb.vips, 'external_ids': external_ids}
-            try:
-                lb_dict['selection_fields'] = lb.selection_fields
-            except AttributeError:
-                pass
+                       'vips': lb.vips, 'external_ids': external_ids,
+                       'selection_fields': lb.selection_fields}
             lbs.append(lb_dict)
         return lbs
 
@@ -660,15 +657,20 @@ class TestOvnOctaviaBase(base.TestOVNFunctionalBase,
         if len(expected_protocols) == 0:
             expected_protocols.append(None)
 
+        pool_algorithm_by_proto = {}
+        for p in lb_data['pools']:
+            pool_algorithm_by_proto[p.protocol.lower()] = p.lb_algorithm
+
         expected_lbs = []
         for protocol in expected_protocols:
+            lb_algorithm = pool_algorithm_by_proto.get(
+                protocol, o_constants.LB_ALGORITHM_SOURCE_IP_PORT)
             lb = {'name': lb_data['model'].loadbalancer_id,
                   'protocol': [protocol] if protocol else [],
                   'vips': {},
-                  'external_ids': copy.deepcopy(external_ids)}
-            if self.ovn_driver._ovn_helper._are_selection_fields_supported():
-                lb['selection_fields'] = ovn_const.LB_SELECTION_FIELDS_MAP[
-                    o_constants.LB_ALGORITHM_SOURCE_IP_PORT]
+                  'external_ids': copy.deepcopy(external_ids),
+                  'selection_fields': ovn_const.LB_SELECTION_FIELDS_MAP[
+                      lb_algorithm]}
             expected_lbs.append(lb)
 
         # For every connected subnet to the LB set the ref
