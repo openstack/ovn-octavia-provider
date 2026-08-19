@@ -15,6 +15,8 @@
 import copy
 
 import netaddr
+import openstack
+
 from octavia_lib.api.drivers import data_models as o_datamodels
 from octavia_lib.api.drivers import exceptions as driver_exceptions
 from octavia_lib.api.drivers import provider_base as driver_base
@@ -643,6 +645,12 @@ class OvnProviderDriver(driver_base.ProviderDriver):
                         additional_port['fixed_ips'][0]['subnet_id'],
                     'ip_address': additional_port['fixed_ips'][0]['ip_address']
                 })
+        except openstack.exceptions.ConflictException as e:
+            value = getattr(e, 'details', None) or getattr(e, 'message', None)
+            raise driver_exceptions.Conflict(
+                user_fault_string=value,
+                operator_fault_string=value
+            )
         except Exception as e:
             kwargs = {}
             for attr in ('details', 'message'):
