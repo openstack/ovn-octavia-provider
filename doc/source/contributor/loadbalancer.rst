@@ -283,8 +283,10 @@ The Following actions are not supported by the OVN Provider Driver:
 
 - Creating a LoadBalancer/Listener/Pool with an L7 Protocol
 
-- Currently only one algorithm is supported for pool management
-  (Source IP Port)
+- Only the SOURCE_IP_PORT and SOURCE_IP algorithms are supported for pool
+  management. Other algorithms such as ROUND_ROBIN and LEAST_CONNECTIONS are
+  not supported. The SOURCE_IP algorithm requires OVN >= 20.03.0, which added
+  the ``selection_fields`` column to the ``Load_Balancer`` table.
 
 - Due to nature of OVN octavia driver (flows distributed in all the nodes)
   there is no need for some of the amphora specific functionality that is

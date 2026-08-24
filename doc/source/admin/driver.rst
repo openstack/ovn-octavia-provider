@@ -41,8 +41,10 @@ These include:
 
 * Mixed IPv4 and IPv6 members are not supported.
 
-* Only the SOURCE_IP_PORT load balancing algorithm is supported, others
-  like ROUND_ROBIN and LEAST_CONNECTIONS are not currently supported.
+* Only the SOURCE_IP_PORT and SOURCE_IP load balancing algorithms are
+  supported, others like ROUND_ROBIN and LEAST_CONNECTIONS are not currently
+  supported. The SOURCE_IP algorithm requires OVN >= 20.03.0, which added the
+  ``selection_fields`` column to the ``Load_Balancer`` table.
 
 * OVN supports health checks for TCP and UDP-CONNECT protocols, but not for
   SCTP. Therefore, when configuring a health monitor, you cannot use SCTP as
