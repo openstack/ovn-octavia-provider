@@ -18,6 +18,7 @@ from octavia_lib.api.drivers import data_models
 from octavia_lib.api.drivers import driver_lib as o_driver_lib
 from octavia_lib.api.drivers import exceptions
 from octavia_lib.common import constants
+from openstack import exceptions as os_exceptions
 from oslo_utils import uuidutils
 from ovsdbapp.backend.ovs_idl import idlutils
 
@@ -2422,3 +2423,21 @@ class TestOvnProviderDriver(ovn_base.TestOvnOctaviaBase):
             self.driver.do_sync(**lb_filters)
             mock_ensure_lb.assert_any_call(
                 self.ref_lb_fully_sync_populated)
+
+    def test_create_vip_port_ip_exhaustion_conflict(self):
+        # We need to simulate the openstack.exceptions.ConflictException
+        # that the neutron client throws when it runs out of IP addresses.
+        conflict_exc = os_exceptions.ConflictException(
+            message="No more IP addresses available on network f01b49aa..."
+        )
+        # Mock the helper to raise the 409 conflict exception
+        with mock.patch.object(ovn_helper.OvnProviderHelper, 'create_vip_port',
+                               side_effect=conflict_exc):
+            exc = self.assertRaises(
+                exceptions.Conflict,
+                self.driver.create_vip_port,
+                self.loadbalancer_id,
+                self.project_id,
+                self.vip_dict,
+                [])
+            self.assertIn('No more IP addresses', exc.user_fault_string)
