@@ -1229,6 +1229,8 @@ class OvnProviderHelper():
         for port in router.ports:
             if port.gateway_chassis or port.ha_chassis_group:
                 continue
+            if not port.networks:
+                continue
             if netaddr.IPNetwork(port.networks[0]).version != ip_version:
                 continue
             port_network_name = port.external_ids.get(
