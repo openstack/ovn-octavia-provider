@@ -3133,6 +3133,25 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         result = self.helper._find_ls_for_lr(self.router, n_const.IP_VERSION_4)
         self.assertListEqual([], result)
 
+    def test__find_ls_for_lr_port_without_networks(self):
+        # EVPN dynamic routing creates ports with empty networks list
+        evpn_port = fakes.FakeOVNPort.create_one_port(attrs={
+            'gateway_chassis': [],
+            'ha_chassis_group': [],
+            'external_ids': {},
+            'networks': []})
+        normal_port = fakes.FakeOVNPort.create_one_port(attrs={
+            'gateway_chassis': [],
+            'ha_chassis_group': [],
+            'external_ids': {
+                ovn_const.OVN_NETWORK_NAME_EXT_ID_KEY: 'net1'},
+            'networks': ["10.0.0.1/24"]})
+        self.router.ports.append(evpn_port)
+        self.router.ports.append(normal_port)
+        # Should not raise IndexError and should return only the normal port
+        result = self.helper._find_ls_for_lr(self.router, n_const.IP_VERSION_4)
+        self.assertListEqual(['neutron-net1'], result)
+
     @mock.patch.object(
         ovn_helper.OvnProviderHelper, '_del_lb_to_lr_association')
     @mock.patch.object(
