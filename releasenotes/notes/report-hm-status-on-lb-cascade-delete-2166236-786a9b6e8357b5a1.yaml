@@ -1,0 +1,12 @@
+---
+fixes:
+  - |
+    [`bug 2166236 <https://bugs.launchpad.net/neutron/+bug/2166236>`_]
+    Health monitors are now reported as ``DELETED`` when their load balancer
+    is deleted with ``cascade``. They were previously left out of the status
+    update sent to Octavia, so Octavia never decremented the
+    ``health_monitor`` quota for the project even though the health monitor
+    row was removed. The counter drifted upwards on every cascade delete
+    until the project reached its health monitor quota, after which every
+    fully-populated load balancer creation failed with ``Quota has been met
+    for resources: Health Monitor``.

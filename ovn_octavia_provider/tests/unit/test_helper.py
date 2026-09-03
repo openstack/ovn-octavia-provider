@@ -8523,6 +8523,49 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
             }
             mock_handle_dvr.assert_called_once_with([expected_member_info])
 
+    def test__lb_delete_cascade_health_monitors(self):
+        status = {'pools': [], 'listeners': [], 'members': [],
+                  'healthmonitors': []}
+        lb = {'cascade': True}
+        with mock.patch.object(self.helper, 'member_delete'), \
+             mock.patch.object(self.helper, 'handle_member_dvr'):
+            result = self.helper._lb_delete(lb, self.ovn_hm_lb, status)
+        self.assertEqual(len(result['healthmonitors']), 1)
+        self.assertEqual(result['healthmonitors'][0]['id'],
+                         self.ovn_hm.uuid)
+        self.assertEqual(result['healthmonitors'][0]['provisioning_status'],
+                         constants.DELETED)
+        self.assertEqual(result['healthmonitors'][0]['operating_status'],
+                         constants.NO_MONITOR)
+
+    def test__lb_delete_cascade_no_health_monitors(self):
+        status = {'pools': [], 'listeners': [], 'members': [],
+                  'healthmonitors': []}
+        lb = {'cascade': True}
+        with mock.patch.object(self.helper, 'member_delete'), \
+             mock.patch.object(self.helper, 'handle_member_dvr'):
+            result = self.helper._lb_delete(lb, self.ovn_lb, status)
+        self.assertEqual([], result['healthmonitors'])
+
+    def test__lb_delete_cascade_malformed_health_monitors(self):
+        self.ovn_hm_lb.external_ids[ovn_const.LB_EXT_IDS_HMS_KEY] = 'notjson'
+        status = {'pools': [], 'listeners': [], 'members': [],
+                  'healthmonitors': []}
+        lb = {'cascade': True}
+        with mock.patch.object(self.helper, 'member_delete'), \
+             mock.patch.object(self.helper, 'handle_member_dvr'):
+            result = self.helper._lb_delete(lb, self.ovn_hm_lb, status)
+        self.assertEqual([], result['healthmonitors'])
+        self.helper.ovn_nbdb_api.lb_del.assert_called_once_with(
+            self.ovn_hm_lb.uuid)
+
+    def test__lb_delete_no_cascade_health_monitors_untouched(self):
+        status = {'pools': [], 'listeners': [], 'members': [],
+                  'healthmonitors': []}
+        lb = {'cascade': False}
+        result = self.helper._lb_delete(lb, self.ovn_hm_lb, status)
+        self.assertEqual([], result['healthmonitors'])
+
     def test__lb_delete_cascade_pool_status_update(self):
         self.ovn_lb.external_ids.pop('pool_%s' % self.pool_id)
         self.ovn_lb.external_ids.update({
