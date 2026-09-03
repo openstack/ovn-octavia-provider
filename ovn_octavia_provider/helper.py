@@ -1917,6 +1917,24 @@ class OvnProviderHelper():
                         constants.PROVISIONING_STATUS: constants.DELETED,
                         constants.OPERATING_STATUS: constants.OFFLINE})
 
+            # Octavia only decrements the quota of the objects reported as
+            # DELETED, and the health monitor rows are removed silently by
+            # the ORM cascade on their pool.
+            hms_key = ovn_lb.external_ids.get(ovn_const.LB_EXT_IDS_HMS_KEY)
+            if hms_key:
+                try:
+                    hms_key = jsonutils.loads(hms_key)
+                except ValueError:
+                    LOG.warning("Malformed %s on Load Balancer %s, the health "
+                                "monitor quota will not be released",
+                                ovn_const.LB_EXT_IDS_HMS_KEY, ovn_lb.uuid)
+                    hms_key = []
+                for hm_id in hms_key:
+                    status.setdefault(constants.HEALTHMONITORS, []).append({
+                        constants.ID: hm_id,
+                        constants.PROVISIONING_STATUS: constants.DELETED,
+                        constants.OPERATING_STATUS: constants.NO_MONITOR})
+
         if ovn_lb.health_check:
             clean_up_hm_port_required = True
             commands.append(
