@@ -1,0 +1,47 @@
+[build-system]
+requires = ["pbr>=6.1.1"]
+build-backend = "pbr.build"
+
+[project]
+name = "ovn-octavia-provider"
+description = "OpenStack Octavia integration with OVN"
+authors = [
+    {name = "OpenStack", email = "openstack-discuss@lists.openstack.org"},
+]
+readme = {file = "README.rst", content-type = "text/x-rst"}
+license = "Apache-2.0"
+dynamic = ["version", "dependencies"]
+requires-python = ">=3.11"
+classifiers = [
+    "Environment :: OpenStack",
+    "Intended Audience :: Information Technology",
+    "Intended Audience :: System Administrators",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+]
+
+[project.urls]
+Documentation = "https://docs.openstack.org/ovn-octavia-provider/latest/"
+
+[project.entry-points."octavia.api.drivers"]
+ovn = "ovn_octavia_provider.driver:OvnProviderDriver"
+
+[project.scripts]
+octavia-ovn-db-sync-util = "ovn_octavia_provider.cmd.octavia_ovn_db_sync_util:main"
+
+[project.entry-points."octavia.driver_agent.provider_agents"]
+ovn = "ovn_octavia_provider.agent:OvnProviderAgent"
+
+[project.entry-points."oslo.config.opts"]
+"octavia.api.drivers.ovn" = "ovn_octavia_provider.common.config:list_opts"
+
+[project.entry-points."neutron.ovn.db_sync"]
+octavia_ovn_sync = "ovn_octavia_provider.ovn.db_sync:OctaviaOvnSynchronizer"
+
+[tool.setuptools.packages.find]
+include = ["ovn_octavia_provider*"]
