@@ -15,4 +15,3 @@ Below you can find a list of checks specific to this repository.
 - [N343] Production code must not import from ovn_octavia_provider.tests.*
 - [N344] Python 3: Do not use filter(lambda obj: test(obj), data). Replace it
          with [obj for obj in data if test(obj)].
-- [N348] Detect usage of assertItemsEqual

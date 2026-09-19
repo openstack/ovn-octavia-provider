@@ -246,20 +246,3 @@ class HackingTestCase(base.BaseTestCase):
         self.assertLinePasses(f, "[obj for obj in data if test(obj)]")
         self.assertLinePasses(f, "filter(function, range(0,10))")
         self.assertLinePasses(f, "lambda x, y: x+y")
-
-    def test_check_assertcountequal(self):
-        filename = "ovn_octavia_provider/tests/test_example.py"
-        logical_line = "self.assertItemsEqual(a, b)"
-        result = list(checks.check_assertcountequal(logical_line, filename))
-        expected_msg = ("N348: Use assertCountEqual(expected, observed) "
-                        "instead of assertItemsEqual(observed, expected)")
-        self.assertEqual(len(result), 1)
-        self.assertEqual(result[0][1], expected_msg)
-
-        logical_line = "self.assertEqual(a, b)"
-        result = list(checks.check_assertcountequal(logical_line, filename))
-        self.assertEqual([], result)
-
-        filename = "some_other_path/test_example.py"
-        result = list(checks.check_assertcountequal(logical_line, filename))
-        self.assertEqual([], result)
