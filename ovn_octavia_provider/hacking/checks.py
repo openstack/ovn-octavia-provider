@@ -162,15 +162,3 @@ def check_python3_no_filter(logical_line):
 
     if filter_match.match(logical_line):
         yield (0, msg)
-
-
-@core.flake8ext
-def check_assertcountequal(logical_line, filename):
-    """N348 - Enforce using assertCountEqual."""
-
-    msg = ("N348: Use assertCountEqual(expected, observed) "
-           "instead of assertItemsEqual(observed, expected)")
-
-    if 'ovn_octavia_provider/tests/' in filename:
-        if re.search(r"assertItemsEqual\([^,]*,\s*(,[^,]*)?", logical_line):
-            yield (0, msg)
