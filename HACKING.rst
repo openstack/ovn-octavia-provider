@@ -9,7 +9,6 @@ Below you can find a list of checks specific to this repository.
 - [N328] Detect wrong usage with assertEqual
 - [N330] Use assertEqual(*empty*, observed) instead of
          assertEqual(observed, *empty*)
-- [N331] Detect wrong usage with assertTrue(isinstance()).
 - [N332] Use assertEqual(expected_http_code, observed_http_code) instead of
          assertEqual(observed_http_code, expected_http_code).
 - [N343] Production code must not import from ovn_octavia_provider.tests.*
