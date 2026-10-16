@@ -48,6 +48,9 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         mock.patch.object(self.helper, '_update_status_to_octavia').start()
         self.octavia_driver_lib = mock.patch.object(
             self.helper, '_octavia_driver_lib').start()
+        # Reachability has its own tests below; the mocked NB has no topology.
+        mock.patch.object(self.helper, '_vip_reach',
+                          return_value=None).start()
         self.listener = {'id': self.listener_id,
                          'loadbalancer_id': self.loadbalancer_id,
                          'protocol': 'TCP',
@@ -9298,3 +9301,207 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         listener_dict_none = {'admin_state_up': None}
         result = self.helper._get_listener_admin_state(listener_dict_none)
         self.assertIsNone(result)
+
+
+class _Row:
+    # Hashable by identity, as IDL rows are: the handlers put them in sets.
+    def __init__(self, **kwargs):
+        self.__dict__.update(kwargs)
+
+
+class TestUnreachableMembers(ovn_base.TestOvnOctaviaBase):
+    """A member the VIP cannot route to is not ONLINE.
+
+    The health check probes from a port on the member's own subnet, so a
+    member subnet detached from the VIP's router kept answering it while
+    every request to the VIP timed out (measured on the production cluster:
+    ONLINE throughout, curl rc=28).
+    """
+
+    VIP_PORT = 'vip-port'
+    MEMBER = '192.168.242.141'
+    POOL = 'pool-1'
+    MEMBER_ID = 'member-1'
+
+    def setUp(self):
+        super().setUp()
+        ovn_conf.register_opts()
+        self.helper = ovn_helper.OvnProviderHelper()
+        mock.patch.object(self.helper, '_update_status_to_octavia').start()
+        self.driver_lib = mock.patch.object(
+            self.helper, '_octavia_driver_lib').start()
+        self.nb = mock.patch.object(self.helper, 'ovn_nbdb_api').start()
+        self.nb.lookup.side_effect = self.lookup
+        # The whole tables are never read.
+        type(self.nb).tables = mock.PropertyMock(
+            side_effect=AssertionError('scanned a whole table'))
+        mock.patch.object(ovn_helper.OvnProviderHelper,
+                          'add_request').start()
+        self.addCleanup(mock.patch.stopall)
+        self.lb = _Row(
+            uuid=uuidutils.generate_uuid(), name='lb-1',
+            external_ids={
+                ovn_const.LB_EXT_IDS_VIP_PORT_ID_KEY: self.VIP_PORT,
+                ovn_const.LB_EXT_IDS_LR_REF_KEY: 'neutron-r',
+                ovn_const.LB_EXT_IDS_LS_REFS_KEY: jsonutils.dumps(
+                    {'neutron-net-a': 1, 'neutron-net-b': 1}),
+                'listener_l-1': '80:pool_%s' % self.POOL,
+                'pool_%s' % self.POOL: 'member_%s_%s:80_subnet-b' % (
+                    self.MEMBER_ID, self.MEMBER),
+                ovn_const.OVN_MEMBER_STATUS_KEY: jsonutils.dumps(
+                    {self.MEMBER_ID: constants.ONLINE})})
+        self.vip_switch = _Row(uuid='ls-a', ports=[
+            _Row(name=self.VIP_PORT, addresses=['fa:16:3e:00:00:01 '
+                                                '192.168.241.10'])])
+        self.rows = {}
+
+    def lookup(self, table, name):
+        try:
+            return self.rows[table][name]
+        except KeyError:
+            raise idlutils.RowNotFound(table=table, col='name', match=name)
+
+    def topology(self, router_networks=(), routes=(), on_router=True,
+                 vip_switch=True):
+        router = _Row(
+            load_balancer=[self.lb] if on_router else [],
+            ports=[_Row(networks=list(router_networks))],
+            static_routes=[_Row(ip_prefix=prefix) for prefix in routes])
+        self.rows = {
+            'Logical_Router': {'neutron-r': router},
+            'Logical_Switch_Port': {self.VIP_PORT: _Row(external_ids={
+                ovn_const.OVN_NETWORK_NAME_EXT_ID_KEY: 'neutron-net-a'})},
+            'Logical_Switch': (
+                {'neutron-net-a': self.vip_switch} if vip_switch else {})}
+
+    def reported(self):
+        statuses = jsonutils.loads(
+            self.lb.external_ids[ovn_const.OVN_MEMBER_STATUS_KEY])
+        return self.helper._withhold_unreachable(self.lb, statuses)[
+            self.MEMBER_ID]
+
+    def test_a_member_subnet_on_the_vips_router_stays_online(self):
+        self.topology(router_networks=['192.168.241.1/24',
+                                       '192.168.242.1/24'])
+        self.assertEqual(constants.ONLINE, self.reported())
+
+    def test_a_member_subnet_off_the_vips_router_is_error(self):
+        # The production shape: network B detached from the router.
+        self.topology(router_networks=['192.168.241.1/24'])
+        self.assertEqual(constants.ERROR, self.reported())
+
+    def test_a_static_route_to_the_member_counts(self):
+        self.topology(router_networks=['192.168.241.1/24'],
+                      routes=['192.168.242.0/24'])
+        self.assertEqual(constants.ONLINE, self.reported())
+
+    def test_the_gateways_default_route_does_not_count(self):
+        # Most tenant routers have one; it would make every member reachable.
+        self.topology(router_networks=['192.168.241.1/24', '172.24.4.10/24'],
+                      routes=['0.0.0.0/0', '::/0'])
+        self.assertEqual(constants.ERROR, self.reported())
+
+    def test_a_member_on_the_gateways_network_counts(self):
+        self.lb.external_ids['pool_%s' % self.POOL] = (
+            'member_%s_172.24.4.20:80_subnet-b' % self.MEMBER_ID)
+        self.topology(router_networks=['192.168.241.1/24', '172.24.4.10/24'],
+                      routes=['0.0.0.0/0'])
+        self.assertEqual(constants.ONLINE, self.reported())
+
+    def test_a_member_on_the_vips_own_switch_needs_no_router(self):
+        self.vip_switch.ports.append(
+            _Row(name='m', addresses=['fa:16:3e:00:00:02 %s' % self.MEMBER]))
+        self.topology(on_router=False)
+        self.assertEqual(constants.ONLINE, self.reported())
+
+    def test_a_router_the_lb_has_left_does_not_count(self):
+        # lr_ref is only a hint; the router itself says what is on it.
+        self.topology(router_networks=['192.168.242.1/24'], on_router=False)
+        self.assertEqual(constants.ERROR, self.reported())
+
+    def test_no_topology_found_changes_nothing(self):
+        # Nothing to judge from is not evidence of a fault.
+        self.topology(on_router=False, vip_switch=False)
+        self.assertEqual(constants.ONLINE, self.reported())
+
+    def test_a_member_that_is_not_online_is_left_alone(self):
+        # NO_MONITOR claims nothing, and ERROR is already ERROR.
+        self.topology(router_networks=['192.168.241.1/24'])
+        statuses = {self.MEMBER_ID: constants.NO_MONITOR}
+        self.assertEqual(
+            constants.NO_MONITOR,
+            self.helper._withhold_unreachable(self.lb, statuses)[
+                self.MEMBER_ID])
+
+    def test_the_stored_status_stays_the_probes(self):
+        self.topology(router_networks=['192.168.241.1/24'])
+        self.reported()
+        self.assertEqual(
+            {self.MEMBER_ID: constants.ONLINE},
+            jsonutils.loads(
+                self.lb.external_ids[ovn_const.OVN_MEMBER_STATUS_KEY]))
+
+    def test_ipv6_members_are_judged_too(self):
+        member = '2001:db8:2::5'
+        self.lb.external_ids['pool_%s' % self.POOL] = (
+            'member_%s_%s:80_subnet-b' % (self.MEMBER_ID, member))
+        self.topology(router_networks=['2001:db8:1::1/64'])
+        self.assertEqual(constants.ERROR, self.reported())
+        self.topology(router_networks=['2001:db8:1::1/64',
+                                       '2001:db8:2::1/64'])
+        self.assertEqual(constants.ONLINE, self.reported())
+
+    def _report(self):
+        self.driver_lib.get_loadbalancer.return_value = mock.Mock(
+            admin_state_up=True,
+            pools=[{'pool_id': self.POOL, 'admin_state_up': True}],
+            listeners=[{'listener_id': 'l-1', 'admin_state_up': True}])
+        return self.helper._get_current_operating_statuses(
+            self.lb, member_ids=[self.MEMBER_ID])
+
+    def test_the_report_carries_it_up_to_the_pool(self):
+        self.topology(router_networks=['192.168.241.1/24'])
+        status = self._report()
+        self.assertEqual(
+            [constants.ERROR],
+            [m[constants.OPERATING_STATUS] for m in status[constants.MEMBERS]])
+        self.assertEqual(
+            [constants.ERROR],
+            [p[constants.OPERATING_STATUS] for p in status[constants.POOLS]])
+
+    def test_a_router_interface_removed_re_reports(self):
+        # No member changed, so no health check event would ever say so.
+        self.topology(router_networks=['192.168.241.1/24'])
+        network = _Row(load_balancer=[self.lb], name='neutron-net-b',
+                       uuid='ls-b')
+        router = _Row(load_balancer=[], uuid='lr-1')
+        with mock.patch.object(self.helper,
+                               '_update_lb_to_lr_association'):
+            status = self.helper.lb_delete_lrp_assoc(
+                {'network': network, 'router': router})
+        self.assertEqual(
+            [constants.ERROR],
+            [m[constants.OPERATING_STATUS] for m in status[constants.MEMBERS]])
+
+    def test_a_router_interface_added_re_reports(self):
+        self.topology(router_networks=['192.168.241.1/24',
+                                       '192.168.242.1/24'])
+        network = _Row(load_balancer=[self.lb], name='neutron-net-b',
+                       uuid='ls-b')
+        router = _Row(load_balancer=[self.lb], uuid='lr-1')
+        status = self.helper.lb_create_lrp_assoc(
+            {'network': network, 'router': router, 'is_gw_port': False})
+        self.assertEqual(
+            [constants.ONLINE],
+            [m[constants.OPERATING_STATUS] for m in status[constants.MEMBERS]])
+
+    def test_a_load_balancer_without_a_monitor_is_not_re_reported(self):
+        self.lb.external_ids[ovn_const.OVN_MEMBER_STATUS_KEY] = '{}'
+        self.topology(router_networks=['192.168.241.1/24'])
+        network = _Row(load_balancer=[self.lb], name='neutron-net-b',
+                       uuid='ls-b')
+        router = _Row(load_balancer=[], uuid='lr-1')
+        with mock.patch.object(self.helper,
+                               '_update_lb_to_lr_association'):
+            self.assertIsNone(self.helper.lb_delete_lrp_assoc(
+                {'network': network, 'router': router}))

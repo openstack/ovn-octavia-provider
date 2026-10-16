@@ -1,0 +1,14 @@
+---
+fixes:
+  - |
+    A member that answers its health check but is not routed from the
+    load balancer VIP is now reported as ``ERROR`` instead of ``ONLINE``.
+    The check probes a member from a port on the member's own subnet, so
+    a member subnet detached from the VIP's router, or attached to another
+    router, kept reading ``ONLINE`` while every request to the VIP timed
+    out. Reachability is judged from the networks and static routes of the
+    routers the load balancer is on, leaving out default routes since a
+    router with an external gateway would otherwise reach every member,
+    and from the switches of its VIP ports, and members are re-reported when a router interface is added
+    or removed. The status stored in the Northbound database is still the
+    health check's.

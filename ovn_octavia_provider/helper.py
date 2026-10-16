@@ -289,6 +289,10 @@ class OvnProviderHelper():
                             rlb.uuid, utils.ovn_uuid(network.name))
                 pass
 
+        # Nothing about a member changed, so no health check event will say
+        # that its subnet is no longer routed from the VIP.
+        return self._statuses_after_topology_change(nw_lb | r_lb)
+
     def lb_create_lrp_assoc_handler(self, row):
         try:
             router, network = self._get_nw_router_info_on_interface_event(row)
@@ -322,7 +326,8 @@ class OvnProviderHelper():
         # provider networks. And it should never be True there when the VIPs
         # are on project networks.
         if info['is_gw_port']:
-            return
+            return self._statuses_after_topology_change(
+                network_lb | router_lb)
 
         # Add those lb to the network which are unique to the router
         for lb in (router_lb - network_lb):
@@ -337,6 +342,9 @@ class OvnProviderHelper():
                             "logical switch %s failed, just keep going on",
                             lb.uuid, utils.ovn_uuid(info['network'].name))
                 pass
+
+        return self._statuses_after_topology_change(
+            network_lb | router_lb)
 
     def vip_port_update_handler(self, vip_lp, fip, action):
         """Handler for VirtualIP port updates.
@@ -4321,6 +4329,130 @@ class OvnProviderHelper():
             return listener.get('admin_state_up', True)
         return None
 
+    def _vip_reach(self, ovn_lb):
+        """What the load balancer's VIPs can deliver traffic to.
+
+        Returns (networks, switches): the networks and static route
+        prefixes, bar default routes, of every router the load balancer is
+        on, and the logical
+        switches holding its VIP ports. None when neither can be found,
+        which says nothing either way.
+
+        This runs on every status report, so only the rows the load
+        balancer refers to are read, each by an indexed lookup.
+        """
+        api = self.ovn_nbdb_api
+        networks = []
+        lr_ref = ovn_lb.external_ids.get(ovn_const.LB_EXT_IDS_LR_REF_KEY, '')
+        for name in {n.strip() for n in lr_ref.split(',') if n.strip()}:
+            try:
+                lr = api.lookup('Logical_Router', name)
+            except idlutils.RowNotFound:
+                continue
+            if ovn_lb.uuid not in [lb.uuid for lb in lr.load_balancer]:
+                continue
+            for lrp in lr.ports:
+                for cidr in lrp.networks:
+                    networks.append(netaddr.IPNetwork(cidr))
+            for route in getattr(lr, 'static_routes', []) or []:
+                prefix = netaddr.IPNetwork(route.ip_prefix)
+                # A default route leads out of the gateway, which matches
+                # every member and so would vouch for none of them.
+                if prefix.prefixlen:
+                    networks.append(prefix)
+        vip_ports = {ovn_lb.external_ids.get(
+            ovn_const.LB_EXT_IDS_VIP_PORT_ID_KEY)}
+        additional = ovn_lb.external_ids.get(
+            ovn_const.LB_EXT_IDS_ADDIT_VIP_PORT_ID_KEY)
+        if additional:
+            vip_ports.update(additional.split(','))
+        vip_ports.discard(None)
+        switches = {}
+        for port in vip_ports:
+            try:
+                lsp = api.lookup('Logical_Switch_Port', port)
+                ls = api.lookup('Logical_Switch', lsp.external_ids.get(
+                    ovn_const.OVN_NETWORK_NAME_EXT_ID_KEY, ''))
+            except (idlutils.RowNotFound, TypeError):
+                continue
+            switches[ls.uuid] = ls
+        switches = list(switches.values())
+        if not networks and not switches:
+            return None
+        return networks, switches
+
+    @staticmethod
+    def _reachable(reach, address):
+        networks, switches = reach
+        ip = netaddr.IPAddress(address)
+        if any(ip in network for network in networks):
+            return True
+        for ls in switches:
+            for lsp in ls.ports:
+                if address in utils.remove_macs_from_lsp_addresses(
+                        lsp.addresses):
+                    return True
+        return False
+
+    def _withhold_unreachable(self, ovn_lb, member_statuses):
+        """Report ERROR for an ONLINE member the VIPs cannot reach.
+
+        The health check probes a member from a port on the member's own
+        subnet, so it answers whether the member is up, not whether
+        traffic for the VIP can get to it. A member subnet that is not
+        routed from the VIP's router -- detached from it, or attached to
+        another one -- read ONLINE while every request to the VIP timed
+        out. The stored status stays the probe's; only the report changes.
+        """
+        if not member_statuses:
+            return member_statuses
+        try:
+            reach = self._vip_reach(ovn_lb)
+        except Exception:
+            LOG.debug('Could not read the topology of load balancer %s',
+                      ovn_lb.name, exc_info=True)
+            return member_statuses
+        if reach is None:
+            return member_statuses
+        withheld = dict(member_statuses)
+        for key, value in ovn_lb.external_ids.items():
+            if not key.startswith(ovn_const.LB_EXT_IDS_POOL_PREFIX):
+                continue
+            for mb_ip, _port, _subnet, mb_id in self._extract_member_info(
+                    value):
+                if withheld.get(mb_id) != constants.ONLINE:
+                    continue
+                try:
+                    reachable = self._reachable(reach, mb_ip)
+                except netaddr.AddrFormatError:
+                    continue
+                if not reachable:
+                    LOG.warning('Load balancer %s member %s (%s) answers its '
+                                'health check but is not routed from the '
+                                'VIP; reporting it ERROR', ovn_lb.name,
+                                mb_id, mb_ip)
+                    withheld[mb_id] = constants.ERROR
+        return withheld
+
+    def _statuses_after_topology_change(self, ovn_lbs):
+        """Re-report monitored load balancers a router change touched."""
+        statuses = []
+        for ovn_lb in ovn_lbs:
+            try:
+                recorded = jsonutils.loads(ovn_lb.external_ids.get(
+                    ovn_const.OVN_MEMBER_STATUS_KEY))
+            except (TypeError, ValueError):
+                continue
+            if not isinstance(recorded, dict) or not recorded:
+                continue
+            try:
+                statuses.append(self._get_current_operating_statuses(
+                    ovn_lb, member_ids=list(recorded)))
+            except Exception:
+                LOG.exception('Could not re-report load balancer %s after '
+                              'a router interface change', ovn_lb.name)
+        return self._merge_statuses(statuses)
+
     def _get_current_operating_statuses(self, ovn_lb, member_ids=None):
         """The statuses to report after acting on the load balancer.
 
@@ -4352,6 +4484,7 @@ class OvnProviderHelper():
             LOG.debug("no member status on external_ids: %s",
                       str(member_statuses))
             member_statuses = {}
+        member_statuses = self._withhold_unreachable(ovn_lb, member_statuses)
 
         for k, v in ovn_lb.external_ids.items():
             if ovn_const.LB_EXT_IDS_LISTENER_PREFIX in k:
