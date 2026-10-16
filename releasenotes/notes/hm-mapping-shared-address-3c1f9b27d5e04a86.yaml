@@ -1,0 +1,10 @@
+---
+fixes:
+  - |
+    Disabling or deleting a member no longer removes the health check of
+    another member of the same pool on the same address. The
+    ``ip_port_mappings`` entry is per address, and only members of other
+    pools were checked before removing it, so the remaining member lost its
+    ``Service_Monitor`` and its status was no longer updated. Deleting a
+    health monitor applies the same rule, and no longer keeps the entry
+    for an administratively disabled member of another pool.

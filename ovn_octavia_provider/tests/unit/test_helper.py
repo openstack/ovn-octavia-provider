@@ -277,6 +277,36 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
                                               pool_key,
                                               self.member_address))
 
+    @mock.patch.object(ovn_helper.OvnProviderHelper,
+                       '_update_ip_port_mappings')
+    @mock.patch.object(ovn_helper.OvnProviderHelper, '_get_member_lsp')
+    @mock.patch.object(ovn_helper.OvnProviderHelper, '_ensure_hm_ovn_port')
+    def test__update_hm_member_names_the_leaving_member(
+            self, ensure_hm_port, get_lsp, update_ipm):
+        ensure_hm_port.return_value = {'fixed_ips': [{
+            'subnet_id': self.member_subnet_id, 'ip_address': '10.0.0.4'}]}
+        self.helper._update_hm_member(
+            self.ovn_lb, 'pool_%s' % self.pool_id, self.member_address,
+            delete=True, member_id=self.member_id)
+        self.assertEqual(self.member_id,
+                         update_ipm.call_args.kwargs['member_id'])
+
+    @mock.patch.object(ovn_helper.OvnProviderHelper, '_execute_commands')
+    @mock.patch.object(ovn_helper.OvnProviderHelper, '_refresh_lb_vips')
+    @mock.patch.object(ovn_helper.OvnProviderHelper, '_update_hm_member')
+    @mock.patch.object(ovn_helper.OvnProviderHelper, '_find_ovn_lb_by_pool_id')
+    def test_member_update_disable_names_the_member(self, folbpi, uhm, *_):
+        pool_key = 'pool_%s' % self.pool_id
+        self.ovn_hm_lb.external_ids[pool_key] = self.member_line
+        folbpi.return_value = (pool_key, self.ovn_hm_lb)
+        self.helper.member_update([{
+            constants.ID: self.member_id, constants.POOL_ID: self.pool_id,
+            constants.ADDRESS: self.member_address,
+            constants.ADMIN_STATE_UP: False}])
+        uhm.assert_called_once_with(self.ovn_hm_lb, pool_key,
+                                    self.member_address, delete=True,
+                                    member_id=self.member_id)
+
     def test__clean_ip_port_mappings(self):
         self.helper._clean_ip_port_mappings(self.ovn_hm_lb)
         self.helper.ovn_nbdb_api.db_clear.assert_called_once_with(
@@ -314,6 +344,31 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
                               mock.ANY,
                               mock.call(self.ovn_hm_lb.uuid, 'address2'),
                               mock.ANY])
+
+    def test__clean_ip_port_mappings_ignores_a_disabled_other_pool_member(
+            self):
+        # A disabled member of another pool is not monitored; its address
+        # kept the entry when the health monitor was deleted.
+        mapping = self.helper.ovn_nbdb_api.lb_del_ip_port_mapping
+        self.ovn_hm_lb.external_ids['pool_1'] = (
+            'member_uuid1_address1:port1_subnet1')
+        self.ovn_hm_lb.external_ids['pool_2'] = (
+            'member_uuid3_address1:port3_subnet1,'
+            'member_uuid4_address1:port4_subnet1')
+        self.ovn_hm_lb.external_ids[ovn_const.OVN_MEMBER_STATUS_KEY] = (
+            jsonutils.dumps({'uuid1': constants.ONLINE,
+                             'uuid3': constants.OFFLINE,
+                             'uuid4': constants.NO_MONITOR}))
+        self.helper._clean_ip_port_mappings(self.ovn_hm_lb, 'pool_1')
+        mapping.assert_called_once_with(self.ovn_hm_lb.uuid, 'address1')
+        # Monitored, the same member keeps it.
+        mapping.reset_mock()
+        self.ovn_hm_lb.external_ids[ovn_const.OVN_MEMBER_STATUS_KEY] = (
+            jsonutils.dumps({'uuid1': constants.ONLINE,
+                             'uuid3': constants.ERROR,
+                             'uuid4': constants.NO_MONITOR}))
+        self.helper._clean_ip_port_mappings(self.ovn_hm_lb, 'pool_1')
+        mapping.assert_not_called()
 
     def test__clean_ip_port_mappings_two_hm_pools_not_sharing_members(self):
         self.member_line_pool1 = 'member_uuid1_address1:port1_subnet1, \
@@ -369,6 +424,36 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
             delete=True)
         self.helper.ovn_nbdb_api.lb_del_ip_port_mapping.\
             assert_called_once_with(self.ovn_lb.uuid, member_address)
+
+    def _del_mapping_with_sibling(self, sibling_status, member_id):
+        # Two members of one pool on one address, different ports: the
+        # mapping is per address, so it is shared.
+        leaving, sibling = 'leaving-id', 'sibling-id'
+        self.ovn_lb.external_ids = {
+            'pool_1': 'member_%s_10.0.0.1:9_s1,member_%s_10.0.0.1:80_s1' % (
+                leaving, sibling),
+            ovn_const.OVN_MEMBER_STATUS_KEY: jsonutils.dumps(
+                {leaving: constants.OFFLINE, sibling: sibling_status})}
+        self.helper._update_ip_port_mappings(
+            self.ovn_lb, '10.0.0.1', 'a-logical-port', '10.22.33.4',
+            'pool_1', delete=True,
+            member_id=leaving if member_id else None)
+
+    def test__update_ip_port_mappings_del_keeps_a_monitored_sibling(self):
+        self._del_mapping_with_sibling(constants.ONLINE, member_id=True)
+        self.helper.ovn_nbdb_api.lb_del_ip_port_mapping.assert_not_called()
+
+    def test__update_ip_port_mappings_del_ignores_a_disabled_sibling(self):
+        self._del_mapping_with_sibling(constants.OFFLINE, member_id=True)
+        self.helper.ovn_nbdb_api.lb_del_ip_port_mapping.\
+            assert_called_once_with(self.ovn_lb.uuid, '10.0.0.1')
+
+    def test__update_ip_port_mappings_del_without_member_id(self):
+        # Callers that do not name the leaving member keep the old rule:
+        # only other pools are looked at.
+        self._del_mapping_with_sibling(constants.ONLINE, member_id=False)
+        self.helper.ovn_nbdb_api.lb_del_ip_port_mapping.\
+            assert_called_once_with(self.ovn_lb.uuid, '10.0.0.1')
 
     def test__update_ip_port_mappings_add_backend_member_ipv6(self):
         member_address = 'fda2:918e:5869:0:f816:3eff:feab:cdef'
@@ -2706,7 +2791,8 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         uhm.assert_called_once_with(self.ovn_hm_lb,
                                     pool_key,
                                     self.member_address,
-                                    delete=True)
+                                    delete=True,
+                                    member_id=self.member_id)
 
     @mock.patch.object(ovn_helper.OvnProviderHelper, '_find_ovn_lb_by_pool_id')
     @mock.patch.object(ovn_helper.OvnProviderHelper, '_update_hm_member')
@@ -2729,7 +2815,8 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         uhm.assert_called_once_with(self.ovn_hm_lb,
                                     pool_key,
                                     self.member_address,
-                                    delete=True)
+                                    delete=True,
+                                    member_id=self.member_id)
         del_hm_port.assert_not_called()
 
     def test_member_delete_not_found_in_pool(self):
