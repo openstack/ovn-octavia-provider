@@ -1,0 +1,20 @@
+---
+fixes:
+  - |
+    A member whose backend is already down when its ``Service_Monitor`` is
+    created is now reported as ``ERROR``. OVN versions that create the row
+    already ``offline`` (OVN commit ``de8dc3f9a8``) never update it for such
+    a backend, and only updates were handled, so the member stayed
+    ``ONLINE`` forever.
+  - |
+    Health check events are matched to the exact member. The member was
+    previously looked up by substring, so an event for ``10.0.0.1`` could be
+    applied to ``10.0.0.10``, or an event for port ``9`` to any member of the
+    same address whose ID contains a ``9``.
+  - |
+    When the ``Service_Monitor`` of an enabled member is deleted, the member
+    is now set to ``ERROR`` instead of ``OFFLINE``. ``OFFLINE`` removes a
+    member from the load balancer backends, which removed its monitor as
+    well, so the member could never be reported back online and received no
+    traffic until it was disabled and re-enabled. Members already stuck that
+    way recover with ``openstack loadbalancer member set --enable``.

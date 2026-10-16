@@ -4423,9 +4423,7 @@ class OvnProviderHelper():
                         continue
                     if info['port'] != mb_port:
                         continue
-                    # match
-                    member_id = [mb.split('_')[1] for mb in v.split(',')
-                                 if mb_ip in mb and mb_port in mb][0]
+                    member_id = mb_id
                     break
 
                 # found it in inner loop
@@ -4436,7 +4434,12 @@ class OvnProviderHelper():
                 LOG.warning('Member for event not found, info: %s', info)
             else:
                 if info['delete']:
-                    member_status = constants.OFFLINE
+                    # NOTE: OFFLINE means administratively disabled and takes
+                    # the member out of the vips, which would remove its
+                    # monitor for good. A monitor that went away is ERROR.
+                    if self._is_member_offline(ovn_lb, member_id):
+                        continue
+                    member_status = constants.ERROR
                 elif info['status'] == ovn_const.HM_EVENT_MEMBER_PORT_OFFLINE:
                     member_status = constants.ERROR
                 else:

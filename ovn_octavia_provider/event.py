@@ -80,10 +80,18 @@ class ServiceMonitorUpdateEvent(row_event.RowEvent):
 
     def __init__(self, driver):
         table = 'Service_Monitor'
-        events = (self.ROW_UPDATE, self.ROW_DELETE)
+        events = (self.ROW_CREATE, self.ROW_UPDATE, self.ROW_DELETE)
         super().__init__(events, table, None)
         self.event_name = 'ServiceMonitorUpdateEvent'
         self.driver = driver
+
+    def match_fn(self, event, row, old):
+        # NOTE: northd may create the row already "offline" (OVN
+        # de8dc3f9a8). A backend that is down never changes it again, so
+        # the status carried by the insert is the only report we get.
+        if event == self.ROW_CREATE:
+            return row.status == ovn_const.HM_EVENT_MEMBER_PORT_OFFLINE
+        return True
 
     def run(self, event, row, old):
         LOG.debug('ServiceMonitorUpdateEvent logged, '
@@ -92,5 +100,5 @@ class ServiceMonitorUpdateEvent(row_event.RowEvent):
                    'row': row})
         if event == self.ROW_DELETE:
             self.driver.sm_update_event_handler(row, sm_delete_event=True)
-        elif event == self.ROW_UPDATE:
+        else:
             self.driver.sm_update_event_handler(row)

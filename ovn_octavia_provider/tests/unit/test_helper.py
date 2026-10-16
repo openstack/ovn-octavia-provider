@@ -6548,6 +6548,39 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         self.hm_update_event.run('update', row, mock.ANY)
         self.mock_add_request.assert_not_called()
 
+    def test_hm_update_event_created_offline(self):
+        # northd may insert the row already offline; for a backend that is
+        # down that insert is the only event there will ever be.
+        self.helper.ovn_nbdb_api.db_find_rows.return_value.\
+            execute.return_value = [self.ovn_hm_lb]
+        event = ovn_event.ServiceMonitorUpdateEvent(self.helper)
+        row = fakes.FakeOvsdbRow.create_one_ovsdb_row(
+            attrs={'ip': self.member_address,
+                   'logical_port': 'a-logical-port',
+                   'src_ip': '10.22.33.4',
+                   'port': self.member_port,
+                   'protocol': self.ovn_hm_lb.protocol,
+                   'status': ovn_const.HM_EVENT_MEMBER_PORT_OFFLINE})
+        self.assertTrue(event.match_fn(event.ROW_CREATE, row, None))
+        event.run(event.ROW_CREATE, row, None)
+        self.mock_add_request.assert_called_once_with({
+            'info': {'ovn_lbs': [self.ovn_hm_lb],
+                     'ip': self.member_address,
+                     'port': self.member_port,
+                     'delete': False,
+                     'status': ovn_const.HM_EVENT_MEMBER_PORT_OFFLINE},
+            'type': 'hm_update_event'})
+
+    def test_hm_update_event_created_without_a_verdict_is_ignored(self):
+        # Before OVN de8dc3f9a8 the row is created empty, and an "online"
+        # insert (an initial dump) reports nothing that needs fixing.
+        event = ovn_event.ServiceMonitorUpdateEvent(self.helper)
+        for status in ([], ovn_const.HM_EVENT_MEMBER_PORT_ONLINE):
+            row = fakes.FakeOvsdbRow.create_one_ovsdb_row(
+                attrs={'status': status})
+            self.assertFalse(event.match_fn(event.ROW_CREATE, row, None))
+            self.assertTrue(event.match_fn(event.ROW_UPDATE, row, None))
+
     def _test_hm_update_no_member(self, bad_ip, bad_port):
         fake_subnet = fakes.FakeSubnet.create_one_subnet()
         fake_port = fakes.FakePort.create_one_port(
@@ -7283,6 +7316,70 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
                          constants.ONLINE)
         self.assertEqual(status['loadbalancers'][0]['operating_status'],
                          constants.ONLINE)
+
+    def _set_hm_lb_members(self, members, statuses):
+        self.ovn_hm_lb.external_ids['pool_%s' % self.pool_id] = ','.join(
+            'member_%s_%s:%s_%s' % (member_id, ip, port, 'subnet-1')
+            for member_id, ip, port in members)
+        self.ovn_hm_lb.external_ids[ovn_const.OVN_MEMBER_STATUS_KEY] = (
+            jsonutils.dumps(statuses))
+
+    def _written_member_statuses(self):
+        call = self.helper.ovn_nbdb_api.db_set.call_args
+        return jsonutils.loads(
+            call.args[2][1][ovn_const.OVN_MEMBER_STATUS_KEY])
+
+    def _hm_event(self, ip, port, status, delete=False):
+        return self.helper.hm_update_event({
+            'ovn_lbs': [self.ovn_hm_lb], 'ip': ip, 'port': port,
+            'status': status, 'delete': delete})
+
+    def test_hm_update_event_matches_the_member_not_a_substring(self):
+        # '10.0.0.1' is a substring of '10.0.0.10' and the port '9' of a
+        # member id; the event used to land on whichever came first.
+        cases = [
+            ('10.0.0.10', '80', '10.0.0.1', '80'),
+            ('10.0.0.1', '80', '10.0.0.1', '9'),
+        ]
+        for other_ip, other_port, ip, port in cases:
+            other = '7829dbff-49f1-4fd4-ae7b-327a3f940b61'
+            target = uuidutils.generate_uuid()
+            self._set_hm_lb_members(
+                [(other, other_ip, other_port), (target, ip, port)],
+                {other: constants.ONLINE, target: constants.ONLINE})
+            self._hm_event(ip, port, ovn_const.HM_EVENT_MEMBER_PORT_OFFLINE)
+            self.assertEqual(
+                {other: constants.ONLINE, target: constants.ERROR},
+                self._written_member_statuses())
+
+    def test_hm_update_event_delete_keeps_the_member_in_the_vips(self):
+        # OFFLINE drops a member from the vips, and with it its monitor, so
+        # nothing could ever report it back online.
+        member = uuidutils.generate_uuid()
+        self._set_hm_lb_members([(member, '10.0.0.1', '80')],
+                                {member: constants.ONLINE})
+        self._hm_event('10.0.0.1', '80',
+                       ovn_const.HM_EVENT_MEMBER_PORT_ONLINE, delete=True)
+        written = self._written_member_statuses()
+        self.assertEqual({member: constants.ERROR}, written)
+        self.ovn_hm_lb.external_ids[ovn_const.OVN_MEMBER_STATUS_KEY] = (
+            jsonutils.dumps(written))
+        self.assertEqual(
+            {'10.22.33.99:80': '10.0.0.1:80', '123.123.123.99:80':
+             '10.0.0.1:80'},
+            self.helper._frame_vip_ips(self.ovn_hm_lb,
+                                       self.ovn_hm_lb.external_ids))
+
+    def test_hm_update_event_delete_leaves_a_disabled_member_alone(self):
+        # Disabling a member removes its monitor; that delete must not
+        # overwrite OFFLINE and put the member back in the vips.
+        member = uuidutils.generate_uuid()
+        self._set_hm_lb_members([(member, '10.0.0.1', '80')],
+                                {member: constants.OFFLINE})
+        self.assertIsNone(self._hm_event(
+            '10.0.0.1', '80', ovn_const.HM_EVENT_MEMBER_PORT_OFFLINE,
+            delete=True))
+        self.helper.ovn_nbdb_api.db_set.assert_not_called()
 
     @mock.patch.object(ovn_helper.OvnProviderHelper, '_frame_vip_ips')
     def test_refresh_lb_vips_returns_empty_when_synced(self,
