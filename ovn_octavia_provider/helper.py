@@ -262,8 +262,21 @@ class OvnProviderHelper():
 
         # Find all loadbalancers which have a reference with the network
         nw_lb = self._find_lb_in_ls(network=network)
+        switches = self._lr_switch_names(router)
+        # The router may still be on this network through another subnet:
+        # then nothing leaves, only the members of the detached subnet are
+        # no longer routed.
+        if switches is not None and network.name in switches:
+            return self._statuses_after_topology_change(nw_lb)
+        # A member on this network gives its load balancer a reference here
+        # too. One whose VIP is on another network still on this router is
+        # not leaving it: taking it off the router took it off every switch
+        # of the router as well, its own VIP switch included, and the whole
+        # load balancer stopped answering.
+        kept = self._lbs_kept_by_vip(nw_lb, switches)
+        nw_lb -= kept
         # Find all loadbalancers which have a reference with the router
-        r_lb = set(router.load_balancer) - nw_lb
+        r_lb = set(router.load_balancer) - nw_lb - kept
         # Delete all LB on N/W from Router
         for nlb in nw_lb:
             try:
@@ -289,9 +302,80 @@ class OvnProviderHelper():
                             rlb.uuid, utils.ovn_uuid(network.name))
                 pass
 
+        # A kept load balancer still leaves the detached switch, references
+        # included: attached again, the switch gets it back from the router.
+        for klb in kept:
+            self._remove_lb_from_detached_ls(klb, network)
+
         # Nothing about a member changed, so no health check event will say
         # that its subnet is no longer routed from the VIP.
-        return self._statuses_after_topology_change(nw_lb | r_lb)
+        return self._statuses_after_topology_change(nw_lb | r_lb | kept)
+
+    def _remove_lb_from_detached_ls(self, ovn_lb, ovn_ls):
+        try:
+            ls_refs = jsonutils.loads(ovn_lb.external_ids.get(
+                ovn_const.LB_EXT_IDS_LS_REFS_KEY) or '{}')
+        except ValueError:
+            ls_refs = {}
+        ls_refs.pop(ovn_ls.name, None)
+        commands = [
+            self.ovn_nbdb_api.ls_lb_del(ovn_ls.uuid, ovn_lb.uuid,
+                                        if_exists=True),
+            self.ovn_nbdb_api.db_set(
+                'Load_Balancer', ovn_lb.uuid,
+                ('external_ids', {ovn_const.LB_EXT_IDS_LS_REFS_KEY:
+                                  jsonutils.dumps(ls_refs)}))]
+        try:
+            self._execute_commands(commands)
+        except idlutils.RowNotFound:
+            LOG.warning("The disassociation of loadbalancer %s to the "
+                        "logical switch %s failed, just keep going on",
+                        ovn_lb.uuid, ovn_ls.name)
+
+    def _lr_switch_names(self, router):
+        """Names of the switches the router has an interface on, or None."""
+        try:
+            names = set()
+            for version in (4, 6):
+                names.update(self._find_ls_for_lr(router, ip_version=version))
+        except Exception:
+            LOG.debug('Could not read the switches of router %s',
+                      getattr(router, 'name', router), exc_info=True)
+            return None
+        return names
+
+    def _lbs_kept_by_vip(self, lbs, switches):
+        """Those of lbs whose VIP port is on one of the router's switches.
+
+        Empty when the topology cannot be read, which leaves the removal
+        as it always was.
+        """
+        if not lbs or switches is None:
+            return set()
+        try:
+            ports = set()
+            for name in switches:
+                try:
+                    ls = self.ovn_nbdb_api.lookup('Logical_Switch', name)
+                except idlutils.RowNotFound:
+                    continue
+                ports.update(lsp.name for lsp in ls.ports)
+        except Exception:
+            LOG.debug('Could not read the switches %s', sorted(switches),
+                      exc_info=True)
+            return set()
+        kept = set()
+        for lb in lbs:
+            vip_ports = {lb.external_ids.get(
+                ovn_const.LB_EXT_IDS_VIP_PORT_ID_KEY)}
+            additional = lb.external_ids.get(
+                ovn_const.LB_EXT_IDS_ADDIT_VIP_PORT_ID_KEY)
+            if additional:
+                vip_ports.update(additional.split(','))
+            vip_ports.discard(None)
+            if vip_ports & ports:
+                kept.add(lb)
+        return kept
 
     def lb_create_lrp_assoc_handler(self, row):
         try:

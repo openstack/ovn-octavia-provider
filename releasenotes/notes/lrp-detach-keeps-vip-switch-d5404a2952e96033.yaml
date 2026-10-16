@@ -1,0 +1,10 @@
+---
+fixes:
+  - |
+    Detaching from a router the network of a member no longer takes the
+    load balancer off that router when its VIP is on another network still
+    attached to it. The load balancer used to leave every switch of the
+    router, its own VIP switch included, and stopped answering while its
+    members read ``ONLINE``. It now only leaves the switch of the detached
+    network. Detaching one subnet of a network the router is still on
+    through another subnet leaves every load balancer where it is.
