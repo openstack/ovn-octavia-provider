@@ -33,6 +33,7 @@ OVN_FIP_PORT_EXT_ID_KEY = 'neutron:fip_port_id'
 OVN_GW_PORT_EXT_ID_KEY = 'neutron:gw_port_id'
 OVN_PORT_CIDR_EXT_ID_KEY = 'neutron:cidrs'
 OVN_MEMBER_STATUS_KEY = 'neutron:member_status'
+OVN_MEMBER_UNREACHABLE_KEY = 'neutron:member_unreachable'
 OVN_ROUTER_IS_EXT_GW = 'neutron:is_ext_gw'
 
 # TODO(froyo): Use from neutron-lib once released.

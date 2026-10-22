@@ -4488,6 +4488,61 @@ class OvnProviderHelper():
             return None
         return _VipReach(networks, switches)
 
+    def _unreachable_members(self, ovn_lb, member_statuses):
+        """The ONLINE members the VIPs cannot reach; None when unknown.
+
+        A read that fails, or finds neither a router holding the load
+        balancer nor its VIP switch, proves nothing either way.
+        """
+        try:
+            reach = self._vip_reach(ovn_lb)
+        except Exception:
+            LOG.debug('Could not read the topology of load balancer %s',
+                      ovn_lb.name, exc_info=True)
+            return None
+        if reach is None:
+            return None
+        unreachable = set()
+        for key, value in ovn_lb.external_ids.items():
+            if not key.startswith(ovn_const.LB_EXT_IDS_POOL_PREFIX):
+                continue
+            for mb_ip, _port, _subnet, mb_id in self._extract_member_info(
+                    value):
+                if member_statuses.get(mb_id) != constants.ONLINE:
+                    continue
+                try:
+                    reachable = reach.reaches(mb_ip)
+                except netaddr.AddrFormatError:
+                    continue
+                if not reachable:
+                    unreachable.add(mb_id)
+        return unreachable
+
+    def _get_recorded_unreachable(self, ovn_lb):
+        """The members last reported ERROR for being out of reach."""
+        recorded = ovn_lb.external_ids.get(
+            ovn_const.OVN_MEMBER_UNREACHABLE_KEY)
+        return set(recorded.split(',')) if recorded else set()
+
+    def _record_unreachable(self, ovn_lb, unreachable):
+        if unreachable == self._get_recorded_unreachable(ovn_lb):
+            return
+        try:
+            if unreachable:
+                self.ovn_nbdb_api.db_set(
+                    'Load_Balancer', ovn_lb.uuid,
+                    ('external_ids', {ovn_const.OVN_MEMBER_UNREACHABLE_KEY:
+                                      ','.join(sorted(unreachable))})
+                ).execute()
+            else:
+                self.ovn_nbdb_api.db_remove(
+                    'Load_Balancer', ovn_lb.uuid, 'external_ids',
+                    ovn_const.OVN_MEMBER_UNREACHABLE_KEY,
+                    if_exists=True).execute()
+        except Exception:
+            LOG.exception('Could not record the members out of reach of '
+                          'load balancer %s', ovn_lb.name)
+
     def _withhold_unreachable(self, ovn_lb, member_statuses):
         """Report ERROR for an ONLINE member the VIPs cannot reach.
 
@@ -4496,40 +4551,34 @@ class OvnProviderHelper():
         traffic for the VIP can get to it. A member subnet that is not
         routed from the VIP's router -- detached from it, or attached to
         another one -- read ONLINE while every request to the VIP timed
-        out. The stored status stays the probe's; only the report changes.
+        out. The stored status stays the probe's; only the report changes,
+        and which members it changed is recorded for the next router
+        change to compare with.
         """
         if not member_statuses:
             return member_statuses
-        try:
-            reach = self._vip_reach(ovn_lb)
-        except Exception:
-            LOG.debug('Could not read the topology of load balancer %s',
-                      ovn_lb.name, exc_info=True)
-            return member_statuses
-        if reach is None:
-            return member_statuses
+        unreachable = self._unreachable_members(ovn_lb, member_statuses)
+        if unreachable is None:
+            # Nothing read either way: the last verdict stands.
+            unreachable = self._get_recorded_unreachable(ovn_lb) & set(
+                member_statuses)
         withheld = dict(member_statuses)
-        for key, value in ovn_lb.external_ids.items():
-            if not key.startswith(ovn_const.LB_EXT_IDS_POOL_PREFIX):
-                continue
-            for mb_ip, _port, _subnet, mb_id in self._extract_member_info(
-                    value):
-                if withheld.get(mb_id) != constants.ONLINE:
-                    continue
-                try:
-                    reachable = reach.reaches(mb_ip)
-                except netaddr.AddrFormatError:
-                    continue
-                if not reachable:
-                    LOG.warning('Load balancer %s member %s (%s) answers its '
-                                'health check but is not routed from the '
-                                'VIP; reporting it ERROR', ovn_lb.name,
-                                mb_id, mb_ip)
-                    withheld[mb_id] = constants.ERROR
+        for mb_id in sorted(unreachable):
+            LOG.warning('Load balancer %s member %s answers its health '
+                        'check but is not routed from the VIP; reporting '
+                        'it ERROR', ovn_lb.name, mb_id)
+            withheld[mb_id] = constants.ERROR
+        self._record_unreachable(ovn_lb, unreachable)
         return withheld
 
     def _statuses_after_topology_change(self, ovn_lbs):
-        """Re-report monitored load balancers a router change touched."""
+        """Re-report the load balancers whose members' reach changed.
+
+        Every router interface in the cloud raises an event, and the
+        agent replays them all as it starts, so a load balancer is read
+        and reported only when the change put a member out of reach of
+        its VIPs, or brought one back.
+        """
         statuses = []
         for ovn_lb in ovn_lbs:
             try:
@@ -4540,8 +4589,15 @@ class OvnProviderHelper():
             if not isinstance(recorded, dict) or not recorded:
                 continue
             try:
+                unreachable = self._unreachable_members(ovn_lb, recorded)
+                if unreachable is None:
+                    continue
+                changed = unreachable ^ self._get_recorded_unreachable(ovn_lb)
+                if not changed:
+                    continue
+                # The members the change put out of reach, or brought back.
                 statuses.append(self._get_current_operating_statuses(
-                    ovn_lb, member_ids=list(recorded)))
+                    ovn_lb, member_ids=sorted(changed & set(recorded))))
             except Exception:
                 LOG.exception('Could not re-report load balancer %s after '
                               'a router interface change', ovn_lb.name)

@@ -9484,6 +9484,9 @@ class TestUnreachableMembers(ovn_base.TestOvnOctaviaBase):
             [m[constants.OPERATING_STATUS] for m in status[constants.MEMBERS]])
 
     def test_a_router_interface_added_re_reports(self):
+        # Reported ERROR while its subnet was off the router.
+        self.lb.external_ids[ovn_const.OVN_MEMBER_UNREACHABLE_KEY] = (
+            self.MEMBER_ID)
         self.topology(router_networks=['192.168.241.1/24',
                                        '192.168.242.1/24'])
         network = _Row(load_balancer=[self.lb], name='neutron-net-b',
@@ -9505,6 +9508,99 @@ class TestUnreachableMembers(ovn_base.TestOvnOctaviaBase):
                                '_update_lb_to_lr_association'):
             self.assertIsNone(self.helper.lb_delete_lrp_assoc(
                 {'network': network, 'router': router}))
+
+    def _interface_removed(self):
+        network = _Row(load_balancer=[self.lb], name='neutron-net-b',
+                       uuid='ls-b')
+        router = _Row(load_balancer=[], uuid='lr-1')
+        with mock.patch.object(self.helper,
+                               '_update_lb_to_lr_association'):
+            return self.helper.lb_delete_lrp_assoc(
+                {'network': network, 'router': router})
+
+    def test_the_members_out_of_reach_are_recorded(self):
+        self.topology(router_networks=['192.168.241.1/24'])
+        self.reported()
+        self.nb.db_set.assert_called_once_with(
+            'Load_Balancer', self.lb.uuid,
+            ('external_ids',
+             {ovn_const.OVN_MEMBER_UNREACHABLE_KEY: self.MEMBER_ID}))
+        # Recorded, the same report has nothing to write.
+        self.lb.external_ids[ovn_const.OVN_MEMBER_UNREACHABLE_KEY] = (
+            self.MEMBER_ID)
+        self.reported()
+        self.assertEqual(1, self.nb.db_set.call_count)
+        # Back in reach, the record goes.
+        self.topology(router_networks=['192.168.241.1/24',
+                                       '192.168.242.1/24'])
+        self.reported()
+        self.nb.db_remove.assert_called_once_with(
+            'Load_Balancer', self.lb.uuid, 'external_ids',
+            ovn_const.OVN_MEMBER_UNREACHABLE_KEY, if_exists=True)
+
+    def test_a_router_change_that_moves_no_member_is_not_re_reported(self):
+        # Every router interface in the cloud raises one, and the agent
+        # replays them all when it starts.
+        self.topology(router_networks=['192.168.241.1/24'])
+        self.lb.external_ids[ovn_const.OVN_MEMBER_UNREACHABLE_KEY] = (
+            self.MEMBER_ID)
+        self.assertIsNone(self._interface_removed())
+        self.topology(router_networks=['192.168.241.1/24',
+                                       '192.168.242.1/24'])
+        del self.lb.external_ids[ovn_const.OVN_MEMBER_UNREACHABLE_KEY]
+        self.assertIsNone(self._interface_removed())
+        self.driver_lib.get_loadbalancer.assert_not_called()
+
+    def test_a_router_change_re_reports_only_the_members_it_moved(self):
+        # A second member on the VIP's own subnet stays in reach when the
+        # first one's subnet leaves the router, and back.
+        other = 'member-2'
+        self.lb.external_ids['pool_%s' % self.POOL] += (
+            ',member_%s_192.168.241.20:80_subnet-a' % other)
+        self.lb.external_ids[ovn_const.OVN_MEMBER_STATUS_KEY] = (
+            jsonutils.dumps({self.MEMBER_ID: constants.ONLINE,
+                             other: constants.ONLINE}))
+        self.topology(router_networks=['192.168.241.1/24'])
+        status = self._interface_removed()
+        self.assertEqual(
+            [(self.MEMBER_ID, constants.ERROR)],
+            [(m[constants.ID], m[constants.OPERATING_STATUS])
+             for m in status[constants.MEMBERS]])
+        self.lb.external_ids[ovn_const.OVN_MEMBER_UNREACHABLE_KEY] = (
+            self.MEMBER_ID)
+        self.topology(router_networks=['192.168.241.1/24',
+                                       '192.168.242.1/24'])
+        network = _Row(load_balancer=[self.lb], name='neutron-net-b',
+                       uuid='ls-b')
+        router = _Row(load_balancer=[self.lb], uuid='lr-1')
+        status = self.helper.lb_create_lrp_assoc(
+            {'network': network, 'router': router, 'is_gw_port': False})
+        self.assertEqual(
+            [(self.MEMBER_ID, constants.ONLINE)],
+            [(m[constants.ID], m[constants.OPERATING_STATUS])
+             for m in status[constants.MEMBERS]])
+
+    def test_an_unreadable_topology_is_not_re_reported(self):
+        self.nb.lookup.side_effect = RuntimeError('idl gone')
+        self.assertIsNone(self._interface_removed())
+        self.driver_lib.get_loadbalancer.assert_not_called()
+
+    def test_an_inconclusive_topology_keeps_the_last_verdict(self):
+        # Neither a router holding the load balancer nor its VIP switch
+        # found: the read proved nothing, so a member recorded out of
+        # reach stays ERROR and recorded, and nothing is re-reported.
+        self.topology(on_router=False, vip_switch=False)
+        self.lb.external_ids[ovn_const.OVN_MEMBER_UNREACHABLE_KEY] = (
+            self.MEMBER_ID)
+        self.assertEqual(constants.ERROR, self.reported())
+        self.nb.db_remove.assert_not_called()
+        self.nb.db_set.assert_not_called()
+        self.assertIsNone(self._interface_removed())
+        self.driver_lib.get_loadbalancer.assert_not_called()
+        # With nothing recorded, the probe's verdict is reported as is.
+        del self.lb.external_ids[ovn_const.OVN_MEMBER_UNREACHABLE_KEY]
+        self.assertEqual(constants.ONLINE, self.reported())
+        self.nb.db_set.assert_not_called()
 
     def test_the_switch_addresses_are_read_once_per_report(self):
         other = 'member-2'
