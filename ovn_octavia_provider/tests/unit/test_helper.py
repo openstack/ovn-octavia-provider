@@ -9506,6 +9506,34 @@ class TestUnreachableMembers(ovn_base.TestOvnOctaviaBase):
             self.assertIsNone(self.helper.lb_delete_lrp_assoc(
                 {'network': network, 'router': router}))
 
+    def test_the_switch_addresses_are_read_once_per_report(self):
+        other = 'member-2'
+        self.lb.external_ids['pool_%s' % self.POOL] += (
+            ',member_%s_192.168.242.142:80_subnet-b' % other)
+        self.lb.external_ids[ovn_const.OVN_MEMBER_STATUS_KEY] = (
+            jsonutils.dumps({self.MEMBER_ID: constants.ONLINE,
+                             other: constants.ONLINE}))
+        self.vip_switch.ports.append(
+            _Row(name='m', addresses=['fa:16:3e:00:00:02 %s' % self.MEMBER]))
+        self.topology(on_router=False)
+        parse = ovn_helper.utils.remove_macs_from_lsp_addresses
+        with mock.patch.object(ovn_helper.utils,
+                               'remove_macs_from_lsp_addresses',
+                               wraps=parse) as parse:
+            withheld = self.helper._withhold_unreachable(
+                self.lb, {self.MEMBER_ID: constants.ONLINE,
+                          other: constants.ONLINE})
+        self.assertEqual({self.MEMBER_ID: constants.ONLINE,
+                          other: constants.ERROR}, withheld)
+        self.assertEqual(len(self.vip_switch.ports), parse.call_count)
+
+    def test_members_on_the_routers_networks_read_no_switch(self):
+        self.topology(router_networks=['192.168.242.1/24'])
+        with mock.patch.object(ovn_helper.utils,
+                               'remove_macs_from_lsp_addresses') as parse:
+            self.assertEqual(constants.ONLINE, self.reported())
+        parse.assert_not_called()
+
 
 class TestDetachingAMemberNetwork(ovn_base.TestOvnOctaviaBase):
     """Detaching a member's network leaves the load balancer on its VIP's.

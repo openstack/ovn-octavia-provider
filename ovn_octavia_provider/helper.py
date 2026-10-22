@@ -50,6 +50,30 @@ CONF = cfg.CONF  # Gets Octavia Conf as it runs under o-api domain
 LOG = logging.getLogger(__name__)
 
 
+class _VipReach:
+    """What a load balancer's VIPs can deliver traffic to.
+
+    The networks are what its routers route; the switch addresses, read
+    only when a member is on none of them, are what its VIP switches
+    hold. Built once per report, asked about once per member.
+    """
+
+    def __init__(self, networks, switches):
+        self._networks = netaddr.IPSet(networks)
+        self._switches = switches
+        self._addresses = None
+
+    def reaches(self, address):
+        if netaddr.IPAddress(address) in self._networks:
+            return True
+        if self._addresses is None:
+            self._addresses = {
+                found for ls in self._switches for lsp in ls.ports
+                for found in utils.remove_macs_from_lsp_addresses(
+                    lsp.addresses)}
+        return address in self._addresses
+
+
 class OvnProviderHelper():
 
     def __init__(self, notifier=True):
@@ -4416,11 +4440,10 @@ class OvnProviderHelper():
     def _vip_reach(self, ovn_lb):
         """What the load balancer's VIPs can deliver traffic to.
 
-        Returns (networks, switches): the networks and static route
-        prefixes, bar default routes, of every router the load balancer is
-        on, and the logical
-        switches holding its VIP ports. None when neither can be found,
-        which says nothing either way.
+        The networks and static route prefixes, bar default routes, of
+        every router the load balancer is on, and the logical switches
+        holding its VIP ports. None when neither can be found, which
+        says nothing either way.
 
         This runs on every status report, so only the rows the load
         balancer refers to are read, each by an indexed lookup.
@@ -4463,20 +4486,7 @@ class OvnProviderHelper():
         switches = list(switches.values())
         if not networks and not switches:
             return None
-        return networks, switches
-
-    @staticmethod
-    def _reachable(reach, address):
-        networks, switches = reach
-        ip = netaddr.IPAddress(address)
-        if any(ip in network for network in networks):
-            return True
-        for ls in switches:
-            for lsp in ls.ports:
-                if address in utils.remove_macs_from_lsp_addresses(
-                        lsp.addresses):
-                    return True
-        return False
+        return _VipReach(networks, switches)
 
     def _withhold_unreachable(self, ovn_lb, member_statuses):
         """Report ERROR for an ONLINE member the VIPs cannot reach.
@@ -4507,7 +4517,7 @@ class OvnProviderHelper():
                 if withheld.get(mb_id) != constants.ONLINE:
                     continue
                 try:
-                    reachable = self._reachable(reach, mb_ip)
+                    reachable = reach.reaches(mb_ip)
                 except netaddr.AddrFormatError:
                     continue
                 if not reachable:
