@@ -20,7 +20,10 @@ from ovs.db import idl as ovs_idl
 from ovsdbapp.backend import ovs_idl as real_ovs_idl
 from ovsdbapp.backend.ovs_idl import idlutils
 
+from oslo_serialization import jsonutils
+
 from ovn_octavia_provider.common import config as ovn_config
+from ovn_octavia_provider.common import constants as ovn_const
 from ovn_octavia_provider.ovsdb import impl_idl_ovn
 
 basedir = os.path.dirname(os.path.abspath(__file__))
@@ -106,3 +109,43 @@ class TestOvnSbIdlForLb(base.BaseTestCase):
                                'set_lock') as set_lock:
             self.idl = impl_idl_ovn.OvnSbIdlForLb(event_lock_name='foo')
         set_lock.assert_called_once_with('foo')
+
+
+class TestLbUpdateMemberStatusCommand(base.BaseTestCase):
+
+    def setUp(self):
+        super().setUp()
+        self.lb = mock.Mock(external_ids={
+            'other': 'kept',
+            ovn_const.OVN_MEMBER_STATUS_KEY: jsonutils.dumps(
+                {'a': 'ONLINE', 'b': 'ERROR'})})
+        self.api = mock.Mock()
+        self.api.lookup.return_value = self.lb
+
+    def _run(self, statuses):
+        impl_idl_ovn.LbUpdateMemberStatusCommand(
+            self.api, 'lb', statuses).run_idl(mock.Mock())
+        return self.lb.external_ids
+
+    def test_merges_into_the_row_as_read_at_commit(self):
+        # The row is read, and verified, when the transaction is built,
+        # so a status stored meanwhile survives the retry.
+        external_ids = self._run({'b': 'ONLINE', 'c': 'NO_MONITOR'})
+        self.api.lookup.assert_called_once_with('Load_Balancer', 'lb')
+        self.lb.verify.assert_called_once_with('external_ids')
+        self.assertEqual(
+            {'a': 'ONLINE', 'b': 'ONLINE', 'c': 'NO_MONITOR'},
+            jsonutils.loads(external_ids[ovn_const.OVN_MEMBER_STATUS_KEY]))
+        self.assertEqual('kept', external_ids['other'])
+
+    def test_drops_entries_and_the_key_once_empty(self):
+        external_ids = self._run({'a': None, 'b': None, 'd': None})
+        self.assertNotIn(ovn_const.OVN_MEMBER_STATUS_KEY, external_ids)
+        self.assertEqual('kept', external_ids['other'])
+
+    def test_starts_from_nothing_stored(self):
+        self.lb.external_ids = {}
+        external_ids = self._run({'a': 'ONLINE'})
+        self.assertEqual(
+            {'a': 'ONLINE'},
+            jsonutils.loads(external_ids[ovn_const.OVN_MEMBER_STATUS_KEY]))

@@ -76,6 +76,36 @@ class LogicalSwitchPortUpdateEvent(row_event.RowEvent):
             self.driver.vip_port_update_handler(row, fip, action)
 
 
+class LoadBalancerMemberStatusEvent(row_event.RowEvent):
+    """Replay the health check status members joined already given.
+
+    Members sharing a backend share its Service_Monitor row, and one added,
+    or enabled again, behind a row that already has a status gets no event
+    of its own. When a load balancer appears or its external_ids change,
+    its members stored without a status are looked up in the Southbound.
+    """
+
+    def __init__(self, driver, sb_api):
+        table = 'Load_Balancer'
+        events = (self.ROW_CREATE, self.ROW_UPDATE)
+        super().__init__(events, table, None)
+        self.event_name = 'LoadBalancerMemberStatusEvent'
+        self.driver = driver
+        self.sb_api = sb_api
+
+    def match_fn(self, event, row, old):
+        if event == self.ROW_UPDATE and not hasattr(old, 'external_ids'):
+            return False
+        return bool(row.ip_port_mappings)
+
+    def run(self, event, row, old):
+        LOG.debug('LoadBalancerMemberStatusEvent logged, '
+                  '%(event)s, %(row)s',
+                  {'event': event,
+                   'row': row})
+        self.driver.lb_member_status_handler(row, self.sb_api)
+
+
 class ServiceMonitorUpdateEvent(row_event.RowEvent):
 
     def __init__(self, driver):

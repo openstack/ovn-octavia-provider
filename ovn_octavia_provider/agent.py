@@ -38,9 +38,17 @@ def OvnProviderAgent(exit_event):
     # OvnProviderHelper and intra references modules
     ovn_conf.register_opts()
     helper = ovn_helper.OvnProviderHelper()
-    events = [ovn_event.LogicalRouterPortEvent(helper),
-              ovn_event.LogicalSwitchPortUpdateEvent(helper)]
     sb_events = [ovn_event.ServiceMonitorUpdateEvent(helper)]
+
+    # The Southbound is read by a Northbound event, so it comes up first.
+    ovn_sb_idl_for_events = impl_idl_ovn.OvnSbIdlForLb(
+        event_lock_name=OVN_EVENT_LOCK_NAME)
+    ovn_sb_idl_for_events.notify_handler.watch_events(sb_events)
+    sb_api = ovn_sb_idl_for_events.start()
+
+    events = [ovn_event.LogicalRouterPortEvent(helper),
+              ovn_event.LogicalSwitchPortUpdateEvent(helper),
+              ovn_event.LoadBalancerMemberStatusEvent(helper, sb_api)]
 
     # NOTE(mjozefcz): This API is only for handling OVSDB events!
     ovn_nb_idl_for_events = impl_idl_ovn.OvnNbIdlForLb(
@@ -49,11 +57,6 @@ def OvnProviderAgent(exit_event):
     c = connection.Connection(ovn_nb_idl_for_events,
                               ovn_conf.get_ovn_ovsdb_timeout())
     c.start()
-
-    ovn_sb_idl_for_events = impl_idl_ovn.OvnSbIdlForLb(
-        event_lock_name=OVN_EVENT_LOCK_NAME)
-    ovn_sb_idl_for_events.notify_handler.watch_events(sb_events)
-    ovn_sb_idl_for_events.start()
 
     # NOTE(froyo): Maintenance task initialization added here
     # as it will be a long life task managed through the Octavia

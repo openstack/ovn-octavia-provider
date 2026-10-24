@@ -17,6 +17,7 @@ import netaddr
 from neutron_lib import constants as n_const
 from neutron_lib import exceptions as n_exc
 from oslo_log import log
+from oslo_serialization import jsonutils
 from ovsdbapp.backend import ovs_idl
 from ovsdbapp.backend.ovs_idl import command
 from ovsdbapp.backend.ovs_idl import connection
@@ -28,6 +29,7 @@ from ovsdbapp.schema.ovn_southbound import impl_idl as sb_impl_idl
 import tenacity
 
 from ovn_octavia_provider.common import config
+from ovn_octavia_provider.common import constants as ovn_const
 from ovn_octavia_provider.common import exceptions as ovn_exc
 from ovn_octavia_provider.common import utils
 from ovn_octavia_provider.i18n import _
@@ -153,6 +155,45 @@ class AddBackendToIPPortMapping(command.BaseCommand):
                           "for LB uuid %s", str(self.backend_ip), str(self.lb))
 
 
+class LbUpdateMemberStatusCommand(command.BaseCommand):
+    """Merge member statuses into a load balancer's neutron:member_status.
+
+    The JSON under the key is rewritten from the row as it stands when the
+    transaction is built, under verify(), so a status another writer
+    stored since the caller read the row survives the retry instead of
+    being overwritten. A status of None drops the member's entry.
+    """
+    table = 'Load_Balancer'
+
+    def __init__(self, api, lb, statuses):
+        super().__init__(api)
+        self.lb = lb
+        self.statuses = statuses
+
+    def run_idl(self, txn):
+        lb = self.api.lookup(self.table, self.lb)
+        lb.verify('external_ids')
+        external_ids = getattr(lb, 'external_ids', {})
+        try:
+            stored = jsonutils.loads(
+                external_ids.get(ovn_const.OVN_MEMBER_STATUS_KEY))
+        except (TypeError, ValueError):
+            stored = {}
+        if not isinstance(stored, dict):
+            stored = {}
+        for member_id, status in self.statuses.items():
+            if status is None:
+                stored.pop(member_id, None)
+            else:
+                stored[member_id] = status
+        if stored:
+            external_ids[ovn_const.OVN_MEMBER_STATUS_KEY] = jsonutils.dumps(
+                stored)
+        else:
+            external_ids.pop(ovn_const.OVN_MEMBER_STATUS_KEY, None)
+        setattr(lb, 'external_ids', external_ids)
+
+
 class OvsdbNbOvnIdl(nb_impl_idl.OvnNbApiIdlImpl, Backend):
     def __init__(self, connection):
         super().__init__(connection)
@@ -184,6 +225,9 @@ class OvsdbNbOvnIdl(nb_impl_idl.OvnNbApiIdlImpl, Backend):
 
     def find_lb_in_table(self, lb, table):
         return FindLbInTableCommand(self, lb, table)
+
+    def lb_update_member_status(self, lb_uuid, statuses):
+        return LbUpdateMemberStatusCommand(self, lb_uuid, statuses)
 
     def get_lrs(self):
         return GetLrsCommand(self)

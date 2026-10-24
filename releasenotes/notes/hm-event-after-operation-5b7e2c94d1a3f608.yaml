@@ -1,0 +1,19 @@
+---
+fixes:
+  - |
+    A health check verdict is no longer overwritten by the operation that
+    caused it. Creating or enabling a member, and creating a health
+    monitor, reported the members ``ONLINE`` when they finished and
+    rewrote every stored member status from the row as read when they
+    started; on OVN versions that create the ``Service_Monitor`` already
+    ``offline`` the agent could report a down member ``ERROR`` before
+    that, so it stayed ``ONLINE``. An operation now reports only the
+    operating status it can justify, ``OFFLINE`` for an admin-down member
+    and ``NO_MONITOR`` without a monitor, for the members it acted on, and
+    merges the statuses into the row when the transaction commits. A new
+    or re-enabled member of a monitored pool, and the members of a pool
+    given a health monitor, keep their status in Octavia until the first
+    verdict, as with the amphora driver, and so do the pool, listener and
+    load balancer whose status depends on that verdict. A member whose
+    monitor already has a status, one shared with another member of the
+    same backend, has it replayed by the agent.
