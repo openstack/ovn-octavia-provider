@@ -6986,11 +6986,29 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
             'delete': delete,
             'protocol': ovn_lbs[0].protocol,
             'status': [mb_status]}
-        mb_status_ovn = 'error' if mb_status == 'offline' else mb_status
-        self._update_external_ids_member_status(self.ovn_hm_lb, member_id,
-                                                mb_status_ovn)
-        status = self.helper.hm_update_event(info)
-        return status
+        # The member was ONLINE, or ERROR when the event brings it back.
+        if mb_status == 'online':
+            self._update_external_ids_member_status(self.ovn_hm_lb,
+                                                    member_id, 'error')
+        return self._hm_event_applied(info)
+
+    def _hm_event_applied(self, info):
+        # The mocked NB does not update the row; mirror what the event
+        # stores so the status read after it sees it.
+        real = self.helper._update_external_ids_member_status
+
+        def mirror(ovn_lb, members_and_opstatus, delete=False):
+            real(ovn_lb, members_and_opstatus, delete=delete)
+            statuses = jsonutils.loads(
+                ovn_lb.external_ids[ovn_const.OVN_MEMBER_STATUS_KEY])
+            statuses.update(dict(members_and_opstatus))
+            ovn_lb.external_ids[ovn_const.OVN_MEMBER_STATUS_KEY] = (
+                jsonutils.dumps(statuses))
+
+        with mock.patch.object(self.helper,
+                               '_update_external_ids_member_status',
+                               side_effect=mirror):
+            return self.helper.hm_update_event(info)
 
     @mock.patch.object(ovn_helper.OvnProviderHelper, '_create_hm_port')
     @mock.patch('ovn_octavia_provider.common.clients.get_neutron_client')
@@ -7430,8 +7448,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
         ovn_hm_lb_2 = copy.deepcopy(self.ovn_hm_lb)
         ovn_hm_lb_2.uuid = uuidutils.generate_uuid()
         member = self._add_member(self.ovn_hm_lb, fake_subnet, 8080)
-        member_2 = self._add_member(
-            ovn_hm_lb_2, fake_subnet, 8080, ip=member['address'])
+        self._add_member(ovn_hm_lb_2, fake_subnet, 8080, ip=member['address'])
 
         info = {
             'ovn_lbs': [self.ovn_hm_lb, ovn_hm_lb_2],
@@ -7442,11 +7459,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
             'delete': False,
             'protocol': self.ovn_hm_lb.protocol,
             'status': ovn_const.HM_EVENT_MEMBER_PORT_OFFLINE}
-        self._update_external_ids_member_status(self.ovn_hm_lb, member['id'],
-                                                'error')
-        self._update_external_ids_member_status(ovn_hm_lb_2, member_2['id'],
-                                                'error')
-        status = self.helper.hm_update_event(info)
+        status = self._hm_event_applied(info)
 
         self.assertEqual(status['pools'][0]['provisioning_status'],
                          constants.ACTIVE)
@@ -7555,9 +7568,6 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
 
         # member lb2 ERROR, so lb2 operating_status should be ERROR
         # for Pool and Loadbalancer, but lb1 should keep ONLINE
-        self._update_external_ids_member_status(ovn_hm_lb2, member_lb2['id'],
-                                                'error')
-
         info = {
             'ovn_lbs': [self.ovn_hm_lb, ovn_hm_lb2],
             'ip': ip_member,
@@ -7568,7 +7578,7 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
             'protocol': ovn_hm_lb2.protocol,
             'status': ovn_const.HM_EVENT_MEMBER_PORT_OFFLINE}
 
-        status = self.helper.hm_update_event(info)
+        status = self._hm_event_applied(info)
 
         self.assertEqual(status['members'][0]['operating_status'],
                          constants.ERROR)
@@ -7756,6 +7766,51 @@ class TestOvnProviderHelper(ovn_base.TestOvnOctaviaBase):
                        delete=True)
         self.assertEqual({first: constants.ERROR},
                          self._written_member_statuses())
+
+    def test_hm_update_event_repeating_the_recorded_status_is_dropped(self):
+        # The agent's start replays every monitor already offline, each
+        # with a transaction and a report that changed nothing.
+        member = uuidutils.generate_uuid()
+        for recorded, status in (
+                (constants.ERROR, ovn_const.HM_EVENT_MEMBER_PORT_OFFLINE),
+                (constants.ONLINE, ovn_const.HM_EVENT_MEMBER_PORT_ONLINE)):
+            self._set_hm_lb_members([(member, '10.0.0.1', '80')],
+                                    {member: recorded})
+            self.assertIsNone(self._hm_event('10.0.0.1', '80', status))
+        self.helper.ovn_nbdb_api.lb_update_member_status.assert_not_called()
+        self.octavia_driver_lib.get_loadbalancer.assert_not_called()
+
+    def test_hm_update_event_for_a_member_without_a_status_is_news(self):
+        # A member left to the health check has nothing stored; its first
+        # verdict, replayed or not, is applied.
+        member = uuidutils.generate_uuid()
+        self._set_hm_lb_members([(member, '10.0.0.1', '80')], {})
+        self.assertIsNotNone(self._hm_event(
+            '10.0.0.1', '80', ovn_const.HM_EVENT_MEMBER_PORT_ONLINE))
+        self.assertEqual({member: constants.ONLINE},
+                         self._written_member_statuses())
+
+    def test_hm_update_event_repeated_for_one_sharer_reaches_the_other(self):
+        # The status replayed for a member added behind a shared row is a
+        # repeat for the member stored with it, and news for the new one.
+        first, second = uuidutils.generate_uuid(), uuidutils.generate_uuid()
+        self._set_hm_lb_members([(first, '10.0.0.1', '80')],
+                                {first: constants.ERROR})
+        self._set_second_pool([(second, '10.0.0.1', '80')], {})
+        status = self._hm_event('10.0.0.1', '80',
+                                ovn_const.HM_EVENT_MEMBER_PORT_OFFLINE)
+        self.assertEqual({second: constants.ERROR},
+                         self._written_member_statuses())
+        self.assertEqual([second],
+                         [m[constants.ID] for m in status['members']])
+
+    def test_hm_update_event_for_an_unknown_member_is_dropped(self):
+        member = uuidutils.generate_uuid()
+        self._set_hm_lb_members([(member, '10.0.0.1', '80')],
+                                {member: constants.ONLINE})
+        self.assertIsNone(self._hm_event(
+            '10.0.0.2', '80', ovn_const.HM_EVENT_MEMBER_PORT_OFFLINE))
+        self.helper.ovn_nbdb_api.lb_update_member_status.assert_not_called()
 
     def test_hm_update_event_matches_the_member_not_a_substring(self):
         # '10.0.0.1' is a substring of '10.0.0.10' and the port '9' of a

@@ -4740,23 +4740,11 @@ class OvnProviderHelper():
     def hm_update_event(self, info):
         statuses = []
         for ovn_lb in info['ovn_lbs']:
-            # Pools of one load balancer may share the backend, and so its
-            # Service_Monitor row: the event is for every member with it.
-            member_ids = self._members_at(ovn_lb, info['ip'], info['port'])
-            if not member_ids:
-                LOG.warning('Member for event not found, info: %s', info)
+            verdict = self._hm_event_verdict(ovn_lb, info)
+            if verdict is None:
                 continue
-            if info['delete']:
-                # NOTE: OFFLINE means administratively disabled and takes
-                # the member out of the vips, which would remove its
-                # monitor for good. A monitor that went away is ERROR.
-                member_ids = [mb_id for mb_id in member_ids
-                              if not self._is_member_offline(ovn_lb, mb_id)]
-                member_status = constants.ERROR
-            elif info['status'] == ovn_const.HM_EVENT_MEMBER_PORT_OFFLINE:
-                member_status = constants.ERROR
-            else:
-                member_status = constants.ONLINE
+            member_ids, member_status = verdict
+            member_ids = self._hm_event_news(ovn_lb, member_ids, member_status)
             if not member_ids:
                 continue
             self._update_external_ids_member_status(
@@ -4765,6 +4753,49 @@ class OvnProviderHelper():
                 ovn_lb, member_ids=member_ids))
 
         return self._merge_statuses(statuses)
+
+    def _hm_event_verdict(self, ovn_lb, info):
+        """The members the event is about and the status it gives them.
+
+        Pools of one load balancer may share the backend, and so its
+        Service_Monitor row: the event is for every member with it.
+        """
+        member_ids = self._members_at(ovn_lb, info['ip'], info['port'])
+        if not member_ids:
+            LOG.warning('Member for event not found, info: %s', info)
+            return None
+        if info['delete']:
+            # NOTE: OFFLINE means administratively disabled and takes
+            # the member out of the vips, which would remove its
+            # monitor for good. A monitor that went away is ERROR.
+            member_ids = [mb_id for mb_id in member_ids
+                          if not self._is_member_offline(ovn_lb, mb_id)]
+            if not member_ids:
+                return None
+            return member_ids, constants.ERROR
+        if info['status'] == ovn_const.HM_EVENT_MEMBER_PORT_OFFLINE:
+            return member_ids, constants.ERROR
+        return member_ids, constants.ONLINE
+
+    def _hm_event_news(self, ovn_lb, member_ids, member_status):
+        """The members whose stored status differs from the verdict.
+
+        The agent's start replays every monitor already offline, a
+        monitor re-created for a member known to be down repeats the
+        verdict, and the status replayed for a member behind a shared
+        row reaches the members stored with it too; applying any of
+        them costs a transaction and a report that change nothing.
+        """
+        stored = self._stored_member_statuses(ovn_lb)
+        news = []
+        for member_id in member_ids:
+            if stored.get(member_id, constants.NO_MONITOR) != member_status:
+                news.append(member_id)
+                continue
+            LOG.debug('Health check event for load balancer %s member %s '
+                      'repeats the recorded status %s', ovn_lb.name,
+                      member_id, member_status)
+        return news
 
     def _members_at(self, ovn_lb, ip, port):
         """The IDs of the load balancer's members at an address and port."""
